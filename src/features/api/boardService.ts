@@ -39,25 +39,15 @@ export const fetchPrimaryBoard = async (userId: string): Promise<BoardRecord | n
 };
 
 export const fetchBoardData = async (userId: string): Promise<{
-  board: BoardRecord;
+  board: BoardRecord | null;
   columns: ColumnRecord[];
   tasks: TaskRecord[];
 }> => {
   const board = await fetchPrimaryBoard(userId);
 
   if (!board) {
-    const { data: created, error: createError } = await supabase
-      .from("boards")
-      .insert({ name: "Tablero principal", user_id: userId })
-      .select("id, name, user_id")
-      .single();
-
-    if (createError) {
-      throw createError;
-    }
-
     return {
-      board: created,
+      board: null,
       columns: [],
       tasks: [],
     };
@@ -91,6 +81,56 @@ export const fetchBoardData = async (userId: string): Promise<{
     columns: columns ?? [],
     tasks: tasks ?? [],
   };
+};
+
+export const createBoard = async (userId: string, name: string) => {
+  const { data: created, error: createError } = await supabase
+    .from("boards")
+    .insert({ name, user_id: userId })
+    .select("id, name, user_id")
+    .single();
+
+  if (createError) {
+    throw createError;
+  }
+
+  const defaultColumns = [
+    { board_id: created.id, name: "Por hacer", position: 0 },
+    { board_id: created.id, name: "En progreso", position: 1 },
+    { board_id: created.id, name: "Hecho", position: 2 },
+  ];
+
+  const { data: columns, error: columnsError } = await supabase
+    .from("columns")
+    .insert(defaultColumns)
+    .select("id, board_id, name, position");
+
+  if (columnsError) {
+    throw columnsError;
+  }
+
+  return {
+    board: created,
+    columns: columns ?? [],
+  };
+};
+
+export const createTask = async (
+  columnId: string,
+  title: string,
+  position: number,
+): Promise<TaskRecord> => {
+  const { data, error } = await supabase
+    .from("tasks")
+    .insert({ column_id: columnId, title, position })
+    .select("id, column_id, title, description, position")
+    .single();
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
 };
 
 export const toBoardState = (

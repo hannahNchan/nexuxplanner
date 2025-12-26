@@ -1,7 +1,7 @@
 import { Box, Button, CircularProgress, Paper, Stack, Typography } from "@mui/material";
 import Quill from "quill";
 import "quill/dist/quill.snow.css";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchPrimaryBoard } from "../api/boardService";
 import { fetchEditorNote, saveEditorNote } from "../api/editorService";
 
@@ -14,6 +14,7 @@ const QuillEditor = ({ userId }: QuillEditorProps) => {
   const quillRef = useRef<Quill | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [boardId, setBoardId] = useState<string | null>(null);
+  const [isLoadingBoard, setIsLoadingBoard] = useState(false);
 
   useEffect(() => {
     if (!editorRef.current) {
@@ -34,26 +35,30 @@ const QuillEditor = ({ userId }: QuillEditorProps) => {
     };
   }, []);
 
-  useEffect(() => {
-    const loadNote = async () => {
-      try {
-        const board = await fetchPrimaryBoard(userId);
-        if (!board) {
-          return;
-        }
-        setBoardId(board.id);
-
-        const note = await fetchEditorNote(board.id);
-        if (note && quillRef.current) {
-          quillRef.current.setContents(note.content as unknown);
-        }
-      } catch (error) {
-        console.error(error);
+  const loadNote = useCallback(async () => {
+    setIsLoadingBoard(true);
+    try {
+      const board = await fetchPrimaryBoard(userId);
+      if (!board) {
+        setBoardId(null);
+        return;
       }
-    };
+      setBoardId(board.id);
 
-    void loadNote();
+      const note = await fetchEditorNote(board.id);
+      if (note && quillRef.current) {
+        quillRef.current.setContents(note.content as unknown);
+      }
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setIsLoadingBoard(false);
+    }
   }, [userId]);
+
+  useEffect(() => {
+    void loadNote();
+  }, [loadNote]);
 
   const handleSave = async () => {
     if (!boardId || !quillRef.current) {
@@ -83,6 +88,22 @@ const QuillEditor = ({ userId }: QuillEditorProps) => {
       </Stack>
       <Paper elevation={1} sx={{ p: 2, borderRadius: 3 }}>
         <Stack spacing={2}>
+          {!boardId && (
+            <Stack spacing={1}>
+              <Typography color="text.secondary" variant="body2">
+                Crea un tablero para habilitar el editor de notas.
+              </Typography>
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={loadNote}
+                disabled={isLoadingBoard}
+                sx={{ alignSelf: "flex-start" }}
+              >
+                {isLoadingBoard ? "Buscando tablero..." : "Vincular al tablero"}
+              </Button>
+            </Stack>
+          )}
           <Box
             ref={editorRef}
             sx={{

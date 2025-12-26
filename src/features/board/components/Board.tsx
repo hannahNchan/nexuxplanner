@@ -1,9 +1,18 @@
-import { Box, CircularProgress, Stack, Typography } from "@mui/material";
+import {
+  Box,
+  Button,
+  CircularProgress,
+  Stack,
+  TextField,
+  Typography,
+} from "@mui/material";
 import { DragDropContext, Droppable, type DropResult } from "@hello-pangea/dnd";
 import { useEffect, useState } from "react";
 import Column from "./Column";
 import type { BoardState } from "../../../shared/types/board";
 import {
+  createBoard,
+  createTask,
   fetchBoardData,
   persistColumnOrder,
   persistTaskOrder,
@@ -16,14 +25,25 @@ type BoardProps = {
 
 const Board = ({ userId }: BoardProps) => {
   const [data, setData] = useState<BoardState | null>(null);
+  const [boardId, setBoardId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [boardName, setBoardName] = useState("Tablero principal");
+  const [isCreatingBoard, setIsCreatingBoard] = useState(false);
+  const [creatingTaskColumnId, setCreatingTaskColumnId] = useState<string | null>(null);
 
   useEffect(() => {
     const loadBoard = async () => {
       try {
         const response = await fetchBoardData(userId);
+        if (!response.board) {
+          setBoardId(null);
+          setData(null);
+          return;
+        }
+        setBoardId(response.board.id);
         setData(toBoardState(response.columns, response.tasks));
+        setErrorMessage(null);
       } catch (error) {
         console.error(error);
         setErrorMessage("No se pudo cargar el tablero desde Supabase.");
@@ -34,6 +54,68 @@ const Board = ({ userId }: BoardProps) => {
 
     void loadBoard();
   }, [userId]);
+
+  const handleCreateBoard = async () => {
+    if (!boardName.trim()) {
+      setErrorMessage("Ingresa un nombre para el tablero.");
+      return;
+    }
+
+    setIsCreatingBoard(true);
+    setErrorMessage(null);
+    try {
+      const created = await createBoard(userId, boardName.trim());
+      setBoardId(created.board.id);
+      setData(toBoardState(created.columns, []));
+    } catch (error) {
+      console.error(error);
+      setErrorMessage("No se pudo crear el tablero.");
+    } finally {
+      setIsCreatingBoard(false);
+    }
+  };
+
+  const handleCreateTask = async (columnId: string) => {
+    if (!data) {
+      return;
+    }
+
+    setCreatingTaskColumnId(columnId);
+    try {
+      const column = data.columns[columnId];
+      const position = column.taskIds.length;
+      const created = await createTask(columnId, "Nueva tarea", position);
+      setData((previous) => {
+        if (!previous) {
+          return previous;
+        }
+        return {
+          ...previous,
+          tasks: {
+            ...previous.tasks,
+            [created.id]: {
+              id: created.id,
+              title: created.title,
+              description: created.description ?? undefined,
+            },
+          },
+          columns: {
+            ...previous.columns,
+            [columnId]: {
+              ...previous.columns[columnId],
+              taskIds: [...previous.columns[columnId].taskIds, created.id],
+            },
+          },
+        };
+      });
+      setErrorMessage(null);
+    } catch (error) {
+      console.error(error);
+      setErrorMessage("No se pudo crear la tarea.");
+    } finally {
+      setCreatingTaskColumnId(null);
+    }
+  };
 
   const onDragEnd = async (result: DropResult) => {
     const { destination, source, draggableId, type } = result;
@@ -155,15 +237,36 @@ const Board = ({ userId }: BoardProps) => {
     );
   }
 
-  if (errorMessage || !data) {
+  if (!data) {
     return (
       <Stack spacing={1} py={4}>
         <Typography variant="h5" fontWeight={700}>
           Tablero
         </Typography>
-        <Typography color="error">
-          {errorMessage ?? "No hay datos disponibles."}
-        </Typography>
+        {boardId ? (
+          <Typography color="error">
+            {errorMessage ?? "No hay datos disponibles."}
+          </Typography>
+        ) : (
+          <Stack spacing={2} maxWidth={360}>
+            <Typography color="text.secondary">
+              {errorMessage ?? "Aún no tienes un tablero creado."}
+            </Typography>
+            <TextField
+              label="Nombre del tablero"
+              value={boardName}
+              onChange={(event) => setBoardName(event.target.value)}
+              size="small"
+            />
+            <Button
+              variant="contained"
+              onClick={handleCreateBoard}
+              disabled={isCreatingBoard}
+            >
+              {isCreatingBoard ? "Creando..." : "Crear tablero"}
+            </Button>
+          </Stack>
+        )}
       </Stack>
     );
   }
@@ -177,6 +280,11 @@ const Board = ({ userId }: BoardProps) => {
         <Typography variant="body2" color="text.secondary">
           Arrastra columnas o tareas para reorganizar.
         </Typography>
+        {errorMessage && (
+          <Typography variant="body2" color="error">
+            {errorMessage}
+          </Typography>
+        )}
       </Stack>
       <DragDropContext onDragEnd={onDragEnd}>
         <Droppable droppableId="board" direction="horizontal" type="column">
@@ -193,7 +301,16 @@ const Board = ({ userId }: BoardProps) => {
               {data.columnOrder.map((columnId, index) => {
                 const column = data.columns[columnId];
                 const tasks = column.taskIds.map((taskId) => data.tasks[taskId]);
-                return <Column key={column.id} column={column} tasks={tasks} index={index} />;
+                return (
+                  <Column
+                    key={column.id}
+                    column={column}
+                    tasks={tasks}
+                    index={index}
+                    onCreateTask={handleCreateTask}
+                    isCreatingTask={creatingTaskColumnId === column.id}
+                  />
+                );
               })}
               {provided.placeholder}
             </Box>
