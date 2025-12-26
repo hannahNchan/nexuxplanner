@@ -30,6 +30,13 @@ src/
 npm install
 ```
 
+## Variables de entorno
+
+```bash
+VITE_SUPABASE_URL=https://cucqyupaaqnrzblkpsrz.supabase.co
+VITE_SUPABASE_PUBLISHABLE_DEFAULT_KEY=tu_clave_publica
+```
+
 ## Desarrollo
 
 ```bash
