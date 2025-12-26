@@ -4,6 +4,7 @@ dist
 .dist
 
 # local env files
+.env
 .env.local
 .env.development.local
 .env.test.local
