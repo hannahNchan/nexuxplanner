@@ -1,4 +1,4 @@
-import { Box, Paper, Stack, Typography } from "@mui/material";
+import { Box, Button, Paper, Stack, Typography } from "@mui/material";
 import { Draggable, Droppable } from "@hello-pangea/dnd";
 import TaskCard from "./TaskCard";
 import type { Column as ColumnType, Task } from "../../../shared/types/board";
@@ -7,9 +7,11 @@ type ColumnProps = {
   column: ColumnType;
   tasks: Task[];
   index: number;
+  onCreateTask: (columnId: string) => void;
+  isCreatingTask: boolean;
 };
 
-const Column = ({ column, tasks, index }: ColumnProps) => {
+const Column = ({ column, tasks, index, onCreateTask, isCreatingTask }: ColumnProps) => {
   return (
     <Draggable draggableId={column.id} index={index}>
       {(provided) => (
@@ -67,6 +69,15 @@ const Column = ({ column, tasks, index }: ColumnProps) => {
                 </Stack>
               )}
             </Droppable>
+            <Button
+              variant="text"
+              size="small"
+              onClick={() => onCreateTask(column.id)}
+              disabled={isCreatingTask}
+              sx={{ justifyContent: "flex-start" }}
+            >
+              {isCreatingTask ? "Creando tarea..." : "Agregar tarea"}
+            </Button>
           </Stack>
         </Paper>
       )}
