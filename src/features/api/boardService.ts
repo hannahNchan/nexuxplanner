@@ -44,7 +44,21 @@ export const fetchBoardData = async (): Promise<{
   const board = await fetchPrimaryBoard();
 
   if (!board) {
-    throw new Error("No board found in Supabase.");
+    const { data: created, error: createError } = await supabase
+      .from("boards")
+      .insert({ name: "Tablero principal" })
+      .select("id, name")
+      .single();
+
+    if (createError) {
+      throw createError;
+    }
+
+    return {
+      board: created,
+      columns: [],
+      tasks: [],
+    };
   }
 
   const [{ data: columns, error: columnsError }, { data: tasks, error: tasksError }] =
