@@ -1,43 +1,40 @@
-import { Box, Stack, Typography } from "@mui/material";
+import { Box, CircularProgress, Stack, Typography } from "@mui/material";
 import { DragDropContext, Droppable, type DropResult } from "@hello-pangea/dnd";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Column from "./Column";
 import type { BoardState } from "../../../shared/types/board";
-
-const initialData: BoardState = {
-  tasks: {
-    "task-1": { id: "task-1", title: "Definir MVP", description: "Roadmap inicial" },
-    "task-2": { id: "task-2", title: "Diseñar tablero" },
-    "task-3": { id: "task-3", title: "Configurar auth" },
-    "task-4": { id: "task-4", title: "QA flujo" },
-  },
-  columns: {
-    "column-1": {
-      id: "column-1",
-      title: "Pendiente",
-      taskIds: ["task-1", "task-2"],
-    },
-    "column-2": {
-      id: "column-2",
-      title: "En progreso",
-      taskIds: ["task-3"],
-    },
-    "column-3": {
-      id: "column-3",
-      title: "Listo",
-      taskIds: ["task-4"],
-    },
-  },
-  columnOrder: ["column-1", "column-2", "column-3"],
-};
+import {
+  fetchBoardData,
+  persistColumnOrder,
+  persistTaskOrder,
+  toBoardState,
+} from "../../api/boardService";
 
 const Board = () => {
-  const [data, setData] = useState<BoardState>(initialData);
+  const [data, setData] = useState<BoardState | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const onDragEnd = (result: DropResult) => {
+  useEffect(() => {
+    const loadBoard = async () => {
+      try {
+        const response = await fetchBoardData();
+        setData(toBoardState(response.columns, response.tasks));
+      } catch (error) {
+        console.error(error);
+        setErrorMessage("No se pudo cargar el tablero desde Supabase.");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    void loadBoard();
+  }, []);
+
+  const onDragEnd = async (result: DropResult) => {
     const { destination, source, draggableId, type } = result;
 
-    if (!destination) {
+    if (!destination || !data) {
       return;
     }
 
@@ -57,6 +54,12 @@ const Board = () => {
         ...data,
         columnOrder: newColumnOrder,
       });
+
+      try {
+        await persistColumnOrder(newColumnOrder);
+      } catch (error) {
+        console.error(error);
+      }
       return;
     }
 
@@ -68,16 +71,30 @@ const Board = () => {
       newTaskIds.splice(source.index, 1);
       newTaskIds.splice(destination.index, 0, draggableId);
 
+      const updatedColumn = {
+        ...startColumn,
+        taskIds: newTaskIds,
+      };
+
       setData({
         ...data,
         columns: {
           ...data.columns,
-          [startColumn.id]: {
-            ...startColumn,
-            taskIds: newTaskIds,
-          },
+          [updatedColumn.id]: updatedColumn,
         },
       });
+
+      const taskUpdates = newTaskIds.map((taskId, index) => ({
+        id: taskId,
+        column_id: startColumn.id,
+        position: index,
+      }));
+
+      try {
+        await persistTaskOrder(taskUpdates);
+      } catch (error) {
+        console.error(error);
+      }
       return;
     }
 
@@ -86,21 +103,66 @@ const Board = () => {
     const finishTaskIds = Array.from(finishColumn.taskIds);
     finishTaskIds.splice(destination.index, 0, draggableId);
 
+    const updatedStart = {
+      ...startColumn,
+      taskIds: startTaskIds,
+    };
+
+    const updatedFinish = {
+      ...finishColumn,
+      taskIds: finishTaskIds,
+    };
+
     setData({
       ...data,
       columns: {
         ...data.columns,
-        [startColumn.id]: {
-          ...startColumn,
-          taskIds: startTaskIds,
-        },
-        [finishColumn.id]: {
-          ...finishColumn,
-          taskIds: finishTaskIds,
-        },
+        [updatedStart.id]: updatedStart,
+        [updatedFinish.id]: updatedFinish,
       },
     });
+
+    const taskUpdates = [
+      ...startTaskIds.map((taskId, index) => ({
+        id: taskId,
+        column_id: startColumn.id,
+        position: index,
+      })),
+      ...finishTaskIds.map((taskId, index) => ({
+        id: taskId,
+        column_id: finishColumn.id,
+        position: index,
+      })),
+    ];
+
+    try {
+      await persistTaskOrder(taskUpdates);
+    } catch (error) {
+      console.error(error);
+    }
   };
+
+  if (isLoading) {
+    return (
+      <Stack spacing={2} alignItems="center" py={6}>
+        <CircularProgress />
+        <Typography color="text.secondary">Cargando tablero...</Typography>
+      </Stack>
+    );
+  }
+
+  if (errorMessage || !data) {
+    return (
+      <Stack spacing={1} py={4}>
+        <Typography variant="h5" fontWeight={700}>
+          Tablero
+        </Typography>
+        <Typography color="error">
+          {errorMessage ?? "No hay datos disponibles."}
+        </Typography>
+      </Stack>
+    );
+  }
 
   return (
     <Stack spacing={2}>
