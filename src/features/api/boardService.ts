@@ -4,6 +4,7 @@ import type { BoardState, Column, Task } from "../../shared/types/board";
 type BoardRecord = {
   id: string;
   name: string;
+  user_id: string;
 };
 
 type ColumnRecord = {
@@ -21,10 +22,11 @@ type TaskRecord = {
   position: number;
 };
 
-export const fetchPrimaryBoard = async (): Promise<BoardRecord | null> => {
+export const fetchPrimaryBoard = async (userId: string): Promise<BoardRecord | null> => {
   const { data, error } = await supabase
     .from("boards")
-    .select("id, name")
+    .select("id, name, user_id")
+    .eq("user_id", userId)
     .order("created_at", { ascending: true })
     .limit(1)
     .maybeSingle();
@@ -36,18 +38,18 @@ export const fetchPrimaryBoard = async (): Promise<BoardRecord | null> => {
   return data ?? null;
 };
 
-export const fetchBoardData = async (): Promise<{
+export const fetchBoardData = async (userId: string): Promise<{
   board: BoardRecord;
   columns: ColumnRecord[];
   tasks: TaskRecord[];
 }> => {
-  const board = await fetchPrimaryBoard();
+  const board = await fetchPrimaryBoard(userId);
 
   if (!board) {
     const { data: created, error: createError } = await supabase
       .from("boards")
-      .insert({ name: "Tablero principal" })
-      .select("id, name")
+      .insert({ name: "Tablero principal", user_id: userId })
+      .select("id, name, user_id")
       .single();
 
     if (createError) {
@@ -61,22 +63,24 @@ export const fetchBoardData = async (): Promise<{
     };
   }
 
-  const [{ data: columns, error: columnsError }, { data: tasks, error: tasksError }] =
-    await Promise.all([
-      supabase
-        .from("columns")
-        .select("id, board_id, name, position")
-        .eq("board_id", board.id)
-        .order("position", { ascending: true }),
-      supabase
-        .from("tasks")
-        .select("id, column_id, title, description, position")
-        .order("position", { ascending: true }),
-    ]);
+  const { data: columns, error: columnsError } = await supabase
+    .from("columns")
+    .select("id, board_id, name, position")
+    .eq("board_id", board.id)
+    .order("position", { ascending: true });
 
   if (columnsError) {
     throw columnsError;
   }
+
+  const columnIds = (columns ?? []).map((column) => column.id);
+  const { data: tasks, error: tasksError } = columnIds.length
+    ? await supabase
+        .from("tasks")
+        .select("id, column_id, title, description, position")
+        .in("column_id", columnIds)
+        .order("position", { ascending: true })
+    : { data: [], error: null };
 
   if (tasksError) {
     throw tasksError;

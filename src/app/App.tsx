@@ -1,4 +1,5 @@
 import { Box, Container, Stack, Typography } from "@mui/material";
+import AuthGate from "../features/auth/AuthGate";
 import Board from "../features/board/components/Board";
 import QuillEditor from "../features/editor/QuillEditor";
 
@@ -15,8 +16,14 @@ const App = () => {
               Planeador tipo Monday / Trello / Jira con drag & drop y editor WYSIWYG.
             </Typography>
           </Stack>
-          <Board />
-          <QuillEditor />
+          <AuthGate>
+            {(session) => (
+              <Stack spacing={4}>
+                <Board userId={session.user.id} />
+                <QuillEditor userId={session.user.id} />
+              </Stack>
+            )}
+          </AuthGate>
         </Stack>
       </Container>
     </Box>

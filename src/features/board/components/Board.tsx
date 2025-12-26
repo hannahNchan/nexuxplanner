@@ -10,7 +10,11 @@ import {
   toBoardState,
 } from "../../api/boardService";
 
-const Board = () => {
+type BoardProps = {
+  userId: string;
+};
+
+const Board = ({ userId }: BoardProps) => {
   const [data, setData] = useState<BoardState | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -18,7 +22,7 @@ const Board = () => {
   useEffect(() => {
     const loadBoard = async () => {
       try {
-        const response = await fetchBoardData();
+        const response = await fetchBoardData(userId);
         setData(toBoardState(response.columns, response.tasks));
       } catch (error) {
         console.error(error);
@@ -29,7 +33,7 @@ const Board = () => {
     };
 
     void loadBoard();
-  }, []);
+  }, [userId]);
 
   const onDragEnd = async (result: DropResult) => {
     const { destination, source, draggableId, type } = result;

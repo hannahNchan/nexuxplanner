@@ -5,7 +5,11 @@ import { useEffect, useRef, useState } from "react";
 import { fetchPrimaryBoard } from "../api/boardService";
 import { fetchEditorNote, saveEditorNote } from "../api/editorService";
 
-const QuillEditor = () => {
+type QuillEditorProps = {
+  userId: string;
+};
+
+const QuillEditor = ({ userId }: QuillEditorProps) => {
   const editorRef = useRef<HTMLDivElement | null>(null);
   const quillRef = useRef<Quill | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -33,7 +37,7 @@ const QuillEditor = () => {
   useEffect(() => {
     const loadNote = async () => {
       try {
-        const board = await fetchPrimaryBoard();
+        const board = await fetchPrimaryBoard(userId);
         if (!board) {
           return;
         }
@@ -49,7 +53,7 @@ const QuillEditor = () => {
     };
 
     void loadNote();
-  }, []);
+  }, [userId]);
 
   const handleSave = async () => {
     if (!boardId || !quillRef.current) {

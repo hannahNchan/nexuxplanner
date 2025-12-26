@@ -10,6 +10,7 @@ Planeador tipo Monday / Trello / Jira construido con React, TypeScript y Vite.
 - @hello-pangea/dnd
 - Axios
 - Quill 2
+- Supabase
 
 ## Estructura (Feature-Based)
 
@@ -18,8 +19,10 @@ src/
   app/               # Composición de la app
   features/
     api/             # Clientes HTTP y servicios
+    auth/            # Login y sesión
     board/           # Tablero y drag & drop
     editor/          # Editor WYSIWYG
+  lib/               # Clientes de terceros
   shared/
     types/           # Tipos compartidos
 ```
