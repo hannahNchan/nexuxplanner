@@ -8,7 +8,7 @@ export type EditorNote = {
 
 export const fetchEditorNote = async (boardId: string): Promise<EditorNote | null> => {
   const { data, error } = await supabase
-    .from("planner.editor_notes")
+    .from("editor_notes")
     .select("id, board_id, content")
     .eq("board_id", boardId)
     .maybeSingle();
@@ -21,7 +21,7 @@ export const fetchEditorNote = async (boardId: string): Promise<EditorNote | nul
 };
 
 export const saveEditorNote = async (boardId: string, content: unknown) => {
-  const { error } = await supabase.from("planner.editor_notes").upsert({
+  const { error } = await supabase.from("editor_notes").upsert({
     board_id: boardId,
     content,
   });

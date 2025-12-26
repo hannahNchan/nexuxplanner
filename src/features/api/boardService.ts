@@ -23,7 +23,7 @@ type TaskRecord = {
 
 export const fetchPrimaryBoard = async (): Promise<BoardRecord | null> => {
   const { data, error } = await supabase
-    .from("planner.boards")
+    .from("boards")
     .select("id, name")
     .order("created_at", { ascending: true })
     .limit(1)
@@ -50,12 +50,12 @@ export const fetchBoardData = async (): Promise<{
   const [{ data: columns, error: columnsError }, { data: tasks, error: tasksError }] =
     await Promise.all([
       supabase
-        .from("planner.columns")
+        .from("columns")
         .select("id, board_id, name, position")
         .eq("board_id", board.id)
         .order("position", { ascending: true }),
       supabase
-        .from("planner.tasks")
+        .from("tasks")
         .select("id, column_id, title, description, position")
         .order("position", { ascending: true }),
     ]);
@@ -120,7 +120,7 @@ export const toBoardState = (
 
 export const persistColumnOrder = async (columnIds: string[]) => {
   const updates = columnIds.map((id, index) => ({ id, position: index }));
-  const { error } = await supabase.from("planner.columns").upsert(updates);
+  const { error } = await supabase.from("columns").upsert(updates);
 
   if (error) {
     throw error;
@@ -134,7 +134,7 @@ export const persistTaskOrder = async (
     return;
   }
 
-  const { error } = await supabase.from("planner.tasks").upsert(updates);
+  const { error } = await supabase.from("tasks").upsert(updates);
 
   if (error) {
     throw error;
