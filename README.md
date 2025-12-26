@@ -1,1 +1,58 @@
-# nexuxplanner
+# Nexux Planner
+
+Planeador tipo Monday / Trello / Jira construido con React, TypeScript y Vite.
+
+## Stack
+
+- React 18 + Vite
+- TypeScript
+- Material UI
+- @hello-pangea/dnd
+- Axios
+- Quill 2
+- Supabase
+
+## Estructura (Feature-Based)
+
+```
+src/
+  app/               # Composición de la app
+  features/
+    api/             # Clientes HTTP y servicios
+    auth/            # Login y sesión
+    board/           # Tablero y drag & drop
+    editor/          # Editor WYSIWYG
+  lib/               # Clientes de terceros
+  shared/
+    types/           # Tipos compartidos
+```
+
+## Instalación
+
+```bash
+npm install
+```
+
+## Variables de entorno
+
+```bash
+VITE_SUPABASE_URL=https://cucqyupaaqnrzblkpsrz.supabase.co
+VITE_SUPABASE_PUBLISHABLE_DEFAULT_KEY=tu_clave_publica
+```
+
+## Desarrollo
+
+```bash
+npm run dev
+```
+
+## Build
+
+```bash
+npm run build
+```
+
+## Notas
+
+- El editor WYSIWYG usa `quill@2.0.3`.
+- El tablero usa `@hello-pangea/dnd` para drag & drop.
