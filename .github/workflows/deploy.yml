@@ -1,4 +1,4 @@
-name: Deploy to Raspberry Pi
+name: Deploy to Raspberry Pi (Self-hosted)
 
 on:
   push:
@@ -7,40 +7,26 @@ on:
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-
       - name: Install dependencies
-        run: npm ci
+        run: npm install
 
       - name: Build application
         run: npm run build
 
-      - name: Deploy to Raspberry Pi
-        uses: appleboy/scp-action@master
-        with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          source: "dist/*"
-          target: "/var/www/nexuxplanner/"
-          strip_components: 0
+      - name: Deploy files
+        run: |
+          sudo rm -rf /var/www/nexuxplanner/dist/*
+          sudo cp -r dist/* /var/www/nexuxplanner/dist/
+          sudo chown -R www-data:www-data /var/www/nexuxplanner/dist
 
-      - name: Restart Nginx via SSH
-        uses: appleboy/ssh-action@master
-        with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          script: |
-            sudo systemctl reload nginx
-            echo "Deployment completed successfully!"
+      - name: Reload Nginx
+        run: sudo systemctl reload nginx
+
+      - name: Deployment complete
+        run: echo "✅ Deployment completed successfully!"
