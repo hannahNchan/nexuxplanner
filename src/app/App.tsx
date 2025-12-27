@@ -13,7 +13,7 @@ const App = () => {
               Nexux Planner
             </Typography>
             <Typography color="text.secondary">
-              Planeador tipo Monday / Trello / Jira con drag & drop y editor WYSIWYG.
+              Kanban planner.
             </Typography>
           </Stack>
           <AuthGate>
