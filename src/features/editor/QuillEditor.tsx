@@ -47,7 +47,7 @@ const QuillEditor = ({ userId }: QuillEditorProps) => {
 
       const note = await fetchEditorNote(board.id);
       if (note && quillRef.current) {
-        quillRef.current.setContents(note.content as unknown);
+        quillRef.current.setContents(note.content as any);
       }
     } catch (error) {
       console.error(error);
