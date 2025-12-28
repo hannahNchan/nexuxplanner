@@ -20,6 +20,10 @@ type TaskRecord = {
   title: string;
   description: string | null;
   position: number;
+  issue_type_id: string | null;
+  priority_id: string | null;
+  story_points: string | null;
+  assignee_id: string | null;
 };
 
 export const fetchPrimaryBoard = async (userId: string): Promise<BoardRecord | null> => {
@@ -67,7 +71,7 @@ export const fetchBoardData = async (userId: string): Promise<{
   const { data: tasks, error: tasksError } = columnIds.length
     ? await supabase
         .from("tasks")
-        .select("id, column_id, title, description, position")
+        .select("id, column_id, title, description, position, issue_type_id, priority_id, story_points, assignee_id")
         .in("column_id", columnIds)
         .order("position", { ascending: true })
     : { data: [], error: null };
@@ -115,15 +119,22 @@ export const createBoard = async (userId: string, name: string) => {
   };
 };
 
-export const createTask = async (
-  columnId: string,
-  title: string,
-  position: number,
-): Promise<TaskRecord> => {
+/**
+ * Crea una nueva columna en el tablero
+ */
+export const createColumn = async (
+  boardId: string,
+  name: string,
+  position: number
+): Promise<ColumnRecord> => {
   const { data, error } = await supabase
-    .from("tasks")
-    .insert({ column_id: columnId, title, position })
-    .select("id, column_id, title, description, position")
+    .from("columns")
+    .insert({ 
+      board_id: boardId, 
+      name, 
+      position 
+    })
+    .select("id, board_id, name, position")
     .single();
 
   if (error) {
@@ -133,10 +144,76 @@ export const createTask = async (
   return data;
 };
 
+export const createTask = async (
+  columnId: string,
+  title: string,
+  position: number,
+): Promise<TaskRecord> => {
+  const { data, error } = await supabase
+    .from("tasks")
+    .insert({ column_id: columnId, title, position })
+    .select("id, column_id, title, description, position, issue_type_id, priority_id, story_points, assignee_id")
+    .single();
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
+};
+
+/**
+ * Actualiza una tarea existente
+ */
+export const updateTask = async (
+  taskId: string,
+  updates: {
+    title?: string;
+    description?: string;
+    column_id?: string;
+    issue_type_id?: string | null;
+    priority_id?: string | null;
+    story_points?: string | null;
+    assignee_id?: string | null;
+  }
+): Promise<TaskRecord> => {
+  const { data, error } = await supabase
+    .from("tasks")
+    .update({
+      ...updates,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", taskId)
+    .select("id, column_id, title, description, position, issue_type_id, priority_id, story_points, assignee_id")
+    .single();
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
+};
+
+/**
+ * Elimina una tarea
+ */
+export const deleteTask = async (taskId: string): Promise<boolean> => {
+  const { error } = await supabase.from("tasks").delete().eq("id", taskId);
+
+  if (error) {
+    throw error;
+  }
+
+  return true;
+};
+
 export const toBoardState = (
   columns: ColumnRecord[],
   tasks: TaskRecord[],
 ): BoardState => {
+  console.log("🔧 toBoardState - Entrada:");
+  console.log("  Columnas recibidas:", columns.map(c => `${c.name} (pos: ${c.position})`));
+  
   const taskMap: Record<string, Task> = {};
   const columnMap: Record<string, Column> = {};
 
@@ -145,6 +222,11 @@ export const toBoardState = (
       id: task.id,
       title: task.title,
       description: task.description ?? undefined,
+      // ✅ INCLUIR CAMPOS JIRA
+      issue_type_id: task.issue_type_id ?? undefined,
+      priority_id: task.priority_id ?? undefined,
+      story_points: task.story_points ?? undefined,
+      assignee_id: task.assignee_id ?? undefined,
     };
   });
 
@@ -169,20 +251,37 @@ export const toBoardState = (
     };
   });
 
+  // ✅ CRITICAL FIX: Crear una COPIA del array antes de ordenar
+  // para no mutar el array original
+  const sortedColumns = [...columns].sort((a, b) => a.position - b.position);
+  const columnOrder = sortedColumns.map((column) => column.id);
+  
+  console.log("🔧 toBoardState - Salida:");
+  console.log("  Columnas ordenadas:", sortedColumns.map(c => `${c.name} (pos: ${c.position})`));
+  console.log("  columnOrder IDs:", columnOrder);
+  console.log("  columnOrder nombres:", columnOrder.map(id => columnMap[id]?.title));
+
   return {
     tasks: taskMap,
     columns: columnMap,
-    columnOrder: columns.sort((a, b) => a.position - b.position).map((column) => column.id),
+    columnOrder,
   };
 };
 
 export const persistColumnOrder = async (columnIds: string[]) => {
   const updates = columnIds.map((id, index) => ({ id, position: index }));
+  
+  console.log("💾 persistColumnOrder - Guardando:");
+  console.log("  Updates:", updates);
+  
   const { error } = await supabase.from("columns").upsert(updates);
 
   if (error) {
+    console.error("❌ Error en persistColumnOrder:", error);
     throw error;
   }
+  
+  console.log("✅ persistColumnOrder - Éxito");
 };
 
 export const persistTaskOrder = async (
@@ -192,9 +291,17 @@ export const persistTaskOrder = async (
     return;
   }
 
-  const { error } = await supabase.from("tasks").upsert(updates);
+  await Promise.all(
+    updates.map(async (update) => {
+      const { error } = await supabase
+        .from("tasks")
+        .update({
+          column_id: update.column_id,
+          position: update.position,
+        })
+        .eq("id", update.id);
 
-  if (error) {
-    throw error;
-  }
+      if (error) throw error;
+    })
+  );
 };
