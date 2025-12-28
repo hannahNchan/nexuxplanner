@@ -109,13 +109,18 @@ const Column = ({
                     transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
                   }}
                 >
-                  {tasks.map((task, idx) => (
-                    <TaskCard
-                      key={task.id}
-                      task={task}
-                      index={idx}
-                      onClick={() => onTaskClick(task)}
-                    />
+                  {tasks.map((task, taskIndex) => (
+                    <Draggable key={task.id} draggableId={task.id} index={taskIndex}>
+                      {(taskProvided) => (
+                        <div
+                          ref={taskProvided.innerRef}
+                          {...taskProvided.draggableProps}
+                          {...taskProvided.dragHandleProps}
+                        >
+                          <TaskCard task={task} onClick={() => onTaskClick(task)} />
+                        </div>
+                      )}
+                    </Draggable>
                   ))}
                   {provided.placeholder}
                   

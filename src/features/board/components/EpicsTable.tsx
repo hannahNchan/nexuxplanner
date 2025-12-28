@@ -21,15 +21,12 @@ import {
   DialogContent,
   DialogActions,
   Divider,
-  Paper,
 } from "@mui/material";
 import {
   DataGrid,
   type GridColDef,
   type GridRowsProp,
   GridActionsCellItem,
-  type GridCellEditStopParams,
-  type MuiEvent,
 } from "@mui/x-data-grid";
 import AddIcon from "@mui/icons-material/Add";
 import SearchIcon from "@mui/icons-material/Search";
@@ -448,18 +445,6 @@ const EpicsTable = ({ userId }: EpicsTableProps) => {
       ],
     },
   ];
-
-  const handleCellEditStop = (
-    params: GridCellEditStopParams,
-    event: MuiEvent
-  ) => {
-    if (params.field === "name") {
-      const newValue = (event as any).target?.value;
-      if (newValue && typeof newValue === "string") {
-        handleNameChange(params.id as string, newValue);
-      }
-    }
-  };
 
   if (isLoading) {
     return (

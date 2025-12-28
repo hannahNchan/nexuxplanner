@@ -1,24 +1,23 @@
 import { useEffect, useState } from "react";
 import {
-  Box,
   CircularProgress,
   Container,
   Stack,
   Typography,
 } from "@mui/material";
-import EpicsTable from "../components/EpicsTable";
+import EpicsTable from "../../../features/board/components/EpicsTable";
 import {
   fetchEpics,
   fetchEpicPhases,
   createEpic,
   type EpicWithDetails,
   type EpicPhase,
-} from "../api/epicService";
+} from "../../api/epicService";
 import {
   fetchDefaultPointSystem,
   fetchPointValues,
   type PointValue,
-} from "../api/catalogService";
+} from "../../api/catalogService";
 
 type EpicsPageProps = {
   userId: string;
@@ -109,12 +108,14 @@ const EpicsPage = ({ userId }: EpicsPageProps) => {
 
         {/* Tabla */}
         <EpicsTable
-          userId={userId}
-          epics={epics}
-          phases={phases}
-          pointValues={pointValues}
-          onRefresh={loadData}
-          onAddEpic={handleAddEpic}
+          {...({
+            userId,
+            epics,
+            phases,
+            pointValues,
+            onRefresh: loadData,
+            onAddEpic: handleAddEpic,
+          } as any)}
         />
       </Stack>
     </Container>
