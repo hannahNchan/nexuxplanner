@@ -5,21 +5,23 @@ import {
   Stack,
   TextField,
   Typography,
+  Paper,
+  Alert,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import { DragDropContext, Droppable, type DropResult } from "@hello-pangea/dnd";
 import { useEffect, useState } from "react";
+import { alpha, useTheme } from "@mui/material/styles";
 import Column from "./Column";
 import TaskEditorModal from "./TaskEditorModal";
 import AddColumnModal from "./AddColumnModal";
-import DebugPanel from "./DebugPanel";
 import type { BoardState, Task } from "../../../shared/types/board";
 import {
   createBoard,
   createColumn,
   createTask,
   deleteTask,
-  fetchBoardData,
+  fetchBoardDataByProject,
   persistColumnOrder,
   persistTaskOrder,
   toBoardState,
@@ -34,12 +36,14 @@ import {
   type Priority,
   type PointValue,
 } from "../../api/catalogService";
+import { useProject } from "../../../shared/contexts/ProjectContext";
 
 type BoardProps = {
   userId: string;
 };
 
 const Board = ({ userId }: BoardProps) => {
+  const theme = useTheme();
   const [data, setData] = useState<BoardState | null>(null);
   const [boardId, setBoardId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -48,7 +52,6 @@ const Board = ({ userId }: BoardProps) => {
   const [isCreatingBoard, setIsCreatingBoard] = useState(false);
   const [creatingTaskColumnId, setCreatingTaskColumnId] = useState<string | null>(null);
 
-  // Estado del modal de edición
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedTask, setSelectedTask] = useState<{
     id: string;
@@ -58,18 +61,18 @@ const Board = ({ userId }: BoardProps) => {
     issue_type_id?: string | null;
     priority_id?: string | null;
     story_points?: string | null;
+    assignee_id?: string | null; 
   } | null>(null);
 
-  // Catálogos para el modal
   const [issueTypes, setIssueTypes] = useState<IssueType[]>([]);
   const [priorities, setPriorities] = useState<Priority[]>([]);
   const [pointValues, setPointValues] = useState<PointValue[]>([]);
   const [catalogsLoaded, setCatalogsLoaded] = useState(false);
 
-  // Estado del modal de añadir columna
   const [isAddColumnModalOpen, setIsAddColumnModalOpen] = useState(false);
 
-  // Cargar catálogos al inicio
+  const { currentProject } = useProject();
+
   useEffect(() => {
     const loadCatalogs = async () => {
       try {
@@ -98,33 +101,45 @@ const Board = ({ userId }: BoardProps) => {
 
   useEffect(() => {
     const loadBoard = async () => {
+      // ✅ CAMBIO 1: Si no hay proyecto, no cargar nada
+      if (!currentProject) {
+        setData(null);
+        setBoardId(null);
+        setIsLoading(false);
+        return;
+      }
+
       try {
-        console.log("📥 Cargando tablero...");
-        const response = await fetchBoardData(userId);
+        setIsLoading(true);
+        console.log("🔍 Cargando board para proyecto:", currentProject.id); // ✅ DEBUG
+        
+        const response = await fetchBoardDataByProject(userId, currentProject.id);
+        
+        console.log("📦 Response recibida:", response); // ✅ DEBUG
         
         if (!response.board) {
+          console.log("❌ No hay board"); // ✅ DEBUG
           setBoardId(null);
           setData(null);
           return;
         }
         
-        console.log("📊 Datos recibidos de BD:");
-        console.log("  Columnas:", response.columns);
-        console.log("  Columnas ordenadas por position:", 
-          response.columns.map(c => `${c.name} (pos: ${c.position})`));
+        console.log("📊 Columnas:", response.columns); // ✅ DEBUG
+        console.log("📋 Column order:", response.columnOrder); // ✅ DEBUG
         
-        const boardState = toBoardState(response.columns, response.tasks);
+        const boardState = toBoardState(
+          response.columns, 
+          response.tasks, 
+          response.columnOrder
+        );
         
-        console.log("📊 Estado construido:");
-        console.log("  columnOrder:", boardState.columnOrder);
-        console.log("  columns:", Object.keys(boardState.columns).map(id => 
-          boardState.columns[id].title));
+        console.log("✅ BoardState creado:", boardState); // ✅ DEBUG
         
         setBoardId(response.board.id);
         setData(boardState);
         setErrorMessage(null);
       } catch (error) {
-        console.error(error);
+        console.error("💥 Error cargando board:", error); // ✅ DEBUG
         setErrorMessage("No se pudo cargar el tablero desde Supabase.");
       } finally {
         setIsLoading(false);
@@ -132,51 +147,40 @@ const Board = ({ userId }: BoardProps) => {
     };
 
     void loadBoard();
-  }, [userId]);
+  }, [userId, currentProject]);
 
-  const handleCreateBoard = async () => {
-    if (!boardName.trim()) {
-      setErrorMessage("Ingresa un nombre para el tablero.");
-      return;
-    }
+const handleCreateBoard = async () => {
+  if (!boardName.trim()) {
+    setErrorMessage("Ingresa un nombre para el tablero.");
+    return;
+  }
 
-    setIsCreatingBoard(true);
-    setErrorMessage(null);
-    try {
-      const created = await createBoard(userId, boardName.trim());
-      setBoardId(created.board.id);
-      setData(toBoardState(created.columns, []));
-    } catch (error) {
-      console.error(error);
-      setErrorMessage("No se pudo crear el tablero.");
-    } finally {
-      setIsCreatingBoard(false);
-    }
-  };
+  setIsCreatingBoard(true);
+  setErrorMessage(null);
+  try {
+    const created = await createBoard(userId, boardName.trim());
+    
+    setBoardId(created.board.id);
+    setData(toBoardState([], [], []));
+  } catch (error) {
+    console.error(error);
+    setErrorMessage("No se pudo crear el tablero.");
+  } finally {
+    setIsCreatingBoard(false);
+  }
+};
 
   const handleCreateColumn = async (columnName: string) => {
-    if (!boardId || !data) {
+    if (!currentProject || !data) {
+      setErrorMessage("Selecciona un proyecto primero");
       return;
     }
 
     try {
-      // Calcular la posición de la nueva columna (al final)
       const position = data.columnOrder.length;
-
-      console.log("➕ CREANDO COLUMNA:");
-      console.log("  Nombre:", columnName);
-      console.log("  Posición:", position);
-      console.log("  Orden actual:", data.columnOrder);
-
-      // Crear la columna en la base de datos
-      const newColumn = await createColumn(boardId, columnName, position);
-      console.log("  Columna creada:", newColumn.id);
-
-      // Construir el nuevo orden
+      const newColumn = await createColumn(currentProject.id, columnName, position);
       const newColumnOrder = [...data.columnOrder, newColumn.id];
-      console.log("  Nuevo orden:", newColumnOrder);
 
-      // Actualizar el estado local
       setData((previous) => {
         if (!previous) return previous;
 
@@ -194,14 +198,9 @@ const Board = ({ userId }: BoardProps) => {
         };
       });
 
-      // ✅ PERSISTIR el nuevo orden de columnas en la base de datos
-      console.log("💾 Persistiendo orden en BD...");
-      await persistColumnOrder(newColumnOrder);
-      console.log("✅ Orden persistido exitosamente");
-
       setErrorMessage(null);
     } catch (error) {
-      console.error("❌ Error creando columna:", error);
+      console.error("Error creando columna:", error);
       setErrorMessage("No se pudo crear la columna.");
       throw error;
     }
@@ -218,7 +217,6 @@ const Board = ({ userId }: BoardProps) => {
       const position = column.taskIds.length;
       const created = await createTask(columnId, "Nueva tarea", position);
 
-      // Agregar tarea al estado con TODOS los campos
       setData((previous) => {
         if (!previous) {
           return previous;
@@ -247,7 +245,6 @@ const Board = ({ userId }: BoardProps) => {
         };
       });
 
-      // Abrir modal inmediatamente para editar la tarea recién creada
       setSelectedTask({
         id: created.id,
         title: created.title,
@@ -256,6 +253,7 @@ const Board = ({ userId }: BoardProps) => {
         issue_type_id: created.issue_type_id,
         priority_id: created.priority_id,
         story_points: created.story_points,
+        assignee_id: created.assignee_id,
       });
       setIsModalOpen(true);
 
@@ -268,11 +266,9 @@ const Board = ({ userId }: BoardProps) => {
     }
   };
 
-  // Abrir modal al hacer click en una tarea
   const handleTaskClick = (task: Task) => {
     if (!data) return;
 
-    // Encontrar en qué columna está la tarea
     let columnId = "";
     for (const [colId, column] of Object.entries(data.columns)) {
       if (column.taskIds.includes(task.id)) {
@@ -289,11 +285,11 @@ const Board = ({ userId }: BoardProps) => {
       issue_type_id: task.issue_type_id ?? null,
       priority_id: task.priority_id ?? null,
       story_points: task.story_points ?? null,
+      assignee_id: task.assignee_id ?? null,
     });
     setIsModalOpen(true);
   };
 
-  // Guardar cambios de la tarea
   const handleSaveTask = async (
     taskId: string,
     updates: {
@@ -303,6 +299,7 @@ const Board = ({ userId }: BoardProps) => {
       issue_type_id: string | null;
       priority_id: string | null;
       story_points: string | null;
+      assignee_id: string | null;
     }
   ) => {
     if (!data) return;
@@ -313,7 +310,6 @@ const Board = ({ userId }: BoardProps) => {
       setData((previous) => {
         if (!previous) return previous;
 
-        // Actualizar la tarea en el mapa con TODOS los campos
         const updatedTasks = {
           ...previous.tasks,
           [taskId]: {
@@ -327,19 +323,16 @@ const Board = ({ userId }: BoardProps) => {
           },
         };
 
-        // Si cambió de columna, mover la tarea
         const oldColumnId = Object.keys(previous.columns).find((colId) =>
           previous.columns[colId].taskIds.includes(taskId)
         );
 
         if (oldColumnId && oldColumnId !== updates.column_id) {
-          // Remover de columna anterior
           const updatedOldColumn = {
             ...previous.columns[oldColumnId],
             taskIds: previous.columns[oldColumnId].taskIds.filter((id) => id !== taskId),
           };
 
-          // Agregar a nueva columna
           const updatedNewColumn = {
             ...previous.columns[updates.column_id],
             taskIds: [...previous.columns[updates.column_id].taskIds, taskId],
@@ -356,7 +349,6 @@ const Board = ({ userId }: BoardProps) => {
           };
         }
 
-        // Si no cambió de columna, solo actualizar la tarea
         return {
           ...previous,
           tasks: updatedTasks,
@@ -368,7 +360,6 @@ const Board = ({ userId }: BoardProps) => {
     }
   };
 
-  // Eliminar tarea
   const handleDeleteTask = async (taskId: string) => {
     if (!data) return;
 
@@ -378,10 +369,8 @@ const Board = ({ userId }: BoardProps) => {
       setData((previous) => {
         if (!previous) return previous;
 
-        // Remover tarea del mapa
-        const { [taskId]: removed, ...remainingTasks } = previous.tasks;
+        const { [taskId]: _removed, ...remainingTasks } = previous.tasks;
 
-        // Remover de la columna
         const updatedColumns = { ...previous.columns };
         for (const colId of Object.keys(updatedColumns)) {
           if (updatedColumns[colId].taskIds.includes(taskId)) {
@@ -419,13 +408,11 @@ const Board = ({ userId }: BoardProps) => {
     }
 
     if (type === "column") {
+      if (!currentProject) return;
+
       const newColumnOrder = Array.from(data.columnOrder);
       newColumnOrder.splice(source.index, 1);
       newColumnOrder.splice(destination.index, 0, draggableId);
-
-      console.log("🔄 DND COLUMNA:");
-      console.log("  Orden anterior:", data.columnOrder);
-      console.log("  Orden nuevo:", newColumnOrder);
 
       setData({
         ...data,
@@ -433,11 +420,13 @@ const Board = ({ userId }: BoardProps) => {
       });
 
       try {
-        console.log("💾 Guardando orden de columnas en BD...");
-        await persistColumnOrder(newColumnOrder);
-        console.log("✅ Orden guardado exitosamente");
+        await persistColumnOrder(currentProject.id, newColumnOrder);
       } catch (error) {
-        console.error("❌ Error guardando orden:", error);
+        console.error("Error guardando orden de columnas:", error);
+        setData({
+          ...data,
+          columnOrder: data.columnOrder,
+        });
       }
       return;
     }
@@ -532,41 +521,61 @@ const Board = ({ userId }: BoardProps) => {
     );
   }
 
-  if (!data) {
+  // ✅ CAMBIO 2: Detectar si no hay proyecto seleccionado
+  if (!currentProject) {
+    return (
+      <Stack spacing={3} py={4} alignItems="center">
+        <Alert severity="info" sx={{ maxWidth: 600 }}>
+          Selecciona un proyecto desde el menú lateral para ver su tablero
+        </Alert>
+      </Stack>
+    );
+  }
+
+  // ✅ CAMBIO 3: Si no hay board, mostrar opción de crear
+  if (!boardId) {
     return (
       <Stack spacing={1} py={4}>
         <Typography variant="h5" fontWeight={700}>
           Tablero
         </Typography>
-        {boardId ? (
-          <Typography color="error">
-            {errorMessage ?? "No hay datos disponibles."}
+        <Stack spacing={2} maxWidth={360}>
+          <Typography color="text.secondary">
+            Aún no tienes un tablero creado.
           </Typography>
-        ) : (
-          <Stack spacing={2} maxWidth={360}>
-            <Typography color="text.secondary">
-              {errorMessage ?? "Aún no tienes un tablero creado."}
-            </Typography>
-            <TextField
-              label="Nombre del tablero"
-              value={boardName}
-              onChange={(event) => setBoardName(event.target.value)}
-              size="small"
-            />
-            <Button
-              variant="contained"
-              onClick={handleCreateBoard}
-              disabled={isCreatingBoard}
-            >
-              {isCreatingBoard ? "Creando..." : "Crear tablero"}
-            </Button>
-          </Stack>
-        )}
+          <TextField
+            label="Nombre del tablero"
+            value={boardName}
+            onChange={(event) => setBoardName(event.target.value)}
+            size="small"
+          />
+          <Button
+            variant="contained"
+            onClick={handleCreateBoard}
+            disabled={isCreatingBoard}
+          >
+            {isCreatingBoard ? "Creando..." : "Crear tablero"}
+          </Button>
+        </Stack>
       </Stack>
     );
   }
 
-  // Preparar lista de columnas para el modal
+  // ✅ CAMBIO 4: Si no hay data o no hay columnas
+  if (!data || data.columnOrder.length === 0) {
+    return (
+      <Stack spacing={3} py={4}>
+        <Alert severity="warning">
+          Este proyecto no tiene columnas. 
+          {currentProject && ` Proyecto: ${currentProject.title}`}
+        </Alert>
+        <Typography variant="body2" color="text.secondary">
+          Revisa la consola del navegador (F12) para ver los detalles.
+        </Typography>
+      </Stack>
+    );
+  }
+
   const columnOptions = data.columnOrder.map((colId) => ({
     id: colId,
     title: data.columns[colId].title,
@@ -575,25 +584,25 @@ const Board = ({ userId }: BoardProps) => {
   return (
     <>
       <Stack spacing={2}>
-        {/* 🐛 DEBUG PANEL */}
-        <DebugPanel
-          boardId={boardId}
-          localColumnOrder={data.columnOrder}
-          localColumns={data.columns}
-        />
-
-        <Stack spacing={0.5}>
+        <Paper
+          elevation={0}
+          sx={{
+            p: 2,
+            borderRadius: 2,
+            borderLeft: `4px solid ${theme.palette.primary.main}`,
+            bgcolor: alpha(theme.palette.primary.main, 0.05),
+          }}
+        >
           <Stack direction="row" justifyContent="space-between" alignItems="center">
             <Box>
               <Typography variant="h5" fontWeight={700}>
-                Tablero
+                {currentProject.title}
               </Typography>
               <Typography variant="body2" color="text.secondary">
                 Arrastra columnas o tareas para reorganizar.
               </Typography>
             </Box>
             
-            {/* Botón Añadir Columna */}
             <Button
               variant="outlined"
               startIcon={<AddIcon />}
@@ -605,11 +614,12 @@ const Board = ({ userId }: BoardProps) => {
           </Stack>
           
           {errorMessage && (
-            <Typography variant="body2" color="error">
+            <Typography variant="body2" color="error" sx={{ mt: 1 }}>
               {errorMessage}
             </Typography>
           )}
-        </Stack>
+        </Paper>
+
         <DragDropContext onDragEnd={onDragEnd}>
           <Droppable droppableId="board" direction="horizontal" type="column">
             {(provided) => (
@@ -621,6 +631,15 @@ const Board = ({ userId }: BoardProps) => {
                 flexWrap="nowrap"
                 overflow="auto"
                 pb={1}
+                sx={{
+                  p: 2,
+                  borderRadius: 2,
+                  background: `linear-gradient(135deg, 
+                    ${alpha(theme.palette.primary.main, 0.08)} 0%, 
+                    ${alpha(theme.palette.secondary.main, 0.05)} 100%)`,
+                  border: `1px solid ${alpha(theme.palette.primary.main, 0.1)}`,
+                  backdropFilter: "blur(10px)",
+                }}
               >
                 {data.columnOrder.map((columnId, index) => {
                   const column = data.columns[columnId];
@@ -634,6 +653,7 @@ const Board = ({ userId }: BoardProps) => {
                       onCreateTask={handleCreateTask}
                       onTaskClick={handleTaskClick}
                       isCreatingTask={creatingTaskColumnId === column.id}
+                      currentUserId={userId}
                     />
                   );
                 })}
@@ -644,7 +664,6 @@ const Board = ({ userId }: BoardProps) => {
         </DragDropContext>
       </Stack>
 
-      {/* Modal de edición de tareas */}
       <TaskEditorModal
         open={isModalOpen}
         task={selectedTask}
@@ -652,12 +671,12 @@ const Board = ({ userId }: BoardProps) => {
         issueTypes={issueTypes}
         priorities={priorities}
         pointValues={pointValues}
+        currentUserId={userId}
         onClose={() => setIsModalOpen(false)}
         onSave={handleSaveTask}
         onDelete={handleDeleteTask}
       />
 
-      {/* Modal de añadir columna */}
       <AddColumnModal
         open={isAddColumnModalOpen}
         onClose={() => setIsAddColumnModalOpen(false)}

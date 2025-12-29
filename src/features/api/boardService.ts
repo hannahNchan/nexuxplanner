@@ -9,7 +9,7 @@ type BoardRecord = {
 
 type ColumnRecord = {
   id: string;
-  board_id: string;
+  project_id: string;
   name: string;
   position: number;
 };
@@ -42,48 +42,98 @@ export const fetchPrimaryBoard = async (userId: string): Promise<BoardRecord | n
   return data ?? null;
 };
 
-export const fetchBoardData = async (userId: string): Promise<{
+export const fetchColumnOrder = async (projectId: string): Promise<string[]> => {
+  const { data, error } = await supabase
+    .from("column_order")
+    .select("column_ids")
+    .eq("project_id", projectId)
+    .maybeSingle();
+
+  if (error) {
+    console.error("Error fetching column order:", error);
+    return [];
+  }
+
+  return data?.column_ids ?? [];
+};
+
+export const fetchBoardDataByProject = async (
+  userId: string,
+  projectId: string | null
+): Promise<{
   board: BoardRecord | null;
   columns: ColumnRecord[];
   tasks: TaskRecord[];
+  columnOrder: string[];
 }> => {
-  const board = await fetchPrimaryBoard(userId);
+  const { data: board, error: boardError } = await supabase
+    .from("boards")
+    .select("id, name, user_id")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (boardError) throw boardError;
 
   if (!board) {
     return {
       board: null,
       columns: [],
       tasks: [],
+      columnOrder: [],
+    };
+  }
+
+  if (!projectId) {
+    return {
+      board,
+      columns: [],
+      tasks: [],
+      columnOrder: [],
     };
   }
 
   const { data: columns, error: columnsError } = await supabase
     .from("columns")
-    .select("id, board_id, name, position")
-    .eq("board_id", board.id)
-    .order("position", { ascending: true });
+    .select("id, project_id, name, position")
+    .eq("project_id", projectId);
 
-  if (columnsError) {
-    throw columnsError;
-  }
+  if (columnsError) throw columnsError;
+
+  const columnOrder = await fetchColumnOrder(projectId);
+
+  const finalColumnOrder =
+    columnOrder.length > 0
+      ? columnOrder
+      : (columns ?? []).sort((a, b) => a.position - b.position).map((c) => c.id);
 
   const columnIds = (columns ?? []).map((column) => column.id);
-  const { data: tasks, error: tasksError } = columnIds.length
-    ? await supabase
-        .from("tasks")
-        .select("id, column_id, title, description, position, issue_type_id, priority_id, story_points, assignee_id")
-        .in("column_id", columnIds)
-        .order("position", { ascending: true })
-    : { data: [], error: null };
 
-  if (tasksError) {
-    throw tasksError;
+  if (columnIds.length === 0) {
+    return {
+      board,
+      columns: columns ?? [],
+      tasks: [],
+      columnOrder: finalColumnOrder,
+    };
   }
+
+  const { data: tasks, error: tasksError } = await supabase
+    .from("tasks")
+    .select(
+      "id, column_id, title, description, position, issue_type_id, priority_id, story_points, assignee_id"
+    )
+    .in("column_id", columnIds)
+    .order("position", { ascending: true });
+
+  if (tasksError) throw tasksError;
 
   return {
     board,
     columns: columns ?? [],
     tasks: tasks ?? [],
+    columnOrder: finalColumnOrder,
   };
 };
 
@@ -98,48 +148,32 @@ export const createBoard = async (userId: string, name: string) => {
     throw createError;
   }
 
-  const defaultColumns = [
-    { board_id: created.id, name: "Por hacer", position: 0 },
-    { board_id: created.id, name: "En progreso", position: 1 },
-    { board_id: created.id, name: "Hecho", position: 2 },
-  ];
-
-  const { data: columns, error: columnsError } = await supabase
-    .from("columns")
-    .insert(defaultColumns)
-    .select("id, board_id, name, position");
-
-  if (columnsError) {
-    throw columnsError;
-  }
-
   return {
     board: created,
-    columns: columns ?? [],
+    columns: [],
   };
 };
 
-/**
- * Crea una nueva columna en el tablero
- */
 export const createColumn = async (
-  boardId: string,
+  projectId: string,
   name: string,
   position: number
 ): Promise<ColumnRecord> => {
   const { data, error } = await supabase
     .from("columns")
-    .insert({ 
-      board_id: boardId, 
-      name, 
-      position 
+    .insert({
+      project_id: projectId,
+      name,
+      position,
     })
-    .select("id, board_id, name, position")
+    .select("id, project_id, name, position")
     .single();
 
-  if (error) {
-    throw error;
-  }
+  if (error) throw error;
+
+  const currentOrder = await fetchColumnOrder(projectId);
+  const newOrder = [...currentOrder, data.id];
+  await persistColumnOrder(projectId, newOrder);
 
   return data;
 };
@@ -147,7 +181,7 @@ export const createColumn = async (
 export const createTask = async (
   columnId: string,
   title: string,
-  position: number,
+  position: number
 ): Promise<TaskRecord> => {
   const { data, error } = await supabase
     .from("tasks")
@@ -162,9 +196,6 @@ export const createTask = async (
   return data;
 };
 
-/**
- * Actualiza una tarea existente
- */
 export const updateTask = async (
   taskId: string,
   updates: {
@@ -194,9 +225,6 @@ export const updateTask = async (
   return data;
 };
 
-/**
- * Elimina una tarea
- */
 export const deleteTask = async (taskId: string): Promise<boolean> => {
   const { error } = await supabase.from("tasks").delete().eq("id", taskId);
 
@@ -210,10 +238,8 @@ export const deleteTask = async (taskId: string): Promise<boolean> => {
 export const toBoardState = (
   columns: ColumnRecord[],
   tasks: TaskRecord[],
+  columnOrder: string[]
 ): BoardState => {
-  console.log("🔧 toBoardState - Entrada:");
-  console.log("  Columnas recibidas:", columns.map(c => `${c.name} (pos: ${c.position})`));
-  
   const taskMap: Record<string, Task> = {};
   const columnMap: Record<string, Column> = {};
 
@@ -222,7 +248,6 @@ export const toBoardState = (
       id: task.id,
       title: task.title,
       description: task.description ?? undefined,
-      // ✅ INCLUIR CAMPOS JIRA
       issue_type_id: task.issue_type_id ?? undefined,
       priority_id: task.priority_id ?? undefined,
       story_points: task.story_points ?? undefined,
@@ -251,16 +276,6 @@ export const toBoardState = (
     };
   });
 
-  // ✅ CRITICAL FIX: Crear una COPIA del array antes de ordenar
-  // para no mutar el array original
-  const sortedColumns = [...columns].sort((a, b) => a.position - b.position);
-  const columnOrder = sortedColumns.map((column) => column.id);
-  
-  console.log("🔧 toBoardState - Salida:");
-  console.log("  Columnas ordenadas:", sortedColumns.map(c => `${c.name} (pos: ${c.position})`));
-  console.log("  columnOrder IDs:", columnOrder);
-  console.log("  columnOrder nombres:", columnOrder.map(id => columnMap[id]?.title));
-
   return {
     tasks: taskMap,
     columns: columnMap,
@@ -268,24 +283,24 @@ export const toBoardState = (
   };
 };
 
-export const persistColumnOrder = async (columnIds: string[]) => {
-  const updates = columnIds.map((id, index) => ({ id, position: index }));
-  
-  console.log("💾 persistColumnOrder - Guardando:");
-  console.log("  Updates:", updates);
-  
-  const { error } = await supabase.from("columns").upsert(updates);
+export const persistColumnOrder = async (projectId: string, columnIds: string[]) => {
+  const { error } = await supabase
+    .from("column_order")
+    .upsert(
+      {
+        project_id: projectId,
+        column_ids: columnIds,
+      },
+      {
+        onConflict: "project_id",
+      }
+    );
 
-  if (error) {
-    console.error("❌ Error en persistColumnOrder:", error);
-    throw error;
-  }
-  
-  console.log("✅ persistColumnOrder - Éxito");
+  if (error) throw error;
 };
 
 export const persistTaskOrder = async (
-  updates: Array<{ id: string; column_id: string; position: number }>,
+  updates: Array<{ id: string; column_id: string; position: number }>
 ) => {
   if (!updates.length) {
     return;

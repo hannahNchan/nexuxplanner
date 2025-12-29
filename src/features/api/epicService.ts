@@ -15,6 +15,7 @@ export type Epic = {
   phase_id: string | null;
   estimated_effort: string | null;
   epic_id_display: string | null;
+  project_id: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -29,9 +30,6 @@ export type EpicWithDetails = Epic & {
   }>;
 };
 
-/**
- * Obtiene todas las fases de épicas
- */
 export const fetchEpicPhases = async (): Promise<EpicPhase[]> => {
   const { data, error } = await supabase
     .from("epic_phases")
@@ -42,11 +40,11 @@ export const fetchEpicPhases = async (): Promise<EpicPhase[]> => {
   return data ?? [];
 };
 
-/**
- * Obtiene todas las épicas del usuario
- */
-export const fetchEpics = async (userId: string): Promise<EpicWithDetails[]> => {
-  const { data, error } = await supabase
+export const fetchEpics = async (
+  userId: string,
+  projectId?: string | null
+): Promise<EpicWithDetails[]> => {
+  let query = supabase
     .from("epics")
     .select(`
       *,
@@ -55,15 +53,18 @@ export const fetchEpics = async (userId: string): Promise<EpicWithDetails[]> => 
         color
       )
     `)
-    .eq("user_id", userId)
-    .order("created_at", { ascending: false });
+    .eq("user_id", userId);
+
+  if (projectId) {
+    query = query.eq("project_id", projectId);
+  }
+
+  const { data, error } = await query.order("created_at", { ascending: false });
 
   if (error) throw error;
 
-  // Transformar datos
   const epicsWithDetails: EpicWithDetails[] = await Promise.all(
     (data ?? []).map(async (epic: any) => {
-      // Obtener tareas conectadas
       const { data: epicTasks } = await supabase
         .from("epic_tasks")
         .select(`
@@ -92,9 +93,6 @@ export const fetchEpics = async (userId: string): Promise<EpicWithDetails[]> => 
   return epicsWithDetails;
 };
 
-/**
- * Crea una nueva épica
- */
 export const createEpic = async (
   userId: string,
   data: {
@@ -102,6 +100,7 @@ export const createEpic = async (
     owner_id?: string | null;
     phase_id?: string | null;
     estimated_effort?: string | null;
+    project_id?: string | null;
   }
 ): Promise<Epic> => {
   const { data: created, error } = await supabase
@@ -117,9 +116,6 @@ export const createEpic = async (
   return created;
 };
 
-/**
- * Actualiza una épica
- */
 export const updateEpic = async (
   epicId: string,
   updates: {
@@ -143,9 +139,6 @@ export const updateEpic = async (
   return data;
 };
 
-/**
- * Elimina una épica
- */
 export const deleteEpic = async (epicId: string): Promise<boolean> => {
   const { error } = await supabase.from("epics").delete().eq("id", epicId);
 
@@ -153,9 +146,6 @@ export const deleteEpic = async (epicId: string): Promise<boolean> => {
   return true;
 };
 
-/**
- * Conecta una tarea a una épica
- */
 export const connectTaskToEpic = async (
   epicId: string,
   taskId: string
@@ -168,9 +158,6 @@ export const connectTaskToEpic = async (
   if (error) throw error;
 };
 
-/**
- * Desconecta una tarea de una épica
- */
 export const disconnectTaskFromEpic = async (
   epicId: string,
   taskId: string
@@ -184,12 +171,7 @@ export const disconnectTaskFromEpic = async (
   if (error) throw error;
 };
 
-/**
- * Busca tareas por título (para autocompletar)
- * Si query está vacío, devuelve todas las tareas disponibles
- */
 export const searchTasks = async (userId: string, query: string = ""): Promise<Array<{ id: string; title: string }>> => {
-  // Primero obtener el board del usuario
   const { data: board } = await supabase
     .from("boards")
     .select("id")
@@ -198,7 +180,6 @@ export const searchTasks = async (userId: string, query: string = ""): Promise<A
 
   if (!board) return [];
 
-  // Obtener columnas del board
   const { data: columns } = await supabase
     .from("columns")
     .select("id")
@@ -208,19 +189,16 @@ export const searchTasks = async (userId: string, query: string = ""): Promise<A
 
   const columnIds = columns.map((c) => c.id);
 
-  // Construir query con o sin filtro de búsqueda
   let queryBuilder = supabase
     .from("tasks")
     .select("id, title")
     .in("column_id", columnIds)
     .order("title", { ascending: true });
 
-  // Si hay query, filtrar por título
   if (query.trim()) {
     queryBuilder = queryBuilder.ilike("title", `%${query}%`);
   }
 
-  // Limitar resultados
   queryBuilder = queryBuilder.limit(50);
 
   const { data, error } = await queryBuilder;

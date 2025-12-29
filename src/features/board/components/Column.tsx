@@ -1,6 +1,9 @@
 import { Box, Button, Paper, Stack, Typography } from "@mui/material";
 import { Draggable, Droppable } from "@hello-pangea/dnd";
+import { alpha } from "@mui/material/styles";
 import AddIcon from "@mui/icons-material/Add";
+import { useTheme } from "@mui/material/styles";
+import { createPortal } from "react-dom";
 import TaskCard from "./TaskCard";
 import type { Column as ColumnType, Task } from "../../../shared/types/board";
 
@@ -11,6 +14,7 @@ type ColumnProps = {
   onCreateTask: (columnId: string) => void;
   onTaskClick: (task: Task) => void;
   isCreatingTask?: boolean;
+  currentUserId?: string;
 };
 
 const Column = ({
@@ -20,7 +24,10 @@ const Column = ({
   onCreateTask,
   onTaskClick,
   isCreatingTask = false,
+  currentUserId,
 }: ColumnProps) => {
+  const theme = useTheme();
+
   return (
     <Draggable draggableId={column.id} index={index}>
       {(provided, snapshot) => (
@@ -33,18 +40,18 @@ const Column = ({
             maxWidth: 300,
             borderRadius: 2,
             backgroundColor: snapshot.isDragging 
-              ? "rgba(255, 251, 235, 0.95)"
-              : "#fff",
+              ? alpha(theme.palette.warning.main, 0.15)
+              : "background.paper",
             border: snapshot.isDragging
-              ? "2px solid #fbbf24"
-              : "1px solid #e5e7eb",
+              ? `2px solid ${theme.palette.warning.main}`
+              : `1px solid ${theme.palette.divider}`,
             transform: snapshot.isDragging 
               ? "rotate(2deg)"
               : "none",
             transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
             boxShadow: snapshot.isDragging
-              ? "0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)"
-              : "0 1px 3px 0 rgba(0, 0, 0, 0.1)",
+              ? theme.shadows[8]
+              : theme.shadows[1],
           }}
         >
           <Stack spacing={2} p={2}>
@@ -66,7 +73,9 @@ const Column = ({
                   variant="subtitle1" 
                   fontWeight={700}
                   sx={{
-                    color: snapshot.isDragging ? "#92400e" : "text.primary",
+                    color: snapshot.isDragging 
+                      ? theme.palette.warning.dark 
+                      : "text.primary",
                   }}
                 >
                   {column.title}
@@ -75,9 +84,11 @@ const Column = ({
                   variant="caption"
                   sx={{
                     backgroundColor: snapshot.isDragging 
-                      ? "#fbbf24" 
-                      : "#e2e8f0",
-                    color: snapshot.isDragging ? "#78350f" : "#475569",
+                      ? theme.palette.warning.main
+                      : "action.selected",
+                    color: snapshot.isDragging 
+                      ? theme.palette.warning.contrastText
+                      : "text.primary",
                     px: 1,
                     py: 0.5,
                     borderRadius: 1,
@@ -99,10 +110,10 @@ const Column = ({
                   sx={{
                     minHeight: 100,
                     backgroundColor: dropSnapshot.isDraggingOver
-                      ? "rgba(220, 252, 231, 0.8)"
+                      ? alpha(theme.palette.success.main, 0.12)
                       : "transparent",
                     border: dropSnapshot.isDraggingOver
-                      ? "2px dashed #10b981"
+                      ? `2px dashed ${theme.palette.success.main}`
                       : "2px dashed transparent",
                     borderRadius: 2,
                     p: dropSnapshot.isDraggingOver ? 1.5 : 0,
@@ -111,15 +122,53 @@ const Column = ({
                 >
                   {tasks.map((task, taskIndex) => (
                     <Draggable key={task.id} draggableId={task.id} index={taskIndex}>
-                      {(taskProvided) => (
-                        <div
-                          ref={taskProvided.innerRef}
-                          {...taskProvided.draggableProps}
-                          {...taskProvided.dragHandleProps}
-                        >
-                          <TaskCard task={task} onClick={() => onTaskClick(task)} />
-                        </div>
-                      )}
+                      {(taskProvided, taskSnapshot) => {
+                        const child = (
+                          <Box
+                            ref={taskProvided.innerRef}
+                            {...taskProvided.draggableProps}
+                            {...taskProvided.dragHandleProps}
+                            sx={{
+                              // ✅ CRÍTICO: Asegurar que el elemento sea visible durante el drag
+                              opacity: taskSnapshot.isDragging ? 0.5 : 1,
+                            }}
+                          >
+                            <TaskCard 
+                              task={task} 
+                              onClick={() => onTaskClick(task)}
+                              currentUserId={currentUserId}
+                              isDragging={taskSnapshot.isDragging}
+                            />
+                          </Box>
+                        );
+
+                        // ✅ SOLUCIÓN: Usar portal solo para el elemento que se está arrastrando
+                        if (taskSnapshot.isDragging) {
+                          return createPortal(
+                            <Box
+                              {...taskProvided.draggableProps}
+                              {...taskProvided.dragHandleProps}
+                              sx={{
+                                // ✅ Posición fija para que siga el cursor
+                                position: "fixed",
+                                pointerEvents: "none",
+                                zIndex: 9999,
+                                width: 300, // Mismo ancho que las columnas
+                              }}
+                            >
+                              <TaskCard 
+                                task={task} 
+                                onClick={() => {}}
+                                currentUserId={currentUserId}
+                                isDragging={true}
+                              />
+                            </Box>,
+                            document.body
+                          );
+                        }
+
+                        return child;
+                      }}
                     </Draggable>
                   ))}
                   {provided.placeholder}
@@ -129,7 +178,7 @@ const Column = ({
                       sx={{
                         textAlign: "center",
                         py: 1,
-                        color: "#059669",
+                        color: theme.palette.success.main,
                         fontSize: "0.875rem",
                         fontWeight: 500,
                       }}
@@ -152,7 +201,7 @@ const Column = ({
                 color: "text.secondary",
                 textTransform: "none",
                 "&:hover": {
-                  backgroundColor: "#f1f5f9",
+                  backgroundColor: "action.hover",
                 },
               }}
             >
