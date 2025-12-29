@@ -6,6 +6,7 @@ import {
   TextField,
   Typography,
   Paper,
+  Alert,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import { DragDropContext, Droppable, type DropResult } from "@hello-pangea/dnd";
@@ -20,7 +21,7 @@ import {
   createColumn,
   createTask,
   deleteTask,
-  fetchBoardData,
+  fetchBoardDataByProject,
   persistColumnOrder,
   persistTaskOrder,
   toBoardState,
@@ -35,6 +36,7 @@ import {
   type Priority,
   type PointValue,
 } from "../../api/catalogService";
+import { useProject } from "../../../shared/contexts/ProjectContext";
 
 type BoardProps = {
   userId: string;
@@ -59,6 +61,7 @@ const Board = ({ userId }: BoardProps) => {
     issue_type_id?: string | null;
     priority_id?: string | null;
     story_points?: string | null;
+    assignee_id?: string | null; 
   } | null>(null);
 
   const [issueTypes, setIssueTypes] = useState<IssueType[]>([]);
@@ -67,6 +70,8 @@ const Board = ({ userId }: BoardProps) => {
   const [catalogsLoaded, setCatalogsLoaded] = useState(false);
 
   const [isAddColumnModalOpen, setIsAddColumnModalOpen] = useState(false);
+
+  const { currentProject } = useProject();
 
   useEffect(() => {
     const loadCatalogs = async () => {
@@ -96,14 +101,31 @@ const Board = ({ userId }: BoardProps) => {
 
   useEffect(() => {
     const loadBoard = async () => {
+      // ✅ CAMBIO 1: Si no hay proyecto, no cargar nada
+      if (!currentProject) {
+        setData(null);
+        setBoardId(null);
+        setIsLoading(false);
+        return;
+      }
+
       try {
-        const response = await fetchBoardData(userId);
+        setIsLoading(true);
+        console.log("🔍 Cargando board para proyecto:", currentProject.id); // ✅ DEBUG
+        
+        const response = await fetchBoardDataByProject(userId, currentProject.id);
+        
+        console.log("📦 Response recibida:", response); // ✅ DEBUG
         
         if (!response.board) {
+          console.log("❌ No hay board"); // ✅ DEBUG
           setBoardId(null);
           setData(null);
           return;
         }
+        
+        console.log("📊 Columnas:", response.columns); // ✅ DEBUG
+        console.log("📋 Column order:", response.columnOrder); // ✅ DEBUG
         
         const boardState = toBoardState(
           response.columns, 
@@ -111,11 +133,13 @@ const Board = ({ userId }: BoardProps) => {
           response.columnOrder
         );
         
+        console.log("✅ BoardState creado:", boardState); // ✅ DEBUG
+        
         setBoardId(response.board.id);
         setData(boardState);
         setErrorMessage(null);
       } catch (error) {
-        console.error(error);
+        console.error("💥 Error cargando board:", error); // ✅ DEBUG
         setErrorMessage("No se pudo cargar el tablero desde Supabase.");
       } finally {
         setIsLoading(false);
@@ -123,38 +147,38 @@ const Board = ({ userId }: BoardProps) => {
     };
 
     void loadBoard();
-  }, [userId]);
+  }, [userId, currentProject]);
 
-  const handleCreateBoard = async () => {
-    if (!boardName.trim()) {
-      setErrorMessage("Ingresa un nombre para el tablero.");
-      return;
-    }
+const handleCreateBoard = async () => {
+  if (!boardName.trim()) {
+    setErrorMessage("Ingresa un nombre para el tablero.");
+    return;
+  }
 
-    setIsCreatingBoard(true);
-    setErrorMessage(null);
-    try {
-      const created = await createBoard(userId, boardName.trim());
-      const initialColumnOrder = created.columns.map(c => c.id);
-      
-      setBoardId(created.board.id);
-      setData(toBoardState(created.columns, [], initialColumnOrder));
-    } catch (error) {
-      console.error(error);
-      setErrorMessage("No se pudo crear el tablero.");
-    } finally {
-      setIsCreatingBoard(false);
-    }
-  };
+  setIsCreatingBoard(true);
+  setErrorMessage(null);
+  try {
+    const created = await createBoard(userId, boardName.trim());
+    
+    setBoardId(created.board.id);
+    setData(toBoardState([], [], []));
+  } catch (error) {
+    console.error(error);
+    setErrorMessage("No se pudo crear el tablero.");
+  } finally {
+    setIsCreatingBoard(false);
+  }
+};
 
   const handleCreateColumn = async (columnName: string) => {
-    if (!boardId || !data) {
+    if (!currentProject || !data) {
+      setErrorMessage("Selecciona un proyecto primero");
       return;
     }
 
     try {
       const position = data.columnOrder.length;
-      const newColumn = await createColumn(boardId, columnName, position);
+      const newColumn = await createColumn(currentProject.id, columnName, position);
       const newColumnOrder = [...data.columnOrder, newColumn.id];
 
       setData((previous) => {
@@ -229,6 +253,7 @@ const Board = ({ userId }: BoardProps) => {
         issue_type_id: created.issue_type_id,
         priority_id: created.priority_id,
         story_points: created.story_points,
+        assignee_id: created.assignee_id,
       });
       setIsModalOpen(true);
 
@@ -260,6 +285,7 @@ const Board = ({ userId }: BoardProps) => {
       issue_type_id: task.issue_type_id ?? null,
       priority_id: task.priority_id ?? null,
       story_points: task.story_points ?? null,
+      assignee_id: task.assignee_id ?? null,
     });
     setIsModalOpen(true);
   };
@@ -273,6 +299,7 @@ const Board = ({ userId }: BoardProps) => {
       issue_type_id: string | null;
       priority_id: string | null;
       story_points: string | null;
+      assignee_id: string | null;
     }
   ) => {
     if (!data) return;
@@ -342,7 +369,7 @@ const Board = ({ userId }: BoardProps) => {
       setData((previous) => {
         if (!previous) return previous;
 
-        const { [taskId]: removed, ...remainingTasks } = previous.tasks;
+        const { [taskId]: _removed, ...remainingTasks } = previous.tasks;
 
         const updatedColumns = { ...previous.columns };
         for (const colId of Object.keys(updatedColumns)) {
@@ -381,6 +408,8 @@ const Board = ({ userId }: BoardProps) => {
     }
 
     if (type === "column") {
+      if (!currentProject) return;
+
       const newColumnOrder = Array.from(data.columnOrder);
       newColumnOrder.splice(source.index, 1);
       newColumnOrder.splice(destination.index, 0, draggableId);
@@ -391,7 +420,7 @@ const Board = ({ userId }: BoardProps) => {
       });
 
       try {
-        await persistColumnOrder(boardId!, newColumnOrder);
+        await persistColumnOrder(currentProject.id, newColumnOrder);
       } catch (error) {
         console.error("Error guardando orden de columnas:", error);
         setData({
@@ -492,36 +521,57 @@ const Board = ({ userId }: BoardProps) => {
     );
   }
 
-  if (!data) {
+  // ✅ CAMBIO 2: Detectar si no hay proyecto seleccionado
+  if (!currentProject) {
+    return (
+      <Stack spacing={3} py={4} alignItems="center">
+        <Alert severity="info" sx={{ maxWidth: 600 }}>
+          Selecciona un proyecto desde el menú lateral para ver su tablero
+        </Alert>
+      </Stack>
+    );
+  }
+
+  // ✅ CAMBIO 3: Si no hay board, mostrar opción de crear
+  if (!boardId) {
     return (
       <Stack spacing={1} py={4}>
         <Typography variant="h5" fontWeight={700}>
           Tablero
         </Typography>
-        {boardId ? (
-          <Typography color="error">
-            {errorMessage ?? "No hay datos disponibles."}
+        <Stack spacing={2} maxWidth={360}>
+          <Typography color="text.secondary">
+            Aún no tienes un tablero creado.
           </Typography>
-        ) : (
-          <Stack spacing={2} maxWidth={360}>
-            <Typography color="text.secondary">
-              {errorMessage ?? "Aún no tienes un tablero creado."}
-            </Typography>
-            <TextField
-              label="Nombre del tablero"
-              value={boardName}
-              onChange={(event) => setBoardName(event.target.value)}
-              size="small"
-            />
-            <Button
-              variant="contained"
-              onClick={handleCreateBoard}
-              disabled={isCreatingBoard}
-            >
-              {isCreatingBoard ? "Creando..." : "Crear tablero"}
-            </Button>
-          </Stack>
-        )}
+          <TextField
+            label="Nombre del tablero"
+            value={boardName}
+            onChange={(event) => setBoardName(event.target.value)}
+            size="small"
+          />
+          <Button
+            variant="contained"
+            onClick={handleCreateBoard}
+            disabled={isCreatingBoard}
+          >
+            {isCreatingBoard ? "Creando..." : "Crear tablero"}
+          </Button>
+        </Stack>
+      </Stack>
+    );
+  }
+
+  // ✅ CAMBIO 4: Si no hay data o no hay columnas
+  if (!data || data.columnOrder.length === 0) {
+    return (
+      <Stack spacing={3} py={4}>
+        <Alert severity="warning">
+          Este proyecto no tiene columnas. 
+          {currentProject && ` Proyecto: ${currentProject.title}`}
+        </Alert>
+        <Typography variant="body2" color="text.secondary">
+          Revisa la consola del navegador (F12) para ver los detalles.
+        </Typography>
       </Stack>
     );
   }
@@ -546,7 +596,7 @@ const Board = ({ userId }: BoardProps) => {
           <Stack direction="row" justifyContent="space-between" alignItems="center">
             <Box>
               <Typography variant="h5" fontWeight={700}>
-                Tablero
+                {currentProject.title}
               </Typography>
               <Typography variant="body2" color="text.secondary">
                 Arrastra columnas o tareas para reorganizar.
@@ -603,6 +653,7 @@ const Board = ({ userId }: BoardProps) => {
                       onCreateTask={handleCreateTask}
                       onTaskClick={handleTaskClick}
                       isCreatingTask={creatingTaskColumnId === column.id}
+                      currentUserId={userId}
                     />
                   );
                 })}
@@ -620,6 +671,7 @@ const Board = ({ userId }: BoardProps) => {
         issueTypes={issueTypes}
         priorities={priorities}
         pointValues={pointValues}
+        currentUserId={userId}
         onClose={() => setIsModalOpen(false)}
         onSave={handleSaveTask}
         onDelete={handleDeleteTask}

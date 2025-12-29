@@ -4,21 +4,25 @@ import {
   Dialog,
   DialogActions,
   DialogContent,
-  DialogTitle,
   FormControl,
   IconButton,
   InputLabel,
+  DialogTitle,
   MenuItem,
   Paper,
   Select,
   Stack,
   TextField,
   Typography,
+  Checkbox,
+  FormControlLabel,
+  Chip,
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import DeleteIcon from "@mui/icons-material/Delete";
 import SaveIcon from "@mui/icons-material/Save";
 import WarningIcon from "@mui/icons-material/Warning";
+import PersonIcon from "@mui/icons-material/Person";
 import Quill from "quill";
 import "quill/dist/quill.snow.css";
 import { useEffect, useRef, useState } from "react";
@@ -34,11 +38,13 @@ type TaskEditorModalProps = {
     issue_type_id?: string | null;
     priority_id?: string | null;
     story_points?: string | null;
+    assignee_id?: string | null;
   } | null;
   columns: Array<{ id: string; title: string }>;
   issueTypes: IssueType[];
   priorities: Priority[];
   pointValues: PointValue[];
+  currentUserId: string;  // ✅ NUEVO: ID del usuario logueado
   onClose: () => void;
   onSave: (taskId: string, updates: {
     title: string;
@@ -47,6 +53,7 @@ type TaskEditorModalProps = {
     issue_type_id: string | null;
     priority_id: string | null;
     story_points: string | null;
+    assignee_id: string | null;  // ✅ NUEVO
   }) => Promise<void>;
   onDelete: (taskId: string) => Promise<void>;
 };
@@ -58,6 +65,7 @@ const TaskEditorModal = ({
   issueTypes,
   priorities,
   pointValues,
+  currentUserId,
   onClose,
   onSave,
   onDelete,
@@ -70,19 +78,17 @@ const TaskEditorModal = ({
   const [issueTypeId, setIssueTypeId] = useState<string>("");
   const [priorityId, setPriorityId] = useState<string>("");
   const [storyPoints, setStoryPoints] = useState<string>("");
+  const [assigneeId, setAssigneeId] = useState<string>("");  // ✅ NUEVO
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   
-  // Diálogo de confirmación para eliminar
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
-  // Inicializar Quill DESPUÉS de que el DOM esté listo
   useEffect(() => {
     if (!open || !task) {
       return;
     }
 
-    // SOLUCIÓN: Esperar a que el DOM se renderice completamente
     const timer = setTimeout(() => {
       if (!editorRef.current) {
         console.error("❌ editorRef.current sigue siendo null después del timeout");
@@ -115,7 +121,6 @@ const TaskEditorModal = ({
 
         quillRef.current = quill;
 
-        // Cargar descripción
         if (task.description) {
           quill.setText(task.description);
         }
@@ -124,7 +129,7 @@ const TaskEditorModal = ({
       } catch (error) {
         console.error("💥 Error al inicializar Quill:", error);
       }
-    }, 0); // Esperar al siguiente ciclo del event loop
+    }, 0);
 
     return () => {
       clearTimeout(timer);
@@ -134,7 +139,6 @@ const TaskEditorModal = ({
     };
   }, [open, task]);
 
-  // Cargar datos de la tarea
   useEffect(() => {
     if (!task) {
       return;
@@ -145,9 +149,9 @@ const TaskEditorModal = ({
     setIssueTypeId(task.issue_type_id || "");
     setPriorityId(task.priority_id || "");
     setStoryPoints(task.story_points || "");
+    setAssigneeId(task.assignee_id || "");  // ✅ NUEVO
   }, [task]);
 
-  // Limpiar al cerrar
   useEffect(() => {
     if (!open) {
       setTitle("");
@@ -155,6 +159,7 @@ const TaskEditorModal = ({
       setIssueTypeId("");
       setPriorityId("");
       setStoryPoints("");
+      setAssigneeId("");  // ✅ NUEVO
       if (quillRef.current) {
         quillRef.current = null;
       }
@@ -180,6 +185,7 @@ const TaskEditorModal = ({
         issue_type_id: issueTypeId || null,
         priority_id: priorityId || null,
         story_points: storyPoints || null,
+        assignee_id: assigneeId || null,  // ✅ NUEVO
       });
       onClose();
     } catch (error) {
@@ -210,6 +216,15 @@ const TaskEditorModal = ({
     }
   };
 
+  // ✅ NUEVO: Toggle para asignar/desasignar al usuario actual
+  const handleToggleAssignment = () => {
+    if (assigneeId === currentUserId) {
+      setAssigneeId("");  // Desasignar
+    } else {
+      setAssigneeId(currentUserId);  // Asignar al usuario actual
+    }
+  };
+
   return (
     <>
       <Dialog
@@ -224,7 +239,6 @@ const TaskEditorModal = ({
           },
         }}
       >
-        {/* Header */}
         <Box
           sx={{
             display: "flex",
@@ -265,7 +279,6 @@ const TaskEditorModal = ({
 
         <DialogContent sx={{ p: 3 }}>
           <Stack spacing={3}>
-            {/* Título */}
             <TextField
               fullWidth
               variant="outlined"
@@ -281,7 +294,43 @@ const TaskEditorModal = ({
               }}
             />
 
-            {/* Fila 1: Tipo de Issue y Prioridad */}
+            {/* ✅ NUEVO: Asignación al usuario */}
+            <Box
+              sx={{
+                p: 2,
+                borderRadius: 2,
+                bgcolor: assigneeId === currentUserId ? "action.selected" : "action.hover",
+                border: "1px solid",
+                borderColor: "divider",
+              }}
+            >
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={assigneeId === currentUserId}
+                    onChange={handleToggleAssignment}
+                    icon={<PersonIcon />}
+                    checkedIcon={<PersonIcon />}
+                  />
+                }
+                label={
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <Typography variant="body2" fontWeight={600}>
+                      {assigneeId === currentUserId ? "Asignada a ti" : "Asignarme esta tarea"}
+                    </Typography>
+                    {assigneeId === currentUserId && (
+                      <Chip 
+                        label="Asignada" 
+                        size="small" 
+                        color="primary" 
+                        icon={<PersonIcon />}
+                      />
+                    )}
+                  </Stack>
+                }
+              />
+            </Box>
+
             <Stack direction="row" spacing={2}>
               <FormControl fullWidth>
                 <InputLabel>Tipo de Issue</InputLabel>
@@ -333,7 +382,6 @@ const TaskEditorModal = ({
               </FormControl>
             </Stack>
 
-            {/* Fila 2: Estado y Story Points */}
             <Stack direction="row" spacing={2}>
               <FormControl fullWidth>
                 <InputLabel>Estado</InputLabel>
@@ -369,7 +417,6 @@ const TaskEditorModal = ({
               </FormControl>
             </Stack>
 
-            {/* Descripción con Quill */}
             <Box>
               <Typography variant="subtitle2" gutterBottom color="text.secondary">
                 Descripción
@@ -409,7 +456,6 @@ const TaskEditorModal = ({
         </DialogContent>
       </Dialog>
 
-      {/* Diálogo de confirmación para eliminar */}
       <Dialog
         open={deleteDialogOpen}
         onClose={() => setDeleteDialogOpen(false)}

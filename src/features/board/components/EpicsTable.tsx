@@ -44,7 +44,7 @@ import DeleteIcon from "@mui/icons-material/Delete";
 import EditIcon from "@mui/icons-material/Edit";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import LinkIcon from "@mui/icons-material/Link";
-import WarningIcon from "@mui/icons-material/Warning";
+import FolderIcon from "@mui/icons-material/Folder";
 import {
   fetchEpics,
   fetchEpicPhases,
@@ -62,6 +62,8 @@ import {
   fetchPointValues,
   type PointValue,
 } from "../../api/catalogService";
+import { fetchProjects, linkEpicToProject, type ProjectWithTags } from "../../api/projectService";
+import { useProject } from "../../../shared/contexts/ProjectContext";
 
 type EpicsTableProps = {
   userId: string;
@@ -72,6 +74,7 @@ const EpicsTable = ({ userId }: EpicsTableProps) => {
   const [epics, setEpics] = useState<EpicWithDetails[]>([]);
   const [phases, setPhases] = useState<EpicPhase[]>([]);
   const [pointValues, setPointValues] = useState<PointValue[]>([]);
+  const [projects, setProjects] = useState<ProjectWithTags[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   const [rows, setRows] = useState<GridRowsProp>([]);
@@ -82,12 +85,16 @@ const EpicsTable = ({ userId }: EpicsTableProps) => {
   const [sortAnchor, setSortAnchor] = useState<HTMLElement | null>(null);
   const [hideAnchor, setHideAnchor] = useState<HTMLElement | null>(null);
 
+  const { currentProject } = useProject();
+
   const [filters, setFilters] = useState<{
     phases: string[];
     efforts: string[];
+    projects: string[];
   }>({
     phases: [],
     efforts: [],
+    projects: [],
   });
 
   const [sortColumn, setSortColumn] = useState<string>("name");
@@ -98,27 +105,30 @@ const EpicsTable = ({ userId }: EpicsTableProps) => {
   const [taskOptions, setTaskOptions] = useState<Array<{ id: string; title: string }>>([]);
   const [taskSearchText, setTaskSearchText] = useState("");
 
-  // ✅ Estado para confirmación de eliminación
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [epicToDelete, setEpicToDelete] = useState<string | null>(null);
 
   const [editingName, setEditingName] = useState<string | null>(null);
   const [editingPhase, setEditingPhase] = useState<string | null>(null);
   const [editingEffort, setEditingEffort] = useState<string | null>(null);
+  const [editingProject, setEditingProject] = useState<string | null>(null);
   const [phaseMenuAnchor, setPhaseMenuAnchor] = useState<HTMLElement | null>(null);
   const [effortMenuAnchor, setEffortMenuAnchor] = useState<HTMLElement | null>(null);
+  const [projectMenuAnchor, setProjectMenuAnchor] = useState<HTMLElement | null>(null);
 
   const loadData = async () => {
     setIsLoading(true);
     try {
-      const [epicsData, phasesData, pointSystem] = await Promise.all([
-        fetchEpics(userId),
+      const [epicsData, phasesData, pointSystem, projectsData] = await Promise.all([
+        fetchEpics(userId, currentProject?.id ?? null),
         fetchEpicPhases(),
         fetchDefaultPointSystem(),
+        fetchProjects(userId),
       ]);
 
       setEpics(epicsData);
       setPhases(phasesData);
+      setProjects(projectsData);
 
       if (pointSystem) {
         const points = await fetchPointValues(pointSystem.id);
@@ -133,7 +143,7 @@ const EpicsTable = ({ userId }: EpicsTableProps) => {
 
   useEffect(() => {
     void loadData();
-  }, [userId]);
+  }, [userId, currentProject]);
 
   useEffect(() => {
     let processedEpics = epics.filter((epic) => !hiddenEpics.includes(epic.id));
@@ -158,6 +168,12 @@ const EpicsTable = ({ userId }: EpicsTableProps) => {
       );
     }
 
+    if (filters.projects.length > 0) {
+      processedEpics = processedEpics.filter((epic) =>
+        filters.projects.includes(epic.project_id || "")
+      );
+    }
+
     processedEpics.sort((a, b) => {
       let aValue: string = "";
       let bValue: string = "";
@@ -175,6 +191,13 @@ const EpicsTable = ({ userId }: EpicsTableProps) => {
           aValue = a.estimated_effort || "";
           bValue = b.estimated_effort || "";
           break;
+        case "project": {
+          const projectA = projects.find(p => p.id === a.project_id);
+          const projectB = projects.find(p => p.id === b.project_id);
+          aValue = projectA?.title || "";
+          bValue = projectB?.title || "";
+          break;
+        }
         case "epicId":
           aValue = a.epic_id_display || "";
           bValue = b.epic_id_display || "";
@@ -191,20 +214,27 @@ const EpicsTable = ({ userId }: EpicsTableProps) => {
       }
     });
 
-    const mappedRows = processedEpics.map((epic) => ({
-      id: epic.id,
-      name: epic.name,
-      owner: "Usuario",
-      phase_id: epic.phase_id,
-      phase: epic.phase_name || "Sin fase",
-      phaseColor: epic.phase_color,
-      connectedTasks: epic.connected_tasks || [],
-      estimatedEffort: epic.estimated_effort || "",
-      epicId: epic.epic_id_display || "-",
-    }));
+    const mappedRows = processedEpics.map((epic) => {
+      const project = projects.find(p => p.id === epic.project_id);
+      
+      return {
+        id: epic.id,
+        name: epic.name,
+        owner: "Usuario",
+        phase_id: epic.phase_id,
+        phase: epic.phase_name || "Sin fase",
+        phaseColor: epic.phase_color,
+        project_id: epic.project_id,
+        project: project?.title || "Sin proyecto",
+        projectTags: project?.tags || [],
+        connectedTasks: epic.connected_tasks || [],
+        estimatedEffort: epic.estimated_effort || "",
+        epicId: epic.epic_id_display || "-",
+      };
+    });
 
     setRows(mappedRows);
-  }, [epics, hiddenEpics, searchText, filters, sortColumn, sortOrder]);
+  }, [epics, projects, hiddenEpics, searchText, filters, sortColumn, sortOrder]);
 
   useEffect(() => {
     if (taskSearchOpen !== null) {
@@ -214,7 +244,10 @@ const EpicsTable = ({ userId }: EpicsTableProps) => {
 
   const handleAddEpic = async () => {
     try {
-      await createEpic(userId, { name: "Nueva épica" });
+      await createEpic(userId, { 
+        name: "Nueva épica",
+        project_id: currentProject?.id ?? null 
+      });
       await loadData();
     } catch (error) {
       console.error("Error creando épica:", error);
@@ -248,6 +281,15 @@ const EpicsTable = ({ userId }: EpicsTableProps) => {
     }
   };
 
+  const handleProjectChange = async (epicId: string, projectId: string) => {
+    try {
+      await linkEpicToProject(epicId, projectId || null);
+      await loadData();
+    } catch (error) {
+      console.error("Error actualizando proyecto:", error);
+    }
+  };
+
   const handleConnectTask = async (epicId: string, taskId: string) => {
     try {
       await connectTaskToEpic(epicId, taskId);
@@ -267,7 +309,6 @@ const EpicsTable = ({ userId }: EpicsTableProps) => {
   };
 
   const handleDeleteEpic = async (epicId: string) => {
-    // ✅ Abrir diálogo de confirmación
     setEpicToDelete(epicId);
     setDeleteDialogOpen(true);
   };
@@ -285,13 +326,13 @@ const EpicsTable = ({ userId }: EpicsTableProps) => {
     }
   };
 
-  const activeFiltersCount = filters.phases.length + filters.efforts.length;
+  const activeFiltersCount = filters.phases.length + filters.efforts.length + filters.projects.length;
 
   const columns: GridColDef[] = [
     {
       field: "name",
       headerName: "Épica",
-      width: 280,
+      width: 250,
       renderCell: (params) => {
         const isEditing = editingName === params.row.id;
         
@@ -318,7 +359,6 @@ const EpicsTable = ({ userId }: EpicsTableProps) => {
                 } else if (e.key === "Escape") {
                   e.preventDefault();
                 }
-              
               }}
               sx={{ 
                 my: -1,
@@ -360,9 +400,58 @@ const EpicsTable = ({ userId }: EpicsTableProps) => {
       },
     },
     {
+      field: "project",
+      headerName: "Proyecto",
+      width: 220,
+      renderCell: (params) => (
+        <Tooltip title="Click para cambiar proyecto" placement="top">
+          <Box
+            sx={{
+              cursor: "pointer",
+              width: "100%",
+              height: "100%",
+              display: "flex",
+              alignItems: "center",
+            }}
+            onClick={(e) => {
+              setEditingProject(params.row.id as string);
+              setProjectMenuAnchor(e.currentTarget);
+            }}
+          >
+            <Chip
+              label={params.value as string}
+              size="small"
+              icon={<FolderIcon sx={{ fontSize: 16, color: "inherit !important" }} />}
+              sx={{
+                bgcolor: params.row.project_id 
+                  ? alpha(theme.palette.info.main, 0.1)
+                  : alpha(theme.palette.grey[500], 0.1),
+                color: params.row.project_id 
+                  ? theme.palette.info.dark
+                  : theme.palette.text.secondary,
+                border: `1px solid ${params.row.project_id 
+                  ? alpha(theme.palette.info.main, 0.3)
+                  : alpha(theme.palette.grey[500], 0.2)}`,
+                fontWeight: 600,
+                cursor: "pointer",
+                transition: "all 0.2s ease",
+                "&:hover": {
+                  transform: "scale(1.05)",
+                  boxShadow: `0 4px 12px ${alpha(
+                    params.row.project_id ? theme.palette.info.main : theme.palette.grey[500], 
+                    0.3
+                  )}`,
+                },
+              }}
+            />
+          </Box>
+        </Tooltip>
+      ),
+    },
+    {
       field: "phase",
       headerName: "Fase",
-      width: 200,
+      width: 180,
       renderCell: (params) => (
         <Tooltip title="Click para cambiar fase" placement="top">
           <Box
@@ -401,7 +490,7 @@ const EpicsTable = ({ userId }: EpicsTableProps) => {
     {
       field: "connectedTasks",
       headerName: "Tareas conectadas",
-      width: 380,
+      width: 320,
       renderCell: (params) => (
         <Stack direction="row" spacing={0.5} flexWrap="wrap" alignItems="center" sx={{ py: 0.5 }}>
           {(params.value as Array<{ id: string; title: string }>).map((task) => (
@@ -412,13 +501,13 @@ const EpicsTable = ({ userId }: EpicsTableProps) => {
                 onDelete={() => handleDisconnectTask(params.row.id as string, task.id)}
                 sx={{
                   m: 0.25,
-                  bgcolor: alpha(theme.palette.info.main, 0.1),
-                  border: `1px solid ${alpha(theme.palette.info.main, 0.2)}`,
-                  color: theme.palette.info.dark,
+                  bgcolor: alpha(theme.palette.success.main, 0.1),
+                  border: `1px solid ${alpha(theme.palette.success.main, 0.2)}`,
+                  color: theme.palette.success.dark,
                   fontWeight: 500,
                   transition: "all 0.2s ease",
                   "&:hover": {
-                    bgcolor: alpha(theme.palette.info.main, 0.2),
+                    bgcolor: alpha(theme.palette.success.main, 0.2),
                     transform: "translateY(-1px)",
                   },
                 }}
@@ -460,7 +549,7 @@ const EpicsTable = ({ userId }: EpicsTableProps) => {
     {
       field: "estimatedEffort",
       headerName: "Esfuerzo estimado",
-      width: 180,
+      width: 160,
       renderCell: (params) => (
         <Tooltip title="Click para cambiar esfuerzo" placement="top">
           <Box
@@ -496,7 +585,7 @@ const EpicsTable = ({ userId }: EpicsTableProps) => {
     {
       field: "epicId",
       headerName: "ID",
-      width: 120,
+      width: 100,
       renderCell: (params) => (
         <Chip
           label={params.value as string}
@@ -519,18 +608,12 @@ const EpicsTable = ({ userId }: EpicsTableProps) => {
         <GridActionsCellItem
           key="delete"
           icon={
-            <Tooltip title="Eliminar épica">
+            <Tooltip title="Eliminar épica" color="error">
               <DeleteIcon />
             </Tooltip>
           }
           label="Eliminar"
           onClick={() => handleDeleteEpic(params.row.id as string)}
-          sx={{
-            color: theme.palette.error.main,
-            "&:hover": {
-              bgcolor: alpha(theme.palette.error.main, 0.1),
-            },
-          }}
         />,
       ],
     },
@@ -552,7 +635,7 @@ const EpicsTable = ({ userId }: EpicsTableProps) => {
   return (
     <Container maxWidth="xl">
       <Stack spacing={3}>
-        {/* ✨ Header moderno con degradado */}
+        {/* Header */}
         <Paper
           elevation={0}
           sx={{
@@ -595,7 +678,7 @@ const EpicsTable = ({ userId }: EpicsTableProps) => {
               </Button>
             </Stack>
 
-            {/* ✨ Toolbar mejorado */}
+            {/* Toolbar */}
             <Stack direction="row" spacing={1.5} flexWrap="wrap" alignItems="center">
               <Fade in={!searchOpen}>
                 <Button
@@ -691,7 +774,7 @@ const EpicsTable = ({ userId }: EpicsTableProps) => {
           </Stack>
         </Paper>
 
-        {/* ✨ DataGrid mejorado */}
+        {/* DataGrid */}
         <Paper
           elevation={0}
           sx={{
@@ -720,7 +803,6 @@ const EpicsTable = ({ userId }: EpicsTableProps) => {
                 "& .MuiDataGrid-cell": {
                   py: 1.5,
                   borderBottom: `1px solid ${alpha(theme.palette.divider, 0.5)}`,
-                  // ✅ Alineación vertical centrada
                   display: "flex",
                   alignItems: "center",
                 },
@@ -746,7 +828,7 @@ const EpicsTable = ({ userId }: EpicsTableProps) => {
           </Box>
         </Paper>
 
-        {/* Menús (sin cambios funcionales, solo estilos mejorados) */}
+        {/* Menu de Filtros */}
         <Menu
           anchorEl={filterAnchor}
           open={Boolean(filterAnchor)}
@@ -767,6 +849,40 @@ const EpicsTable = ({ userId }: EpicsTableProps) => {
           </MenuItem>
           <Divider />
 
+          {/* Filtro por Proyecto */}
+          <MenuItem>
+            <Stack spacing={1} width="100%">
+              <Typography variant="body2" fontWeight={600} color="primary">
+                Por Proyecto
+              </Typography>
+              {projects.map((project) => (
+                <Box key={project.id} display="flex" alignItems="center">
+                  <Checkbox
+                    size="small"
+                    checked={filters.projects.includes(project.id)}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setFilters({
+                          ...filters,
+                          projects: [...filters.projects, project.id],
+                        });
+                      } else {
+                        setFilters({
+                          ...filters,
+                          projects: filters.projects.filter((id) => id !== project.id),
+                        });
+                      }
+                    }}
+                  />
+                  <ListItemText primary={project.title} />
+                </Box>
+              ))}
+            </Stack>
+          </MenuItem>
+
+          <Divider />
+
+          {/* Filtro por Fase */}
           <MenuItem>
             <Stack spacing={1} width="100%">
               <Typography variant="body2" fontWeight={600} color="primary">
@@ -799,6 +915,7 @@ const EpicsTable = ({ userId }: EpicsTableProps) => {
 
           <Divider />
 
+          {/* Filtro por Esfuerzo */}
           <MenuItem>
             <Stack spacing={1} width="100%">
               <Typography variant="body2" fontWeight={600} color="primary">
@@ -835,7 +952,7 @@ const EpicsTable = ({ userId }: EpicsTableProps) => {
             <Button
               fullWidth
               size="small"
-              onClick={() => setFilters({ phases: [], efforts: [] })}
+              onClick={() => setFilters({ phases: [], efforts: [], projects: [] })}
               sx={{ borderRadius: 1.5 }}
             >
               Limpiar filtros
@@ -843,6 +960,7 @@ const EpicsTable = ({ userId }: EpicsTableProps) => {
           </MenuItem>
         </Menu>
 
+        {/* Menu de Ordenar */}
         <Menu
           anchorEl={sortAnchor}
           open={Boolean(sortAnchor)}
@@ -865,6 +983,7 @@ const EpicsTable = ({ userId }: EpicsTableProps) => {
                 sx={{ borderRadius: 1.5 }}
               >
                 <MenuItem value="name">Épica</MenuItem>
+                <MenuItem value="project">Proyecto</MenuItem>
                 <MenuItem value="phase">Fase</MenuItem>
                 <MenuItem value="effort">Esfuerzo estimado</MenuItem>
                 <MenuItem value="epicId">ID de épica</MenuItem>
@@ -886,6 +1005,7 @@ const EpicsTable = ({ userId }: EpicsTableProps) => {
           </Stack>
         </Menu>
 
+        {/* Menu de Ocultar */}
         <Menu
           anchorEl={hideAnchor}
           open={Boolean(hideAnchor)}
@@ -934,6 +1054,62 @@ const EpicsTable = ({ userId }: EpicsTableProps) => {
           )}
         </Menu>
 
+        {/* Menu de Proyecto */}
+        <Menu
+          anchorEl={projectMenuAnchor}
+          open={Boolean(projectMenuAnchor) && editingProject !== null}
+          onClose={() => {
+            setProjectMenuAnchor(null);
+            setEditingProject(null);
+          }}
+          PaperProps={{
+            sx: { borderRadius: 2, mt: 1, minWidth: 250 },
+          }}
+        >
+          <MenuItem
+            onClick={() => {
+              if (editingProject) {
+                handleProjectChange(editingProject, "");
+              }
+              setProjectMenuAnchor(null);
+              setEditingProject(null);
+            }}
+          >
+            <em>Sin proyecto</em>
+          </MenuItem>
+          <Divider />
+          {projects.map((project) => (
+            <MenuItem
+              key={project.id}
+              onClick={() => {
+                if (editingProject) {
+                  handleProjectChange(editingProject, project.id);
+                }
+                setProjectMenuAnchor(null);
+                setEditingProject(null);
+              }}
+            >
+              <Stack spacing={0.5} width="100%">
+                <Typography fontWeight={500}>{project.title}</Typography>
+                {project.tags.length > 0 && (
+                  <Stack direction="row" spacing={0.5} flexWrap="wrap">
+                    {project.tags.map((tag) => (
+                      <Chip
+                        key={tag}
+                        label={tag}
+                        size="small"
+                        variant="outlined"
+                        sx={{ fontSize: "0.65rem", height: 18 }}
+                      />
+                    ))}
+                  </Stack>
+                )}
+              </Stack>
+            </MenuItem>
+          ))}
+        </Menu>
+
+        {/* Menu de Fase */}
         <Menu
           anchorEl={phaseMenuAnchor}
           open={Boolean(phaseMenuAnchor) && editingPhase !== null}
@@ -982,6 +1158,7 @@ const EpicsTable = ({ userId }: EpicsTableProps) => {
           ))}
         </Menu>
 
+        {/* Menu de Esfuerzo */}
         <Menu
           anchorEl={effortMenuAnchor}
           open={Boolean(effortMenuAnchor) && editingEffort !== null}
@@ -1020,7 +1197,7 @@ const EpicsTable = ({ userId }: EpicsTableProps) => {
           ))}
         </Menu>
 
-        {/* ✨ Dialog modernizado */}
+        {/* Dialog de conectar tareas */}
         <Dialog
           open={taskSearchOpen !== null}
           onClose={() => {
@@ -1149,7 +1326,7 @@ const EpicsTable = ({ userId }: EpicsTableProps) => {
           </DialogActions>
         </Dialog>
 
-        {/* ✨ Diálogo de confirmación de eliminación */}
+        {/* Dialog de confirmación de eliminación */}
         <Dialog
           open={deleteDialogOpen}
           onClose={() => {

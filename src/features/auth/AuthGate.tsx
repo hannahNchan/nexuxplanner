@@ -1,4 +1,4 @@
-import { Box, Button, CircularProgress, Stack, Typography } from "@mui/material";
+import { CircularProgress, Stack, Typography } from "@mui/material";
 import type { Session } from "@supabase/supabase-js";
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
@@ -34,10 +34,6 @@ const AuthGate = ({ children }: AuthGateProps) => {
     };
   }, []);
 
-  const handleSignOut = async () => {
-    await supabase.auth.signOut();
-  };
-
   if (isLoading) {
     return (
       <Stack spacing={2} alignItems="center" py={8}>
@@ -58,16 +54,7 @@ const AuthGate = ({ children }: AuthGateProps) => {
     );
   }
 
-  return (
-    <Stack spacing={2}>
-      <Box display="flex" justifyContent="flex-end">
-        <Button variant="outlined" size="small" onClick={handleSignOut}>
-          Cerrar sesión
-        </Button>
-      </Box>
-      {children(session)}
-    </Stack>
-  );
+  return <>{children(session)}</>;
 };
 
 export default AuthGate;

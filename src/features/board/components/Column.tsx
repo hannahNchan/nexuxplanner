@@ -3,6 +3,7 @@ import { Draggable, Droppable } from "@hello-pangea/dnd";
 import { alpha } from "@mui/material/styles";
 import AddIcon from "@mui/icons-material/Add";
 import { useTheme } from "@mui/material/styles";
+import { createPortal } from "react-dom";
 import TaskCard from "./TaskCard";
 import type { Column as ColumnType, Task } from "../../../shared/types/board";
 
@@ -13,6 +14,7 @@ type ColumnProps = {
   onCreateTask: (columnId: string) => void;
   onTaskClick: (task: Task) => void;
   isCreatingTask?: boolean;
+  currentUserId?: string;
 };
 
 const Column = ({
@@ -22,6 +24,7 @@ const Column = ({
   onCreateTask,
   onTaskClick,
   isCreatingTask = false,
+  currentUserId,
 }: ColumnProps) => {
   const theme = useTheme();
 
@@ -119,15 +122,53 @@ const Column = ({
                 >
                   {tasks.map((task, taskIndex) => (
                     <Draggable key={task.id} draggableId={task.id} index={taskIndex}>
-                      {(taskProvided) => (
-                        <div
-                          ref={taskProvided.innerRef}
-                          {...taskProvided.draggableProps}
-                          {...taskProvided.dragHandleProps}
-                        >
-                          <TaskCard task={task} onClick={() => onTaskClick(task)} />
-                        </div>
-                      )}
+                      {(taskProvided, taskSnapshot) => {
+                        const child = (
+                          <Box
+                            ref={taskProvided.innerRef}
+                            {...taskProvided.draggableProps}
+                            {...taskProvided.dragHandleProps}
+                            sx={{
+                              // ✅ CRÍTICO: Asegurar que el elemento sea visible durante el drag
+                              opacity: taskSnapshot.isDragging ? 0.5 : 1,
+                            }}
+                          >
+                            <TaskCard 
+                              task={task} 
+                              onClick={() => onTaskClick(task)}
+                              currentUserId={currentUserId}
+                              isDragging={taskSnapshot.isDragging}
+                            />
+                          </Box>
+                        );
+
+                        // ✅ SOLUCIÓN: Usar portal solo para el elemento que se está arrastrando
+                        if (taskSnapshot.isDragging) {
+                          return createPortal(
+                            <Box
+                              {...taskProvided.draggableProps}
+                              {...taskProvided.dragHandleProps}
+                              sx={{
+                                // ✅ Posición fija para que siga el cursor
+                                position: "fixed",
+                                pointerEvents: "none",
+                                zIndex: 9999,
+                                width: 300, // Mismo ancho que las columnas
+                              }}
+                            >
+                              <TaskCard 
+                                task={task} 
+                                onClick={() => {}}
+                                currentUserId={currentUserId}
+                                isDragging={true}
+                              />
+                            </Box>,
+                            document.body
+                          );
+                        }
+
+                        return child;
+                      }}
                     </Draggable>
                   ))}
                   {provided.placeholder}
