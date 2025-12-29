@@ -8,16 +8,22 @@ import {
   AppBar,
   Toolbar,
   Button,
+  IconButton,
+  Tooltip,
 } from "@mui/material";
 import DashboardIcon from "@mui/icons-material/Dashboard";
 import FlagIcon from "@mui/icons-material/Flag";
 import DescriptionIcon from "@mui/icons-material/Description";
 import LogoutIcon from "@mui/icons-material/Logout";
+import Brightness4Icon from "@mui/icons-material/Brightness4";
+import Brightness7Icon from "@mui/icons-material/Brightness7";
 import { supabase } from "../lib/supabase";
+import { useThemeMode } from "./ThemeContext";
 
 const Layout = () => {
   const location = useLocation();
   const navigate = useNavigate();
+  const { mode, toggleTheme } = useThemeMode();
 
   const getCurrentTab = () => {
     if (location.pathname.startsWith("/tablero")) return 0;
@@ -39,11 +45,19 @@ const Layout = () => {
   return (
     <Box sx={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>
       {/* Header */}
-      <AppBar position="static" elevation={0} sx={{ bgcolor: "primary.main" }}>
+      <AppBar position="static" elevation={0}>
         <Toolbar>
           <Typography variant="h6" component="div" sx={{ flexGrow: 1, fontWeight: 700 }}>
             Nexux Planner
           </Typography>
+
+          {/* Toggle Dark/Light Mode */}
+          <Tooltip title={mode === "dark" ? "Modo claro" : "Modo oscuro"}>
+            <IconButton onClick={toggleTheme} color="inherit" sx={{ mr: 2 }}>
+              {mode === "dark" ? <Brightness7Icon /> : <Brightness4Icon />}
+            </IconButton>
+          </Tooltip>
+
           <Button
             color="inherit"
             startIcon={<LogoutIcon />}
@@ -90,7 +104,7 @@ const Layout = () => {
         <Outlet />
       </Box>
 
-      {/* Footer opcional */}
+      {/* Footer */}
       <Box
         component="footer"
         sx={{

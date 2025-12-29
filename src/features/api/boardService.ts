@@ -11,7 +11,7 @@ type ColumnRecord = {
   id: string;
   board_id: string;
   name: string;
-  position: number;
+  position: number; // ⚠️ DEPRECATED: Se mantiene por compatibilidad, pero ya no se usa
 };
 
 type TaskRecord = {
@@ -24,6 +24,13 @@ type TaskRecord = {
   priority_id: string | null;
   story_points: string | null;
   assignee_id: string | null;
+};
+
+type ColumnOrderRecord = {
+  id: string;
+  board_id: string;
+  column_ids: string[]; // Array de IDs en orden
+  updated_at: string;
 };
 
 export const fetchPrimaryBoard = async (userId: string): Promise<BoardRecord | null> => {
@@ -42,10 +49,29 @@ export const fetchPrimaryBoard = async (userId: string): Promise<BoardRecord | n
   return data ?? null;
 };
 
+/**
+ * ✅ NUEVA FUNCIÓN: Obtener el orden de columnas del board
+ */
+export const fetchColumnOrder = async (boardId: string): Promise<string[]> => {
+  const { data, error } = await supabase
+    .from("column_order")
+    .select("column_ids")
+    .eq("board_id", boardId)
+    .maybeSingle();
+
+  if (error) {
+    console.error("Error fetching column order:", error);
+    return []; // Si no existe, devolver array vacío
+  }
+
+  return data?.column_ids ?? [];
+};
+
 export const fetchBoardData = async (userId: string): Promise<{
   board: BoardRecord | null;
   columns: ColumnRecord[];
   tasks: TaskRecord[];
+  columnOrder: string[]; // ✅ NUEVO: Orden de columnas
 }> => {
   const board = await fetchPrimaryBoard(userId);
 
@@ -54,18 +80,29 @@ export const fetchBoardData = async (userId: string): Promise<{
       board: null,
       columns: [],
       tasks: [],
+      columnOrder: [],
     };
   }
 
+  // Obtener columnas (sin importar el orden en BD)
   const { data: columns, error: columnsError } = await supabase
     .from("columns")
     .select("id, board_id, name, position")
-    .eq("board_id", board.id)
-    .order("position", { ascending: true });
+    .eq("board_id", board.id);
 
   if (columnsError) {
     throw columnsError;
   }
+
+  // ✅ Obtener el orden de columnas desde column_order
+  const columnOrder = await fetchColumnOrder(board.id);
+
+  // Si no hay orden guardado, usar el orden por defecto (position)
+  const finalColumnOrder = columnOrder.length > 0
+    ? columnOrder
+    : (columns ?? [])
+        .sort((a, b) => a.position - b.position)
+        .map((c) => c.id);
 
   const columnIds = (columns ?? []).map((column) => column.id);
   const { data: tasks, error: tasksError } = columnIds.length
@@ -84,6 +121,7 @@ export const fetchBoardData = async (userId: string): Promise<{
     board,
     columns: columns ?? [],
     tasks: tasks ?? [],
+    columnOrder: finalColumnOrder, // ✅ Devolver el orden correcto
   };
 };
 
@@ -113,6 +151,13 @@ export const createBoard = async (userId: string, name: string) => {
     throw columnsError;
   }
 
+  // ✅ Crear el orden inicial en column_order
+  const columnIds = (columns ?? [])
+    .sort((a, b) => a.position - b.position)
+    .map((c) => c.id);
+
+  await persistColumnOrder(created.id, columnIds);
+
   return {
     board: created,
     columns: columns ?? [],
@@ -140,6 +185,11 @@ export const createColumn = async (
   if (error) {
     throw error;
   }
+
+  // ✅ Actualizar el orden de columnas
+  const currentOrder = await fetchColumnOrder(boardId);
+  const newOrder = [...currentOrder, data.id];
+  await persistColumnOrder(boardId, newOrder);
 
   return data;
 };
@@ -210,9 +260,11 @@ export const deleteTask = async (taskId: string): Promise<boolean> => {
 export const toBoardState = (
   columns: ColumnRecord[],
   tasks: TaskRecord[],
+  columnOrder: string[], // ✅ NUEVO: Recibir el orden desde BD
 ): BoardState => {
   console.log("🔧 toBoardState - Entrada:");
-  console.log("  Columnas recibidas:", columns.map(c => `${c.name} (pos: ${c.position})`));
+  console.log("  Columnas recibidas:", columns.map(c => `${c.name}`));
+  console.log("  Orden de columnas (column_ids):", columnOrder);
   
   const taskMap: Record<string, Task> = {};
   const columnMap: Record<string, Column> = {};
@@ -222,7 +274,6 @@ export const toBoardState = (
       id: task.id,
       title: task.title,
       description: task.description ?? undefined,
-      // ✅ INCLUIR CAMPOS JIRA
       issue_type_id: task.issue_type_id ?? undefined,
       priority_id: task.priority_id ?? undefined,
       story_points: task.story_points ?? undefined,
@@ -251,30 +302,33 @@ export const toBoardState = (
     };
   });
 
-  // ✅ CRITICAL FIX: Crear una COPIA del array antes de ordenar
-  // para no mutar el array original
-  const sortedColumns = [...columns].sort((a, b) => a.position - b.position);
-  const columnOrder = sortedColumns.map((column) => column.id);
-  
+  // ✅ Usar el orden de column_order en lugar de position
   console.log("🔧 toBoardState - Salida:");
-  console.log("  Columnas ordenadas:", sortedColumns.map(c => `${c.name} (pos: ${c.position})`));
-  console.log("  columnOrder IDs:", columnOrder);
   console.log("  columnOrder nombres:", columnOrder.map(id => columnMap[id]?.title));
 
   return {
     tasks: taskMap,
     columns: columnMap,
-    columnOrder,
+    columnOrder, // ✅ Usar el orden correcto
   };
 };
 
-export const persistColumnOrder = async (columnIds: string[]) => {
-  const updates = columnIds.map((id, index) => ({ id, position: index }));
-  
+/**
+ * ✅ NUEVA FUNCIÓN: Guardar el orden de columnas en column_order
+ */
+export const persistColumnOrder = async (boardId: string, columnIds: string[]) => {
   console.log("💾 persistColumnOrder - Guardando:");
-  console.log("  Updates:", updates);
+  console.log("  Board ID:", boardId);
+  console.log("  Column IDs:", columnIds);
   
-  const { error } = await supabase.from("columns").upsert(updates);
+  const { error } = await supabase
+    .from("column_order")
+    .upsert({
+      board_id: boardId,
+      column_ids: columnIds,
+    }, {
+      onConflict: "board_id", // Actualizar si ya existe
+    });
 
   if (error) {
     console.error("❌ Error en persistColumnOrder:", error);
