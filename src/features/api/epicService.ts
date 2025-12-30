@@ -171,24 +171,34 @@ export const disconnectTaskFromEpic = async (
   if (error) throw error;
 };
 
-export const searchTasks = async (userId: string, query: string = ""): Promise<Array<{ id: string; title: string }>> => {
-  const { data: board } = await supabase
-    .from("boards")
-    .select("id")
-    .eq("user_id", userId)
-    .single();
+// ✅ CORREGIDO: Orden de parámetros correcto + debug logs
+export const searchTasks = async (
+  projectId: string | null,
+  query: string = ""
+): Promise<Array<{ id: string; title: string }>> => {
 
-  if (!board) return [];
+  if (!projectId) {
+    return [];
+  }
 
-  const { data: columns } = await supabase
+  // Buscar columnas del proyecto
+  const { data: columns, error: columnsError } = await supabase
     .from("columns")
     .select("id")
-    .eq("board_id", board.id);
+    .eq("project_id", projectId);
 
-  if (!columns || columns.length === 0) return [];
+  if (columnsError) {
+    throw columnsError;
+  }
+
+  if (!columns || columns.length === 0) {
+    console.log("⚠️ No columns found for this project");
+    return [];
+  }
 
   const columnIds = columns.map((c) => c.id);
 
+  // Buscar tareas en esas columnas
   let queryBuilder = supabase
     .from("tasks")
     .select("id, title")
@@ -203,6 +213,10 @@ export const searchTasks = async (userId: string, query: string = ""): Promise<A
 
   const { data, error } = await queryBuilder;
 
-  if (error) throw error;
+  if (error) {
+    console.error("❌ Error fetching tasks:", error);
+    throw error;
+  }
+
   return data ?? [];
 };

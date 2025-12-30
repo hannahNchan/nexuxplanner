@@ -5,7 +5,7 @@ import {
   Stack,
   Typography,
 } from "@mui/material";
-import EpicsTable from "../../../features/board/components/EpicsTable";
+import EpicsTable from "../../board/components/EpicsTable/EpicsTable";
 import {
   fetchEpics,
   fetchEpicPhases,

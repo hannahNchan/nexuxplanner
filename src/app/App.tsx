@@ -3,7 +3,7 @@ import { ThemeProvider } from "./ThemeContext";
 import AuthGate from "../features/auth/AuthGate";
 import Layout from "./Layout";
 import Board from "../features/board/components/Board";
-import EpicsTable from "../features/board/components/EpicsTable";
+import EpicsTable from "../features/board/components/EpicsTable/EpicsTable";
 import QuillEditor from "../features/editor/QuillEditor";
 import { Container, Stack, Typography } from "@mui/material";
 import { ProjectProvider } from "../shared/contexts/ProjectContext";

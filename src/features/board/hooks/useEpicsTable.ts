@@ -1,0 +1,362 @@
+import { useState, useEffect } from "react";
+import {
+  fetchEpics,
+  fetchEpicPhases,
+  createEpic,
+  updateEpic,
+  deleteEpic,
+  connectTaskToEpic,
+  disconnectTaskFromEpic,
+  searchTasks,
+  type EpicWithDetails,
+  type EpicPhase,
+} from "../../api/epicService";
+import {
+  fetchDefaultPointSystem,
+  fetchPointValues,
+  type PointValue,
+} from "../../api/catalogService";
+import {
+  fetchProjects,
+  linkEpicToProject,
+  type ProjectWithTags,
+} from "../../api/projectService";
+import { useProject } from "../../../shared/contexts/ProjectContext";
+import type { GridRowsProp } from "@mui/x-data-grid";
+
+type Filters = {
+  phases: string[];
+  efforts: string[];
+  projects: string[];
+};
+
+export const useEpicsTable = (userId: string) => {
+  const { currentProject } = useProject();
+
+  // Estado principal
+  const [epics, setEpics] = useState<EpicWithDetails[]>([]);
+  const [phases, setPhases] = useState<EpicPhase[]>([]);
+  const [pointValues, setPointValues] = useState<PointValue[]>([]);
+  const [projects, setProjects] = useState<ProjectWithTags[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Estado de tabla y filtros
+  const [rows, setRows] = useState<GridRowsProp>([]);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchText, setSearchText] = useState("");
+  const [filters, setFilters] = useState<Filters>({
+    phases: [],
+    efforts: [],
+    projects: [],
+  });
+  const [sortColumn, setSortColumn] = useState<string>("name");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
+  const [hiddenEpics, setHiddenEpics] = useState<string[]>([]);
+
+  // Estado de menús
+  const [filterAnchor, setFilterAnchor] = useState<HTMLElement | null>(null);
+  const [sortAnchor, setSortAnchor] = useState<HTMLElement | null>(null);
+  const [hideAnchor, setHideAnchor] = useState<HTMLElement | null>(null);
+  const [phaseMenuAnchor, setPhaseMenuAnchor] = useState<HTMLElement | null>(null);
+  const [effortMenuAnchor, setEffortMenuAnchor] = useState<HTMLElement | null>(null);
+  const [projectMenuAnchor, setProjectMenuAnchor] = useState<HTMLElement | null>(null);
+
+  // Estado de edición
+  const [editingName, setEditingName] = useState<string | null>(null);
+  const [editingPhase, setEditingPhase] = useState<string | null>(null);
+  const [editingEffort, setEditingEffort] = useState<string | null>(null);
+  const [editingProject, setEditingProject] = useState<string | null>(null);
+
+  // Estado de tareas
+  const [taskSearchOpen, setTaskSearchOpen] = useState<string | null>(null);
+  const [taskOptions, setTaskOptions] = useState<Array<{ id: string; title: string }>>([]);
+  const [taskSearchText, setTaskSearchText] = useState("");
+
+  // Estado de eliminación
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [epicToDelete, setEpicToDelete] = useState<string | null>(null);
+
+  // Cargar datos
+  const loadData = async () => {
+    setIsLoading(true);
+    try {
+      const [epicsData, phasesData, pointSystem, projectsData] = await Promise.all([
+        fetchEpics(userId, currentProject?.id ?? null),
+        fetchEpicPhases(),
+        fetchDefaultPointSystem(),
+        fetchProjects(userId),
+      ]);
+
+      setEpics(epicsData);
+      setPhases(phasesData);
+      setProjects(projectsData);
+
+      if (pointSystem) {
+        const points = await fetchPointValues(pointSystem.id);
+        setPointValues(points);
+      }
+    } catch (error) {
+      console.error("Error cargando datos:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Efecto: Cargar datos cuando cambia el usuario o proyecto
+  useEffect(() => {
+    void loadData();
+  }, [userId, currentProject]);
+
+  // Efecto: Procesar y filtrar épicas
+  useEffect(() => {
+    let processedEpics = epics.filter((epic) => !hiddenEpics.includes(epic.id));
+
+    if (searchText) {
+      processedEpics = processedEpics.filter(
+        (epic) =>
+          epic.name.toLowerCase().includes(searchText.toLowerCase()) ||
+          epic.epic_id_display?.toLowerCase().includes(searchText.toLowerCase())
+      );
+    }
+
+    if (filters.phases.length > 0) {
+      processedEpics = processedEpics.filter((epic) =>
+        filters.phases.includes(epic.phase_id || "")
+      );
+    }
+
+    if (filters.efforts.length > 0) {
+      processedEpics = processedEpics.filter((epic) =>
+        filters.efforts.includes(epic.estimated_effort || "")
+      );
+    }
+
+    if (filters.projects.length > 0) {
+      processedEpics = processedEpics.filter((epic) =>
+        filters.projects.includes(epic.project_id || "")
+      );
+    }
+
+    processedEpics.sort((a, b) => {
+      let aValue: string = "";
+      let bValue: string = "";
+
+      switch (sortColumn) {
+        case "name":
+          aValue = a.name;
+          bValue = b.name;
+          break;
+        case "phase":
+          aValue = a.phase_name || "";
+          bValue = b.phase_name || "";
+          break;
+        case "effort":
+          aValue = a.estimated_effort || "";
+          bValue = b.estimated_effort || "";
+          break;
+        case "project": {
+          const projectA = projects.find((p) => p.id === a.project_id);
+          const projectB = projects.find((p) => p.id === b.project_id);
+          aValue = projectA?.title || "";
+          bValue = projectB?.title || "";
+          break;
+        }
+        case "epicId":
+          aValue = a.epic_id_display || "";
+          bValue = b.epic_id_display || "";
+          break;
+        default:
+          aValue = a.created_at;
+          bValue = b.created_at;
+      }
+
+      if (sortOrder === "asc") {
+        return aValue > bValue ? 1 : -1;
+      } else {
+        return aValue < bValue ? 1 : -1;
+      }
+    });
+
+    const mappedRows = processedEpics.map((epic) => {
+      const project = projects.find((p) => p.id === epic.project_id);
+
+      return {
+        id: epic.id,
+        name: epic.name,
+        owner: "Usuario",
+        phase_id: epic.phase_id,
+        phase: epic.phase_name || "Sin fase",
+        phaseColor: epic.phase_color,
+        project_id: epic.project_id,
+        project: project?.title || "Sin proyecto",
+        projectTags: project?.tags || [],
+        connectedTasks: epic.connected_tasks || [],
+        estimatedEffort: epic.estimated_effort || "",
+        epicId: epic.epic_id_display || "-",
+      };
+    });
+
+    setRows(mappedRows);
+  }, [epics, projects, hiddenEpics, searchText, filters, sortColumn, sortOrder]);
+
+  // Efecto: Buscar tareas
+  useEffect(() => {
+    if (taskSearchOpen !== null) {
+      searchTasks(currentProject?.id ?? null, taskSearchText).then(setTaskOptions);
+    }
+  }, [taskSearchText, taskSearchOpen, userId, currentProject]);
+
+  // Handlers
+  const handleAddEpic = async () => {
+    try {
+      await createEpic(userId, {
+        name: "Nueva épica",
+        project_id: currentProject?.id ?? null,
+      });
+      await loadData();
+    } catch (error) {
+      console.error("Error creando épica:", error);
+    }
+  };
+
+  const handleNameChange = async (epicId: string, newName: string) => {
+    try {
+      await updateEpic(epicId, { name: newName });
+      await loadData();
+    } catch (error) {
+      console.error("Error actualizando nombre:", error);
+    }
+  };
+
+  const handlePhaseChange = async (epicId: string, phaseId: string) => {
+    try {
+      await updateEpic(epicId, { phase_id: phaseId || null });
+      await loadData();
+    } catch (error) {
+      console.error("Error actualizando fase:", error);
+    }
+  };
+
+  const handleEffortChange = async (epicId: string, effort: string) => {
+    try {
+      await updateEpic(epicId, { estimated_effort: effort || null });
+      await loadData();
+    } catch (error) {
+      console.error("Error actualizando esfuerzo:", error);
+    }
+  };
+
+  const handleProjectChange = async (epicId: string, projectId: string) => {
+    try {
+      await linkEpicToProject(epicId, projectId || null);
+      await loadData();
+    } catch (error) {
+      console.error("Error actualizando proyecto:", error);
+    }
+  };
+
+  const handleConnectTask = async (epicId: string, taskId: string) => {
+    try {
+      await connectTaskToEpic(epicId, taskId);
+      await loadData();
+    } catch (error) {
+      console.error("Error conectando tarea:", error);
+    }
+  };
+
+  const handleDisconnectTask = async (epicId: string, taskId: string) => {
+    try {
+      await disconnectTaskFromEpic(epicId, taskId);
+      await loadData();
+    } catch (error) {
+      console.error("Error desconectando tarea:", error);
+    }
+  };
+
+  const handleDeleteEpic = (epicId: string) => {
+    setEpicToDelete(epicId);
+    setDeleteDialogOpen(true);
+  };
+
+  const confirmDeleteEpic = async () => {
+    if (!epicToDelete) return;
+
+    try {
+      await deleteEpic(epicToDelete);
+      await loadData();
+      setDeleteDialogOpen(false);
+      setEpicToDelete(null);
+    } catch (error) {
+      console.error("Error eliminando épica:", error);
+    }
+  };
+
+  const activeFiltersCount =
+    filters.phases.length + filters.efforts.length + filters.projects.length;
+
+  return {
+    // Estado
+    epics,
+    phases,
+    pointValues,
+    projects,
+    isLoading,
+    rows,
+    searchOpen,
+    searchText,
+    filters,
+    sortColumn,
+    sortOrder,
+    hiddenEpics,
+    filterAnchor,
+    sortAnchor,
+    hideAnchor,
+    phaseMenuAnchor,
+    effortMenuAnchor,
+    projectMenuAnchor,
+    editingName,
+    editingPhase,
+    editingEffort,
+    editingProject,
+    taskSearchOpen,
+    taskOptions,
+    taskSearchText,
+    deleteDialogOpen,
+    epicToDelete,
+    activeFiltersCount,
+
+    // Setters
+    setSearchOpen,
+    setSearchText,
+    setFilters,
+    setSortColumn,
+    setSortOrder,
+    setHiddenEpics,
+    setFilterAnchor,
+    setSortAnchor,
+    setHideAnchor,
+    setPhaseMenuAnchor,
+    setEffortMenuAnchor,
+    setProjectMenuAnchor,
+    setEditingName,
+    setEditingPhase,
+    setEditingEffort,
+    setEditingProject,
+    setTaskSearchOpen,
+    setTaskSearchText,
+    setTaskOptions,
+    setDeleteDialogOpen,
+    setEpicToDelete,
+
+    // Handlers
+    handleAddEpic,
+    handleNameChange,
+    handlePhaseChange,
+    handleEffortChange,
+    handleProjectChange,
+    handleConnectTask,
+    handleDisconnectTask,
+    handleDeleteEpic,
+    confirmDeleteEpic,
+  };
+};
