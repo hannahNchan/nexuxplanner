@@ -20,6 +20,7 @@ import {
 } from "@mui/material";
 import DashboardIcon from "@mui/icons-material/Dashboard";
 import FlagIcon from "@mui/icons-material/Flag";
+import ListAltIcon from "@mui/icons-material/ListAlt"; // ✨ NUEVO - Icono para Backlog
 import DescriptionIcon from "@mui/icons-material/Description";
 import LogoutIcon from "@mui/icons-material/Logout";
 import Brightness4Icon from "@mui/icons-material/Brightness4";
@@ -85,15 +86,18 @@ const Layout = () => {
     };
   }, [isResizing]);
 
+  // ✨ ACTUALIZADO: Agregar /backlog
   const getCurrentTab = () => {
     if (location.pathname.startsWith("/tablero")) return 0;
     if (location.pathname.startsWith("/epicas")) return 1;
-    if (location.pathname.startsWith("/editor")) return 2;
+    if (location.pathname.startsWith("/backlog")) return 2; // ✨ NUEVO
+    if (location.pathname.startsWith("/editor")) return 3; // ✨ Actualizado índice
     return 0;
   };
 
+  // ✨ ACTUALIZADO: Agregar ruta /backlog
   const handleTabChange = (_: any, newValue: number) => {
-    const routes = ["/tablero", "/epicas", "/editor"];
+    const routes = ["/tablero", "/epicas", "/backlog", "/editor"]; // ✨ NUEVO
     navigate(routes[newValue]);
   };
 
@@ -301,6 +305,13 @@ const Layout = () => {
                   icon={<FlagIcon />}
                   iconPosition="start"
                   label="Épicas"
+                  sx={{ textTransform: "none", minHeight: 64 }}
+                />
+                {/* ✨ NUEVO TAB - Backlog */}
+                <Tab
+                  icon={<ListAltIcon />}
+                  iconPosition="start"
+                  label="Backlog"
                   sx={{ textTransform: "none", minHeight: 64 }}
                 />
                 <Tab

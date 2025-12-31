@@ -336,7 +336,7 @@ export const createEpicsTableColumns = (params: CreateColumnsParams): GridColDef
     {
       field: "actions",
       type: "actions",
-      headerName: "",
+      headerName: "Acciones",
       width: 80,
       getActions: (cellParams) => [
         <GridActionsCellItem

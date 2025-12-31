@@ -5,6 +5,9 @@ export type Project = {
   user_id: string;
   title: string;
   description: string | null;
+  project_key: string; // ✨ NUEVO
+  task_sequence: number; // ✨ NUEVO
+  epic_sequence: number; // ✨ NUEVO
   created_at: string;
   updated_at: string;
 };
@@ -109,22 +112,54 @@ export const fetchProjectById = async (projectId: string): Promise<ProjectWithTa
   };
 };
 
+// ✨ ACTUALIZADO: Ahora VERIFICA que las columnas existan antes de retornar
 export const createProject = async (
   userId: string,
-  data: { title: string; description?: string; tags?: string[] }
+  data: { 
+    title: string; 
+    description?: string; 
+    tags?: string[];
+    project_key: string;
+  }
 ): Promise<ProjectWithTags> => {
+  // Validaciones previas
+  if (!data.project_key || data.project_key.trim().length === 0) {
+    throw new Error("Las siglas del proyecto son obligatorias");
+  }
+
+  if (!/^[A-Z0-9]{2,10}$/.test(data.project_key)) {
+    throw new Error("Las siglas deben tener entre 2 y 10 caracteres (solo mayúsculas y números)");
+  }
+
+  const { data: existingProject, error: checkError } = await supabase
+    .from("projects")
+    .select("id, project_key")
+    .eq("project_key", data.project_key)
+    .maybeSingle();
+
+  if (checkError) throw checkError;
+
+  if (existingProject) {
+    throw new Error(`Las siglas "${data.project_key}" ya están en uso por otro proyecto`);
+  }
+
+  // Crear el proyecto
   const { data: project, error: projectError } = await supabase
     .from("projects")
     .insert({
       user_id: userId,
       title: data.title,
       description: data.description || null,
+      project_key: data.project_key.toUpperCase(),
+      task_sequence: 0,
+      epic_sequence: 0,
     })
     .select()
     .single();
 
   if (projectError) throw projectError;
 
+  // Crear tags si existen
   if (data.tags && data.tags.length > 0) {
     const tagRecords = data.tags.map((tag) => ({
       project_id: project.id,
@@ -138,7 +173,34 @@ export const createProject = async (
     if (tagsError) throw tagsError;
   }
 
+  // ✅ CRÍTICO: Crear columnas
   await createDefaultColumns(project.id);
+
+  // ✅ NUEVO: Verificar que las columnas realmente existan (con reintentos)
+  let columnsExist = false;
+  let attempts = 0;
+  const maxAttempts = 5;
+
+  while (!columnsExist && attempts < maxAttempts) {
+    attempts++;
+    
+    const { data: columns, error } = await supabase
+      .from("columns")
+      .select("id")
+      .eq("project_id", project.id);
+
+    if (!error && columns && columns.length >= 4) {
+      columnsExist = true;
+      console.log(`✅ Columnas verificadas en intento ${attempts}`);
+    } else {
+      console.log(`⏳ Intento ${attempts}: Esperando columnas... (encontradas: ${columns?.length || 0})`);
+      await new Promise(resolve => setTimeout(resolve, 200));
+    }
+  }
+
+  if (!columnsExist) {
+    console.error("⚠️ Advertencia: No se pudieron verificar las columnas, pero continuando...");
+  }
 
   return {
     ...project,
@@ -146,16 +208,76 @@ export const createProject = async (
   };
 };
 
+// ✨ ACTUALIZADO: Ahora puede actualizar project_key (solo si no tiene tareas/épicas)
 export const updateProject = async (
   projectId: string,
-  updates: { title?: string; description?: string; tags?: string[] }
+  updates: { 
+    title?: string; 
+    description?: string; 
+    tags?: string[];
+    project_key?: string; // ✨ NUEVO - OPCIONAL
+  }
 ): Promise<void> => {
-  if (updates.title !== undefined || updates.description !== undefined) {
+  // Si se intenta cambiar el project_key, validar que no haya tareas o épicas
+  if (updates.project_key !== undefined) {
+    // ✅ PASO 1: Obtener IDs de columnas del proyecto
+    const { data: columns, error: columnsError } = await supabase
+      .from("columns")
+      .select("id")
+      .eq("project_id", projectId);
+
+    if (columnsError) throw columnsError;
+
+    const columnIds = (columns ?? []).map((c) => c.id);
+
+    // ✅ PASO 2: Verificar si hay tareas en esas columnas (solo si hay columnas)
+    let taskCount = 0;
+    if (columnIds.length > 0) {
+      const { count, error: taskCountError } = await supabase
+        .from("tasks")
+        .select("id", { count: "exact", head: true })
+        .in("column_id", columnIds);
+
+      if (taskCountError) throw taskCountError;
+      taskCount = count ?? 0;
+    }
+
+    // ✅ PASO 3: Verificar si hay épicas asociadas
+    const { count: epicCount, error: epicCountError } = await supabase
+      .from("epics")
+      .select("id", { count: "exact", head: true })
+      .eq("project_id", projectId);
+
+    if (epicCountError) throw epicCountError;
+
+    // ✅ PASO 4: Si hay tareas o épicas, no permitir el cambio
+    if (taskCount > 0 || (epicCount ?? 0) > 0) {
+      throw new Error("No se pueden cambiar las siglas de un proyecto que ya tiene tareas o épicas");
+    }
+
+    // ✅ PASO 5: Verificar que las nuevas siglas no estén en uso
+    const { data: existingProject, error: checkError } = await supabase
+      .from("projects")
+      .select("id")
+      .eq("project_key", updates.project_key)
+      .neq("id", projectId)
+      .maybeSingle();
+
+    if (checkError) throw checkError;
+
+    if (existingProject) {
+      throw new Error(`Las siglas "${updates.project_key}" ya están en uso por otro proyecto`);
+    }
+  }
+
+  // Actualizar campos básicos del proyecto
+  if (updates.title !== undefined || updates.description !== undefined || updates.project_key !== undefined) {
     const { error: projectError } = await supabase
       .from("projects")
       .update({
         ...(updates.title !== undefined && { title: updates.title }),
         ...(updates.description !== undefined && { description: updates.description }),
+        ...(updates.project_key !== undefined && { project_key: updates.project_key.toUpperCase() }),
         updated_at: new Date().toISOString(),
       })
       .eq("id", projectId);
@@ -163,6 +285,7 @@ export const updateProject = async (
     if (projectError) throw projectError;
   }
 
+  // Actualizar tags
   if (updates.tags !== undefined) {
     const { error: deleteError } = await supabase
       .from("project_tags")
@@ -205,7 +328,8 @@ export const searchProjects = async (userId: string, query: string): Promise<Pro
     (project) =>
       project.title.toLowerCase().includes(lowerQuery) ||
       project.description?.toLowerCase().includes(lowerQuery) ||
-      project.tags.some((tag) => tag.toLowerCase().includes(lowerQuery))
+      project.tags.some((tag) => tag.toLowerCase().includes(lowerQuery)) ||
+      project.project_key.toLowerCase().includes(lowerQuery) // ✨ NUEVO - Buscar por siglas también
   );
 };
 

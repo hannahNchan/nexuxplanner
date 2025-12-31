@@ -117,8 +117,8 @@ const Board = ({ userId }: BoardProps) => {
         
         console.log("📦 Response recibida:", response); // ✅ DEBUG
         
-        if (!response.board) {
-          console.log("❌ No hay board"); // ✅ DEBUG
+        if (!response.columns || response.columns.length === 0) {
+          console.log("⚠️ No hay columnas para este proyecto");
           setBoardId(null);
           setData(null);
           return;
@@ -134,8 +134,9 @@ const Board = ({ userId }: BoardProps) => {
         );
         
         console.log("✅ BoardState creado:", boardState); // ✅ DEBUG
+        console.log("📋 ColumnOrder:", boardState.columnOrder);
         
-        setBoardId(response.board.id);
+        setBoardId(response.board?.id ?? null);
         setData(boardState);
         setErrorMessage(null);
       } catch (error) {
@@ -149,26 +150,28 @@ const Board = ({ userId }: BoardProps) => {
     void loadBoard();
   }, [userId, currentProject]);
 
-const handleCreateBoard = async () => {
-  if (!boardName.trim()) {
-    setErrorMessage("Ingresa un nombre para el tablero.");
-    return;
-  }
+  /* 
+  const handleCreateBoard = async () => {
+    if (!boardName.trim()) {
+      setErrorMessage("Ingresa un nombre para el tablero.");
+      return;
+    }
 
-  setIsCreatingBoard(true);
-  setErrorMessage(null);
-  try {
-    const created = await createBoard(userId, boardName.trim());
-    
-    setBoardId(created.board.id);
-    setData(toBoardState([], [], []));
-  } catch (error) {
-    console.error(error);
-    setErrorMessage("No se pudo crear el tablero.");
-  } finally {
-    setIsCreatingBoard(false);
-  }
-};
+    setIsCreatingBoard(true);
+    setErrorMessage(null);
+    try {
+      const created = await createBoard(userId, boardName.trim());
+      
+      setBoardId(created.board.id);
+      setData(toBoardState([], [], []));
+    } catch (error) {
+      console.error(error);
+      setErrorMessage("No se pudo crear el tablero.");
+    } finally {
+      setIsCreatingBoard(false);
+    }
+  };
+  */
 
   const handleCreateColumn = async (columnName: string) => {
     if (!currentProject || !data) {
@@ -290,75 +293,110 @@ const handleCreateBoard = async () => {
     setIsModalOpen(true);
   };
 
-  const handleSaveTask = async (
-    taskId: string,
-    updates: {
-      title: string;
-      description: string;
-      column_id: string;
-      issue_type_id: string | null;
-      priority_id: string | null;
-      story_points: string | null;
-      assignee_id: string | null;
-    }
-  ) => {
-    if (!data) return;
+const handleSaveTask = async (
+  taskId: string,
+  updates: {
+    title: string;
+    description: string;
+    destination: "backlog" | "scrum";
+    column_id: string | null;
+    issue_type_id: string | null;
+    priority_id: string | null;
+    story_points: string | null;
+    assignee_id: string | null;
+  }
+) => {
+  if (!data) return;
 
-    try {
-      const updated = await updateTask(taskId, updates);
+  try {
+    // ✨ Extraer destination antes de enviarlo a la BD
+    const { destination, ...dbUpdates } = updates;
+    
+    // Determinar in_backlog basado en destination
+    const in_backlog = destination === "backlog";
+    
+    const updated = await updateTask(taskId, {
+      ...dbUpdates,
+      in_backlog,
+      column_id: in_backlog ? null : updates.column_id,
+    });
 
-      setData((previous) => {
-        if (!previous) return previous;
+    setData((previous) => {
+      if (!previous) return previous;
 
-        const updatedTasks = {
-          ...previous.tasks,
-          [taskId]: {
-            id: updated.id,
-            title: updated.title,
-            description: updated.description ?? undefined,
-            issue_type_id: updated.issue_type_id ?? undefined,
-            priority_id: updated.priority_id ?? undefined,
-            story_points: updated.story_points ?? undefined,
-            assignee_id: updated.assignee_id ?? undefined,
-          },
-        };
+      const updatedTasks = {
+        ...previous.tasks,
+        [taskId]: {
+          id: updated.id,
+          title: updated.title,
+          description: updated.description ?? undefined,
+          issue_type_id: updated.issue_type_id ?? undefined,
+          priority_id: updated.priority_id ?? undefined,
+          story_points: updated.story_points ?? undefined,
+          assignee_id: updated.assignee_id ?? undefined,
+        },
+      };
 
+      if (in_backlog) {
         const oldColumnId = Object.keys(previous.columns).find((colId) =>
           previous.columns[colId].taskIds.includes(taskId)
         );
 
-        if (oldColumnId && oldColumnId !== updates.column_id) {
+        if (oldColumnId) {
           const updatedOldColumn = {
             ...previous.columns[oldColumnId],
             taskIds: previous.columns[oldColumnId].taskIds.filter((id) => id !== taskId),
           };
 
-          const updatedNewColumn = {
-            ...previous.columns[updates.column_id],
-            taskIds: [...previous.columns[updates.column_id].taskIds, taskId],
-          };
+          const { [taskId]: _removed, ...remainingTasks } = updatedTasks;
 
           return {
             ...previous,
-            tasks: updatedTasks,
+            tasks: remainingTasks,
             columns: {
               ...previous.columns,
               [oldColumnId]: updatedOldColumn,
-              [updates.column_id]: updatedNewColumn,
             },
           };
         }
+      }
+
+      const oldColumnId = Object.keys(previous.columns).find((colId) =>
+        previous.columns[colId].taskIds.includes(taskId)
+      );
+
+      if (oldColumnId && updates.column_id && oldColumnId !== updates.column_id) {
+        const updatedOldColumn = {
+          ...previous.columns[oldColumnId],
+          taskIds: previous.columns[oldColumnId].taskIds.filter((id) => id !== taskId),
+        };
+
+        const updatedNewColumn = {
+          ...previous.columns[updates.column_id],
+          taskIds: [...previous.columns[updates.column_id].taskIds, taskId],
+        };
 
         return {
           ...previous,
           tasks: updatedTasks,
+          columns: {
+            ...previous.columns,
+            [oldColumnId]: updatedOldColumn,
+            [updates.column_id]: updatedNewColumn,
+          },
         };
-      });
-    } catch (error) {
-      console.error("Error actualizando tarea:", error);
-      throw error;
-    }
-  };
+      }
+
+      return {
+        ...previous,
+        tasks: updatedTasks,
+      };
+    });
+  } catch (error) {
+    console.error("Error actualizando tarea:", error);
+    throw error;
+  }
+};
 
   const handleDeleteTask = async (taskId: string) => {
     if (!data) return;
@@ -528,35 +566,6 @@ const handleCreateBoard = async () => {
         <Alert severity="info" sx={{ maxWidth: 600 }}>
           Selecciona un proyecto desde el menú lateral para ver su tablero
         </Alert>
-      </Stack>
-    );
-  }
-
-  // ✅ CAMBIO 3: Si no hay board, mostrar opción de crear
-  if (!boardId) {
-    return (
-      <Stack spacing={1} py={4}>
-        <Typography variant="h5" fontWeight={700}>
-          Tablero
-        </Typography>
-        <Stack spacing={2} maxWidth={360}>
-          <Typography color="text.secondary">
-            Aún no tienes un tablero creado.
-          </Typography>
-          <TextField
-            label="Nombre del tablero"
-            value={boardName}
-            onChange={(event) => setBoardName(event.target.value)}
-            size="small"
-          />
-          <Button
-            variant="contained"
-            onClick={handleCreateBoard}
-            disabled={isCreatingBoard}
-          >
-            {isCreatingBoard ? "Creando..." : "Crear tablero"}
-          </Button>
-        </Stack>
       </Stack>
     );
   }

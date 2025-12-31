@@ -76,7 +76,7 @@ export const useEpicsTable = (userId: string) => {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [epicToDelete, setEpicToDelete] = useState<string | null>(null);
 
-  // Cargar datos
+  // Cargar datos iniciales
   const loadData = async () => {
     setIsLoading(true);
     try {
@@ -206,14 +206,23 @@ export const useEpicsTable = (userId: string) => {
     }
   }, [taskSearchText, taskSearchOpen, userId, currentProject]);
 
-  // Handlers
+  // ✅ Handlers optimizados (sin recargar todo)
   const handleAddEpic = async () => {
     try {
-      await createEpic(userId, {
+      const newEpic = await createEpic(userId, {
         name: "Nueva épica",
         project_id: currentProject?.id ?? null,
       });
-      await loadData();
+
+      // ✅ Actualizar solo el estado local
+      const epicWithDetails: EpicWithDetails = {
+        ...newEpic,
+        phase_name: undefined,
+        phase_color: undefined,
+        connected_tasks: [],
+      };
+
+      setEpics((prev) => [epicWithDetails, ...prev]);
     } catch (error) {
       console.error("Error creando épica:", error);
     }
@@ -222,7 +231,11 @@ export const useEpicsTable = (userId: string) => {
   const handleNameChange = async (epicId: string, newName: string) => {
     try {
       await updateEpic(epicId, { name: newName });
-      await loadData();
+
+      // ✅ Actualizar solo el estado local
+      setEpics((prev) =>
+        prev.map((epic) => (epic.id === epicId ? { ...epic, name: newName } : epic))
+      );
     } catch (error) {
       console.error("Error actualizando nombre:", error);
     }
@@ -231,7 +244,21 @@ export const useEpicsTable = (userId: string) => {
   const handlePhaseChange = async (epicId: string, phaseId: string) => {
     try {
       await updateEpic(epicId, { phase_id: phaseId || null });
-      await loadData();
+
+      // ✅ Actualizar solo el estado local
+      const phase = phases.find((p) => p.id === phaseId);
+      setEpics((prev) =>
+        prev.map((epic) =>
+          epic.id === epicId
+            ? {
+                ...epic,
+                phase_id: phaseId || null,
+                phase_name: phase?.name,
+                phase_color: phase?.color,
+              }
+            : epic
+        )
+      );
     } catch (error) {
       console.error("Error actualizando fase:", error);
     }
@@ -240,7 +267,13 @@ export const useEpicsTable = (userId: string) => {
   const handleEffortChange = async (epicId: string, effort: string) => {
     try {
       await updateEpic(epicId, { estimated_effort: effort || null });
-      await loadData();
+
+      // ✅ Actualizar solo el estado local
+      setEpics((prev) =>
+        prev.map((epic) =>
+          epic.id === epicId ? { ...epic, estimated_effort: effort || null } : epic
+        )
+      );
     } catch (error) {
       console.error("Error actualizando esfuerzo:", error);
     }
@@ -249,7 +282,13 @@ export const useEpicsTable = (userId: string) => {
   const handleProjectChange = async (epicId: string, projectId: string) => {
     try {
       await linkEpicToProject(epicId, projectId || null);
-      await loadData();
+
+      // ✅ Actualizar solo el estado local
+      setEpics((prev) =>
+        prev.map((epic) =>
+          epic.id === epicId ? { ...epic, project_id: projectId || null } : epic
+        )
+      );
     } catch (error) {
       console.error("Error actualizando proyecto:", error);
     }
@@ -258,7 +297,21 @@ export const useEpicsTable = (userId: string) => {
   const handleConnectTask = async (epicId: string, taskId: string) => {
     try {
       await connectTaskToEpic(epicId, taskId);
-      await loadData();
+
+      // ✅ Actualizar solo el estado local
+      const task = taskOptions.find((t) => t.id === taskId);
+      if (task) {
+        setEpics((prev) =>
+          prev.map((epic) =>
+            epic.id === epicId
+              ? {
+                  ...epic,
+                  connected_tasks: [...(epic.connected_tasks || []), task],
+                }
+              : epic
+          )
+        );
+      }
     } catch (error) {
       console.error("Error conectando tarea:", error);
     }
@@ -267,7 +320,18 @@ export const useEpicsTable = (userId: string) => {
   const handleDisconnectTask = async (epicId: string, taskId: string) => {
     try {
       await disconnectTaskFromEpic(epicId, taskId);
-      await loadData();
+
+      // ✅ Actualizar solo el estado local
+      setEpics((prev) =>
+        prev.map((epic) =>
+          epic.id === epicId
+            ? {
+                ...epic,
+                connected_tasks: (epic.connected_tasks || []).filter((t) => t.id !== taskId),
+              }
+            : epic
+        )
+      );
     } catch (error) {
       console.error("Error desconectando tarea:", error);
     }
@@ -283,7 +347,9 @@ export const useEpicsTable = (userId: string) => {
 
     try {
       await deleteEpic(epicToDelete);
-      await loadData();
+
+      // ✅ Actualizar solo el estado local
+      setEpics((prev) => prev.filter((epic) => epic.id !== epicToDelete));
       setDeleteDialogOpen(false);
       setEpicToDelete(null);
     } catch (error) {

@@ -185,6 +185,9 @@ const ExploreProjectsModal = ({
                     <TableCell>
                       <Typography fontWeight={600}>Creado</Typography>
                     </TableCell>
+                    <TableCell>
+                      <Typography fontWeight={600}>ID de tarea</Typography>
+                    </TableCell>
                     <TableCell align="center">
                       <Typography fontWeight={600}>Acciones</Typography>
                     </TableCell>
@@ -245,6 +248,19 @@ const ExploreProjectsModal = ({
                       </TableCell>
                       <TableCell>
                         <Typography variant="body2">{formatDate(project.created_at)}</Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Chip
+                          label={project.project_key}
+                          size="small"
+                          sx={{
+                            fontFamily: "monospace",
+                            fontWeight: 700,
+                            bgcolor: alpha(theme.palette.primary.main, 0.1),
+                            border: `1px solid ${alpha(theme.palette.primary.main, 0.3)}`,
+                            color: "primary.main",
+                          }}
+                        />
                       </TableCell>
                       <TableCell align="center">
                         <Stack direction="row" spacing={1} justifyContent="center">

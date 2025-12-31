@@ -66,7 +66,8 @@ export const fetchBoardDataByProject = async (
   tasks: TaskRecord[];
   columnOrder: string[];
 }> => {
-  const { data: board, error: boardError } = await supabase
+  // ✅ CAMBIO: Buscar board es opcional ahora
+  const { data: board } = await supabase
     .from("boards")
     .select("id, name, user_id")
     .eq("user_id", userId)
@@ -74,51 +75,49 @@ export const fetchBoardDataByProject = async (
     .limit(1)
     .maybeSingle();
 
-  if (boardError) throw boardError;
-
-  if (!board) {
-    return {
-      board: null,
-      columns: [],
-      tasks: [],
-      columnOrder: [],
-    };
-  }
-
+  // ✅ Si no hay projectId, retornar vacío
   if (!projectId) {
     return {
-      board,
+      board: board ?? null,
       columns: [],
       tasks: [],
       columnOrder: [],
     };
   }
 
+  // ✅ CRÍTICO: Buscar columnas directamente por project_id (sin depender de board)
   const { data: columns, error: columnsError } = await supabase
     .from("columns")
     .select("id, project_id, name, position")
-    .eq("project_id", projectId);
+    .eq("project_id", projectId)
+    .order("position", { ascending: true }); // ✨ Ordenar aquí directamente
 
   if (columnsError) throw columnsError;
 
+  console.log("📊 Columnas encontradas:", columns); // ✨ DEBUG
+
+  // Buscar el orden de columnas
   const columnOrder = await fetchColumnOrder(projectId);
 
+  // Si no hay orden guardado, usar el orden por posición
   const finalColumnOrder =
     columnOrder.length > 0
       ? columnOrder
-      : (columns ?? []).sort((a, b) => a.position - b.position).map((c) => c.id);
+      : (columns ?? []).map((c) => c.id);
 
   const columnIds = (columns ?? []).map((column) => column.id);
 
+  // Si no hay columnas, retornar vacío
   if (columnIds.length === 0) {
     return {
-      board,
+      board: board ?? null,
       columns: columns ?? [],
       tasks: [],
       columnOrder: finalColumnOrder,
     };
   }
 
+  // Buscar tareas de esas columnas
   const { data: tasks, error: tasksError } = await supabase
     .from("tasks")
     .select(
@@ -130,7 +129,7 @@ export const fetchBoardDataByProject = async (
   if (tasksError) throw tasksError;
 
   return {
-    board,
+    board: board ?? null, // ✅ Board es opcional
     columns: columns ?? [],
     tasks: tasks ?? [],
     columnOrder: finalColumnOrder,
@@ -179,13 +178,28 @@ export const createColumn = async (
 };
 
 export const createTask = async (
-  columnId: string,
+  columnIdOrProjectId: string,
   title: string,
-  position: number
+  position: number,
+  isBacklog = false
 ): Promise<TaskRecord> => {
+
+  const taskData: any = {
+    title,
+    position,
+    in_backlog: isBacklog,
+  };
+
+  if (isBacklog) {
+    taskData.project_id = columnIdOrProjectId;
+    taskData.column_id = null;
+  } else {
+    taskData.column_id = columnIdOrProjectId;
+  }
+
   const { data, error } = await supabase
     .from("tasks")
-    .insert({ column_id: columnId, title, position })
+    .insert({ column_id: columnIdOrProjectId, title, position })
     .select("id, column_id, title, description, position, issue_type_id, priority_id, story_points, assignee_id")
     .single();
 
@@ -201,13 +215,24 @@ export const updateTask = async (
   updates: {
     title?: string;
     description?: string;
-    column_id?: string;
+    column_id?: string | null;
     issue_type_id?: string | null;
     priority_id?: string | null;
     story_points?: string | null;
     assignee_id?: string | null;
+    in_backlog?: boolean;
   }
-): Promise<TaskRecord> => {
+): Promise<Task> => {
+
+  const updateData: any = {
+    ...updates,
+    updated_at: new Date().toISOString(),
+  };
+
+  if (updates.in_backlog === true) {
+    updateData.column_id = null;
+  }
+
   const { data, error } = await supabase
     .from("tasks")
     .update({

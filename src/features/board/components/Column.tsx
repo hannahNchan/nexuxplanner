@@ -4,6 +4,8 @@ import { alpha } from "@mui/material/styles";
 import AddIcon from "@mui/icons-material/Add";
 import { useTheme } from "@mui/material/styles";
 import { createPortal } from "react-dom";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faTasks } from "@fortawesome/free-solid-svg-icons";
 import TaskCard from "./TaskCard";
 import type { Column as ColumnType, Task } from "../../../shared/types/board";
 
@@ -108,7 +110,7 @@ const Column = ({
                   {...provided.droppableProps}
                   spacing={1.5}
                   sx={{
-                    minHeight: 100,
+                    minHeight: tasks.length === 0 ? 200 : 100,
                     backgroundColor: dropSnapshot.isDraggingOver
                       ? alpha(theme.palette.success.main, 0.12)
                       : "transparent",
@@ -120,72 +122,161 @@ const Column = ({
                     transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
                   }}
                 >
-                  {tasks.map((task, taskIndex) => (
-                    <Draggable key={task.id} draggableId={task.id} index={taskIndex}>
-                      {(taskProvided, taskSnapshot) => {
-                        const child = (
-                          <Box
-                            ref={taskProvided.innerRef}
-                            {...taskProvided.draggableProps}
-                            {...taskProvided.dragHandleProps}
-                            sx={{
-                              // ✅ CRÍTICO: Asegurar que el elemento sea visible durante el drag
-                              opacity: taskSnapshot.isDragging ? 0.5 : 1,
-                            }}
-                          >
-                            <TaskCard 
-                              task={task} 
-                              onClick={() => onTaskClick(task)}
-                              currentUserId={currentUserId}
-                              isDragging={taskSnapshot.isDragging}
-                            />
-                          </Box>
-                        );
-
-                        // ✅ SOLUCIÓN: Usar portal solo para el elemento que se está arrastrando
-                        if (taskSnapshot.isDragging) {
-                          return createPortal(
-                            <Box
-                              {...taskProvided.draggableProps}
-                              {...taskProvided.dragHandleProps}
-                              sx={{
-                                // ✅ Posición fija para que siga el cursor
-                                position: "fixed",
-                                pointerEvents: "none",
-                                zIndex: 9999,
-                                width: 300, // Mismo ancho que las columnas
-                              }}
-                            >
-                              <TaskCard 
-                                task={task} 
-                                onClick={() => {}}
-                                currentUserId={currentUserId}
-                                isDragging={true}
-                              />
-                            </Box>,
-                            document.body
-                          );
-                        }
-
-                        return child;
-                      }}
-                    </Draggable>
-                  ))}
-                  {provided.placeholder}
-                  
-                  {dropSnapshot.isDraggingOver && (
-                    <Box
+                  {tasks.length === 0 ? (
+                    // ✨ Empty State cuando no hay tareas
+                    <Stack
+                      spacing={2}
+                      alignItems="center"
+                      justifyContent="center"
                       sx={{
+                        py: 4,
+                        px: 2,
                         textAlign: "center",
-                        py: 1,
-                        color: theme.palette.success.main,
-                        fontSize: "0.875rem",
-                        fontWeight: 500,
                       }}
                     >
-                      ↓ Soltar aquí
-                    </Box>
+                      {/* Icono animado */}
+                      <Box
+                        sx={{
+                          width: 80,
+                          height: 80,
+                          borderRadius: "50%",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          background: `linear-gradient(135deg, 
+                            ${alpha(theme.palette.primary.main, 0.1)} 0%, 
+                            ${alpha(theme.palette.secondary.main, 0.05)} 100%)`,
+                          animation: dropSnapshot.isDraggingOver 
+                            ? "none" 
+                            : "pulse 2s ease-in-out infinite",
+                          "@keyframes pulse": {
+                            "0%, 100%": {
+                              transform: "scale(1)",
+                              opacity: 0.7,
+                            },
+                            "50%": {
+                              transform: "scale(1.05)",
+                              opacity: 1,
+                            },
+                          },
+                        }}
+                      >
+                        <FontAwesomeIcon
+                          icon={faTasks}
+                          size="2x"
+                          style={{
+                            color: theme.palette.primary.main,
+                            opacity: 0.6,
+                          }}
+                        />
+                      </Box>
+
+                      {/* Texto */}
+                      {!dropSnapshot.isDraggingOver && (
+                        <>
+                          <Typography
+                            variant="body2"
+                            fontWeight={600}
+                            color="text.secondary"
+                            sx={{ fontSize: "0.875rem" }}
+                          >
+                            Sin tareas
+                          </Typography>
+                          <Typography
+                            variant="caption"
+                            color="text.secondary"
+                            sx={{
+                              fontSize: "0.75rem",
+                              opacity: 0.7,
+                            }}
+                          >
+                            Arrastra tareas aquí o crea una nueva
+                          </Typography>
+                        </>
+                      )}
+
+                      {/* Mensaje al arrastrar sobre la columna */}
+                      {dropSnapshot.isDraggingOver && (
+                        <Typography
+                          variant="body2"
+                          fontWeight={600}
+                          sx={{
+                            color: theme.palette.success.main,
+                            fontSize: "0.875rem",
+                          }}
+                        >
+                          ↓ Soltar aquí
+                        </Typography>
+                      )}
+                    </Stack>
+                  ) : (
+                    // Tareas existentes
+                    <>
+                      {tasks.map((task, taskIndex) => (
+                        <Draggable key={task.id} draggableId={task.id} index={taskIndex}>
+                          {(taskProvided, taskSnapshot) => {
+                            const child = (
+                              <Box
+                                ref={taskProvided.innerRef}
+                                {...taskProvided.draggableProps}
+                                {...taskProvided.dragHandleProps}
+                                sx={{
+                                  opacity: taskSnapshot.isDragging ? 0.5 : 1,
+                                }}
+                              >
+                                <TaskCard 
+                                  task={task} 
+                                  onClick={() => onTaskClick(task)}
+                                  currentUserId={currentUserId}
+                                  isDragging={taskSnapshot.isDragging}
+                                />
+                              </Box>
+                            );
+
+                            if (taskSnapshot.isDragging) {
+                              return createPortal(
+                                <Box
+                                  {...taskProvided.draggableProps}
+                                  {...taskProvided.dragHandleProps}
+                                  sx={{
+                                    position: "fixed",
+                                    pointerEvents: "none",
+                                    zIndex: 9999,
+                                    width: 300,
+                                  }}
+                                >
+                                  <TaskCard 
+                                    task={task} 
+                                    onClick={() => {}}
+                                    currentUserId={currentUserId}
+                                    isDragging={true}
+                                  />
+                                </Box>,
+                                document.body
+                              );
+                            }
+
+                            return child;
+                          }}
+                        </Draggable>
+                      ))}
+
+                      {dropSnapshot.isDraggingOver && (
+                        <Box
+                          sx={{
+                            textAlign: "center",
+                            py: 1,
+                            color: theme.palette.success.main,
+                            fontSize: "0.875rem",
+                            fontWeight: 500,
+                          }}
+                        >
+                          ↓ Soltar aquí
+                        </Box>
+                      )}
+                    </>
                   )}
+                  {provided.placeholder}
                 </Stack>
               )}
             </Droppable>

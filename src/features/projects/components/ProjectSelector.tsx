@@ -17,7 +17,7 @@ import SearchIcon from "@mui/icons-material/Search";
 import AddIcon from "@mui/icons-material/Add";
 import ExploreIcon from "@mui/icons-material/Explore";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
-import { useState, useEffect } from "react"; // ✅ Agregado useEffect
+import { useState, useEffect } from "react";
 import { useProjects } from "../hooks/useProjects";
 import CreateProjectModal from "./CreateProjectModal";
 import ExploreProjectsModal from "./ExploreProjectsModal";
@@ -49,7 +49,7 @@ const ProjectSelector = ({ userId, collapsed }: ProjectSelectorProps) => {
 
   const open = Boolean(anchorEl);
 
-  // ✅ CAMBIO: Auto-seleccionar el primer proyecto al cargar
+  // Auto-seleccionar el primer proyecto al cargar
   useEffect(() => {
     if (!loading && projects.length > 0 && !currentProject) {
       setCurrentProject(projects[0]);
@@ -78,17 +78,31 @@ const ProjectSelector = ({ userId, collapsed }: ProjectSelectorProps) => {
     setCreateModalOpen(true);
   };
 
+  // ✨ ACTUALIZADO: Ahora recibe y pasa project_key
   const handleSaveProject = async (
     title: string,
     description: string,
     tags: string[],
+    projectKey: string, // ✨ NUEVO
     projectId?: string
   ) => {
     if (projectId) {
-      await updateProject(projectId, { title, description, tags });
+      // Editar proyecto existente
+      await updateProject(projectId, { 
+        title, 
+        description, 
+        tags,
+        project_key: projectKey, // ✨ NUEVO
+      });
     } else {
-      const newProject = await createProject(title, description, tags); // ✅ CAMBIO: Capturar el proyecto creado
-      setCurrentProject(newProject); // ✅ CAMBIO: Auto-seleccionarlo
+      // Crear nuevo proyecto
+      const newProject = await createProject(
+        title, 
+        description, 
+        tags,
+        projectKey // ✨ NUEVO
+      );
+      setCurrentProject(newProject);
     }
   };
 
@@ -165,9 +179,26 @@ const ProjectSelector = ({ userId, collapsed }: ProjectSelectorProps) => {
               selected={project.id === currentProject?.id}
             >
               <Stack spacing={0.5} width="100%">
-                <Typography fontWeight={500} noWrap>
-                  {project.title}
-                </Typography>
+                <Stack direction="row" spacing={1} alignItems="center">
+                  <Typography fontWeight={500} noWrap>
+                    {project.title}
+                  </Typography>
+                  {/* ✨ NUEVO: Mostrar siglas del proyecto */}
+                  <Typography
+                    variant="caption"
+                    sx={{
+                      fontFamily: "monospace",
+                      fontWeight: 700,
+                      color: "primary.main",
+                      bgcolor: (theme) => theme.palette.action.selected,
+                      px: 0.75,
+                      py: 0.25,
+                      borderRadius: 0.5,
+                    }}
+                  >
+                    {project.project_key}
+                  </Typography>
+                </Stack>
                 {project.description && (
                   <Typography variant="caption" color="text.secondary" noWrap>
                     {project.description}

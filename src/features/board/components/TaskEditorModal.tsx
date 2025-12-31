@@ -17,15 +17,19 @@ import {
   Checkbox,
   FormControlLabel,
   Chip,
+  Alert,
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import DeleteIcon from "@mui/icons-material/Delete";
 import SaveIcon from "@mui/icons-material/Save";
 import WarningIcon from "@mui/icons-material/Warning";
 import PersonIcon from "@mui/icons-material/Person";
+import ListAltIcon from "@mui/icons-material/ListAlt";
+import DashboardIcon from "@mui/icons-material/Dashboard";
 import Quill from "quill";
 import "quill/dist/quill.snow.css";
 import { useEffect, useRef, useState } from "react";
+import { alpha, useTheme } from "@mui/material/styles";
 import type { IssueType, Priority, PointValue } from "../../api/catalogService";
 
 type TaskEditorModalProps = {
@@ -34,7 +38,7 @@ type TaskEditorModalProps = {
     id: string;
     title: string;
     description?: string;
-    column_id: string;
+    column_id: string | null; // ✨ Ahora nullable
     issue_type_id?: string | null;
     priority_id?: string | null;
     story_points?: string | null;
@@ -44,16 +48,19 @@ type TaskEditorModalProps = {
   issueTypes: IssueType[];
   priorities: Priority[];
   pointValues: PointValue[];
-  currentUserId: string;  // ✅ NUEVO: ID del usuario logueado
+  currentUserId: string;
+  defaultDestination?: "backlog" | "scrum"; // ✨ NUEVO
+  disableDestinationSelector?: boolean; // ✨ NUEVO
   onClose: () => void;
   onSave: (taskId: string, updates: {
     title: string;
     description: string;
-    column_id: string;
+    destination: "backlog" | "scrum"; // ✨ NUEVO
+    column_id: string | null; // ✨ Ahora nullable
     issue_type_id: string | null;
     priority_id: string | null;
     story_points: string | null;
-    assignee_id: string | null;  // ✅ NUEVO
+    assignee_id: string | null;
   }) => Promise<void>;
   onDelete: (taskId: string) => Promise<void>;
 };
@@ -66,19 +73,23 @@ const TaskEditorModal = ({
   priorities,
   pointValues,
   currentUserId,
+  defaultDestination = "scrum", // ✨ NUEVO
+  disableDestinationSelector = false, // ✨ NUEVO
   onClose,
   onSave,
   onDelete,
 }: TaskEditorModalProps) => {
+  const theme = useTheme();
   const editorRef = useRef<HTMLDivElement | null>(null);
   const quillRef = useRef<Quill | null>(null);
   
   const [title, setTitle] = useState("");
-  const [columnId, setColumnId] = useState("");
+  const [destination, setDestination] = useState<"backlog" | "scrum">(defaultDestination); // ✨ NUEVO
+  const [columnId, setColumnId] = useState<string>("");
   const [issueTypeId, setIssueTypeId] = useState<string>("");
   const [priorityId, setPriorityId] = useState<string>("");
   const [storyPoints, setStoryPoints] = useState<string>("");
-  const [assigneeId, setAssigneeId] = useState<string>("");  // ✅ NUEVO
+  const [assigneeId, setAssigneeId] = useState<string>("");
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   
@@ -145,29 +156,45 @@ const TaskEditorModal = ({
     }
 
     setTitle(task.title);
-    setColumnId(task.column_id);
+    
+    // ✨ NUEVO: Determinar destino basado en column_id
+    if (task.column_id) {
+      setDestination("scrum");
+      setColumnId(task.column_id);
+    } else {
+      setDestination("backlog");
+      setColumnId(columns[0]?.id || ""); // Default a primera columna si existe
+    }
+    
     setIssueTypeId(task.issue_type_id || "");
     setPriorityId(task.priority_id || "");
     setStoryPoints(task.story_points || "");
-    setAssigneeId(task.assignee_id || "");  // ✅ NUEVO
-  }, [task]);
+    setAssigneeId(task.assignee_id || "");
+  }, [task, columns]);
 
   useEffect(() => {
     if (!open) {
       setTitle("");
+      setDestination(defaultDestination);
       setColumnId("");
       setIssueTypeId("");
       setPriorityId("");
       setStoryPoints("");
-      setAssigneeId("");  // ✅ NUEVO
+      setAssigneeId("");
       if (quillRef.current) {
         quillRef.current = null;
       }
     }
-  }, [open]);
+  }, [open, defaultDestination]);
 
   const handleSave = async () => {
     if (!task) {
+      return;
+    }
+
+    // ✨ VALIDACIÓN: Si va a Scrum, debe tener columna
+    if (destination === "scrum" && !columnId) {
+      alert("Selecciona una columna para el Tablero Scrum");
       return;
     }
 
@@ -181,11 +208,12 @@ const TaskEditorModal = ({
       await onSave(task.id, {
         title: title.trim() || "Sin título",
         description,
-        column_id: columnId,
+        destination, // ✨ NUEVO
+        column_id: destination === "scrum" ? columnId : null, // ✨ NULL si es backlog
         issue_type_id: issueTypeId || null,
         priority_id: priorityId || null,
         story_points: storyPoints || null,
-        assignee_id: assigneeId || null,  // ✅ NUEVO
+        assignee_id: assigneeId || null,
       });
       onClose();
     } catch (error) {
@@ -216,12 +244,11 @@ const TaskEditorModal = ({
     }
   };
 
-  // ✅ NUEVO: Toggle para asignar/desasignar al usuario actual
   const handleToggleAssignment = () => {
     if (assigneeId === currentUserId) {
-      setAssigneeId("");  // Desasignar
+      setAssigneeId("");
     } else {
-      setAssigneeId(currentUserId);  // Asignar al usuario actual
+      setAssigneeId(currentUserId);
     }
   };
 
@@ -294,7 +321,59 @@ const TaskEditorModal = ({
               }}
             />
 
-            {/* ✅ NUEVO: Asignación al usuario */}
+            {/* ✨ NUEVO: Selector de Destino */}
+            <Paper
+              sx={{
+                p: 2,
+                borderRadius: 2,
+                bgcolor: alpha(theme.palette.info.main, 0.05),
+                border: `1px solid ${alpha(theme.palette.info.main, 0.2)}`,
+              }}
+            >
+              <FormControl fullWidth disabled={disableDestinationSelector}>
+                <InputLabel>Destino de la tarea</InputLabel>
+                <Select
+                  value={destination}
+                  label="Destino de la tarea"
+                  onChange={(e) => setDestination(e.target.value as "backlog" | "scrum")}
+                >
+                  <MenuItem value="backlog">
+                    <Stack direction="row" spacing={1} alignItems="center">
+                      <ListAltIcon fontSize="small" />
+                      <Box>
+                        <Typography variant="body2" fontWeight={600}>
+                          Backlog
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          Tareas pendientes sin asignar al tablero
+                        </Typography>
+                      </Box>
+                    </Stack>
+                  </MenuItem>
+                  <MenuItem value="scrum">
+                    <Stack direction="row" spacing={1} alignItems="center">
+                      <DashboardIcon fontSize="small" />
+                      <Box>
+                        <Typography variant="body2" fontWeight={600}>
+                          Tablero Scrum
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          Tareas activas en columnas del tablero
+                        </Typography>
+                      </Box>
+                    </Stack>
+                  </MenuItem>
+                </Select>
+              </FormControl>
+
+              {disableDestinationSelector && (
+                <Alert severity="info" sx={{ mt: 2 }}>
+                  Esta tarea se creará en el Backlog. Muévela al Tablero Scrum cuando esté lista.
+                </Alert>
+              )}
+            </Paper>
+
+            {/* Asignación al usuario */}
             <Box
               sx={{
                 p: 2,
@@ -383,18 +462,25 @@ const TaskEditorModal = ({
             </Stack>
 
             <Stack direction="row" spacing={2}>
-              <FormControl fullWidth>
+              {/* ✨ MODIFICADO: Solo mostrar selector de columna si destino es "scrum" */}
+              <FormControl fullWidth disabled={destination === "backlog"}>
                 <InputLabel>Estado</InputLabel>
                 <Select
                   value={columnId}
                   label="Estado"
                   onChange={(e) => setColumnId(e.target.value)}
                 >
-                  {columns.map((column) => (
-                    <MenuItem key={column.id} value={column.id}>
-                      {column.title}
+                  {destination === "backlog" ? (
+                    <MenuItem value="">
+                      <em>No aplica para Backlog</em>
                     </MenuItem>
-                  ))}
+                  ) : (
+                    columns.map((column) => (
+                      <MenuItem key={column.id} value={column.id}>
+                        {column.title}
+                      </MenuItem>
+                    ))
+                  )}
                 </Select>
               </FormControl>
 

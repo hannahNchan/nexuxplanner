@@ -4,6 +4,7 @@ import AuthGate from "../features/auth/AuthGate";
 import Layout from "./Layout";
 import Board from "../features/board/components/Board";
 import EpicsTable from "../features/board/components/EpicsTable/EpicsTable";
+import { BacklogTable } from "../features/backlog"; // ✨ NUEVO
 import QuillEditor from "../features/editor/QuillEditor";
 import { Container, Stack, Typography } from "@mui/material";
 import { ProjectProvider } from "../shared/contexts/ProjectContext";
@@ -26,7 +27,7 @@ const App = () => {
                         <Stack spacing={3}>
                           <Stack spacing={1}>
                             <Typography variant="h4" fontWeight={700}>
-                              Tablero Kanban
+                              Tablero de Scrum
                             </Typography>
                             <Typography variant="body1" color="text.secondary">
                               Organiza y gestiona tus tareas con el tablero visual.
@@ -41,6 +42,12 @@ const App = () => {
                   <Route
                     path="epicas"
                     element={<EpicsTable userId={session.user.id} />}
+                  />
+                  
+                  {/* ✨ NUEVA RUTA - Backlog */}
+                  <Route
+                    path="backlog"
+                    element={<BacklogTable userId={session.user.id} />}
                   />
                   
                   <Route
