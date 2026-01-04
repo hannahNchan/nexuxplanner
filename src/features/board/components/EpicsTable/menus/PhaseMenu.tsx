@@ -1,4 +1,4 @@
-import { Box, Divider, Menu, MenuItem, Stack, Typography } from "@mui/material";
+import { Box, Menu, MenuItem, Stack, Typography } from "@mui/material";
 
 type PhaseMenuProps = {
   anchorEl: HTMLElement | null;

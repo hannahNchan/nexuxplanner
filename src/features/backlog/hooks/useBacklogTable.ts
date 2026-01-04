@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import type { GridRowsProp } from "@mui/x-data-grid";
+import type { DropResult } from "@hello-pangea/dnd";
 import {
   fetchBacklogTasks,
   createBacklogTask,
@@ -17,12 +18,15 @@ import {
   type PointValue,
 } from "../../api/catalogService";
 import { useProject } from "../../../shared/contexts/ProjectContext";
+import { supabase } from "../../../lib/supabase";
+import { useSprintManager } from "../../sprints/hooks/useSprintManager";
 
 type SortColumn = "title" | "assignee" | "priority" | "story_points" | "epic" | "task_id" | "created_at";
 type SortOrder = "asc" | "desc";
 
 export const useBacklogTable = (userId: string) => {
   const { currentProject } = useProject();
+  const sprintManager = useSprintManager(currentProject?.id || null);
   
   const [tasks, setTasks] = useState<BacklogTaskWithDetails[]>([]);
   const [projects, setProjects] = useState<ProjectWithTags[]>([]);
@@ -89,6 +93,29 @@ export const useBacklogTable = (userId: string) => {
   const [issueTypes, setIssueTypes] = useState<IssueType[]>([]);
   const [catalogsLoaded, setCatalogsLoaded] = useState(false);
 
+  // Sprint modal
+  const [isSprintModalOpen, setIsSprintModalOpen] = useState(false);
+  const [firstColumnId, setFirstColumnId] = useState<string | null>(null);
+
+  // Load first column for sprint assignment
+  useEffect(() => {
+    const fetchFirstColumn = async () => {
+      if (!currentProject) return;
+
+      const { data } = await supabase
+        .from("columns")
+        .select("id")
+        .eq("project_id", currentProject.id)
+        .order("position", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+
+      setFirstColumnId(data?.id || null);
+    };
+
+    void fetchFirstColumn();
+  }, [currentProject]);
+
   // Load data
   const loadData = async () => {
     try {
@@ -124,8 +151,9 @@ export const useBacklogTable = (userId: string) => {
   useEffect(() => {
     const loadCatalogs = async () => {
       try {
-        const [types, pointSystem] = await Promise.all([
+        const [types, prioritiesList, pointSystem] = await Promise.all([
           fetchIssueTypes(),
+          fetchPriorities(),
           fetchDefaultPointSystem(),
         ]);
 
@@ -133,6 +161,7 @@ export const useBacklogTable = (userId: string) => {
 
         if (pointSystem) {
           const points = await fetchPointValues(pointSystem.id);
+          setPriorities(prioritiesList);
           setPointValues(points);
         }
 
@@ -155,7 +184,6 @@ export const useBacklogTable = (userId: string) => {
     
     setTasks((prev) => [newTask, ...prev]);
     
-    // Abrir modal automáticamente
     setSelectedBacklogTask({
       id: newTask.id,
       title: newTask.title,
@@ -185,12 +213,12 @@ export const useBacklogTable = (userId: string) => {
     setTasks((prev) =>
       prev.map((task) =>
         task.id === taskId
-          ? {
+          ? ({
               ...task,
               priority_id: priorityId,
               priority_name: priority?.name,
               priority_color: priority?.color,
-            }
+            } as BacklogTaskWithDetails)
           : task
       )
     );
@@ -206,10 +234,29 @@ export const useBacklogTable = (userId: string) => {
   };
 
   const handleEpicChange = async (taskId: string, epicId: string | null) => {
+    let epicName: string | undefined = undefined;
+    
+    if (epicId) {
+      const { data: epic } = await supabase
+        .from("epics")
+        .select("name")
+        .eq("id", epicId)
+        .maybeSingle();
+      
+      epicName = epic?.name;
+    }
+    
     await updateBacklogTask(taskId, { epic_id: epicId });
+    
     setTasks((prev) =>
       prev.map((task) =>
-        task.id === taskId ? { ...task, epic_id: epicId } : task
+        task.id === taskId 
+          ? { 
+              ...task, 
+              epic_id: epicId,
+              epic_name: epicName
+            } 
+          : task
       )
     );
   };
@@ -247,7 +294,6 @@ export const useBacklogTable = (userId: string) => {
     setTaskToDelete(null);
   };
 
-  // Guardar desde modal completo
   const handleSaveTaskFromModal = async (
     taskId: string,
     updates: {
@@ -261,11 +307,9 @@ export const useBacklogTable = (userId: string) => {
       assignee_id: string | null;
     }
   ) => {
-    // Si cambió a scrum, eliminar del backlog local
     if (updates.destination === "scrum") {
       setTasks((prev) => prev.filter((task) => task.id !== taskId));
       
-      // Actualizar en BD
       await updateBacklogTask(taskId, {
         title: updates.title,
         description: updates.description,
@@ -277,7 +321,6 @@ export const useBacklogTable = (userId: string) => {
       return;
     }
 
-    // Si sigue en backlog, actualizar
     await updateBacklogTask(taskId, {
       title: updates.title,
       description: updates.description,
@@ -286,12 +329,11 @@ export const useBacklogTable = (userId: string) => {
       story_points: updates.story_points,
     });
     
-    // Actualizar estado local
     const priority = priorities.find((p) => p.id === updates.priority_id);
     setTasks((prev) =>
       prev.map((task) =>
         task.id === taskId
-          ? {
+          ? ({
               ...task,
               title: updates.title,
               description: updates.description ?? null,
@@ -300,17 +342,68 @@ export const useBacklogTable = (userId: string) => {
               priority_name: priority?.name,
               priority_color: priority?.color,
               story_points: updates.story_points,
-            }
+            } as BacklogTaskWithDetails)
           : task
       )
     );
+  };
+
+  // Sprint handlers
+  const handleCreateSprint = async (data: {
+    name: string;
+    goal: string;
+    start_date: string;
+    end_date: string;
+  }) => {
+    await sprintManager.createSprint(data);
+    setIsSprintModalOpen(false);
+  };
+
+  const handleDragEnd = async (result: DropResult) => {
+    const { destination, source, draggableId } = result;
+
+    if (!destination) return;
+    if (destination.droppableId === source.droppableId && destination.index === source.index) {
+      return;
+    }
+
+    if (destination.droppableId.startsWith("sprint-")) {
+      const sprintId = destination.droppableId.replace("sprint-", "");
+      const taskId = draggableId;
+
+      if (!firstColumnId) {
+        alert("No se encontró una columna TO DO en el proyecto");
+        return;
+      }
+
+      try {
+        await supabase
+          .from("tasks")
+          .update({
+            sprint_id: sprintId,
+            in_backlog: false,
+            column_id: firstColumnId,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", taskId);
+
+        setTasks((prev) => prev.filter((t) => t.id !== taskId));
+        
+        // ✅ CRÍTICO: Esto actualiza lastUpdate automáticamente
+        await sprintManager.reload();
+        
+        console.log("✅ Tarea asignada al sprint y board refrescado");
+      } catch (error) {
+        console.error("Error asignando tarea al sprint:", error);
+        alert("Error al asignar la tarea al sprint");
+      }
+    }
   };
 
   // Filtering and sorting logic
   const filteredTasks = useMemo(() => {
     let result = tasks.filter((task) => !hiddenTasks.includes(task.id));
 
-    // Search
     if (searchText) {
       const lower = searchText.toLowerCase();
       result = result.filter(
@@ -321,7 +414,6 @@ export const useBacklogTable = (userId: string) => {
       );
     }
 
-    // Filters
     if (filters.projects.length > 0) {
       result = result.filter((task) =>
         task.project_id ? filters.projects.includes(task.project_id) : false
@@ -346,7 +438,6 @@ export const useBacklogTable = (userId: string) => {
       );
     }
 
-    // Sort
     result.sort((a, b) => {
       let compareResult = 0;
 
@@ -406,6 +497,7 @@ export const useBacklogTable = (userId: string) => {
 
   return {
     tasks,
+    setTasks,
     projects,
     priorities,
     pointValues,
@@ -437,6 +529,8 @@ export const useBacklogTable = (userId: string) => {
     selectedBacklogTask,
     issueTypes,
     catalogsLoaded,
+    sprintManager,
+    isSprintModalOpen,
     setSearchText,
     setSearchOpen,
     setFilters,
@@ -460,6 +554,7 @@ export const useBacklogTable = (userId: string) => {
     setTaskToDelete,
     setIsTaskModalOpen,
     setSelectedBacklogTask,
+    setIsSprintModalOpen,
     handleAddTask,
     handleTitleChange,
     handlePriorityChange,
@@ -470,5 +565,7 @@ export const useBacklogTable = (userId: string) => {
     handleDeleteTask,
     confirmDeleteTask,
     handleSaveTaskFromModal,
+    handleCreateSprint,
+    handleDragEnd,
   };
 };

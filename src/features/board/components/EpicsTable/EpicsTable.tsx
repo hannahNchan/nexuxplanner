@@ -68,7 +68,7 @@ const EpicsTable = ({ userId }: EpicsTableProps) => {
 
   if (epic.isLoading) {
     return (
-      <Container maxWidth="xl">
+      <Container maxWidth={false}>
         <Stack spacing={2} alignItems="center" py={8}>
           <CircularProgress size={48} thickness={4} />
           <Typography color="text.secondary" variant="h6">
@@ -81,7 +81,7 @@ const EpicsTable = ({ userId }: EpicsTableProps) => {
 
     if (!currentProject) {
     return (
-      <Container maxWidth="xl">
+      <Container maxWidth={false}>
         <Stack spacing={4} alignItems="center" py={8}>
           <Box
             sx={{
@@ -120,7 +120,7 @@ const EpicsTable = ({ userId }: EpicsTableProps) => {
   }
 
   return (
-    <Container maxWidth="xl">
+    <Container maxWidth={false}>
       <Stack spacing={3}>
         {/* Header */}
         <DataTableHeader

@@ -16,6 +16,8 @@ export type Epic = {
   estimated_effort: string | null;
   epic_id_display: string | null;
   project_id: string | null;
+  start_date: string | null;
+  end_date: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -101,6 +103,8 @@ export const createEpic = async (
     phase_id?: string | null;
     estimated_effort?: string | null;
     project_id?: string | null;
+    start_date?: string | null;
+    end_date?: string | null;
   }
 ): Promise<Epic> => {
   const { data: created, error } = await supabase
@@ -123,6 +127,8 @@ export const updateEpic = async (
     owner_id?: string | null;
     phase_id?: string | null;
     estimated_effort?: string | null;
+    start_date?: string | null;
+    end_date?: string | null;
   }
 ): Promise<Epic> => {
   const { data, error } = await supabase
@@ -171,7 +177,6 @@ export const disconnectTaskFromEpic = async (
   if (error) throw error;
 };
 
-// ✅ CORREGIDO: Orden de parámetros correcto + debug logs
 export const searchTasks = async (
   projectId: string | null,
   query: string = ""
@@ -181,7 +186,6 @@ export const searchTasks = async (
     return [];
   }
 
-  // Buscar columnas del proyecto
   const { data: columns, error: columnsError } = await supabase
     .from("columns")
     .select("id")
@@ -192,13 +196,11 @@ export const searchTasks = async (
   }
 
   if (!columns || columns.length === 0) {
-    console.log("⚠️ No columns found for this project");
     return [];
   }
 
   const columnIds = columns.map((c) => c.id);
 
-  // Buscar tareas en esas columnas
   let queryBuilder = supabase
     .from("tasks")
     .select("id, title")
@@ -214,7 +216,6 @@ export const searchTasks = async (
   const { data, error } = await queryBuilder;
 
   if (error) {
-    console.error("❌ Error fetching tasks:", error);
     throw error;
   }
 

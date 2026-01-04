@@ -1,23 +1,19 @@
 import {
   Box,
   Chip,
-  IconButton,
-  Stack,
   TextField,
   Tooltip,
   Typography,
-  Zoom,
 } from "@mui/material";
 import type { GridColDef } from "@mui/x-data-grid";
 import { GridActionsCellItem } from "@mui/x-data-grid";
 import { alpha } from "@mui/material/styles";
 import type { Theme } from "@mui/material/styles";
-import AddIcon from "@mui/icons-material/Add";
-import CloseIcon from "@mui/icons-material/Close";
 import DeleteIcon from "@mui/icons-material/Delete";
 import EditIcon from "@mui/icons-material/Edit";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import FolderIcon from "@mui/icons-material/Folder";
+import TaskListCell from "./TaskListCell";
 
 type CreateColumnsParams = {
   theme: Theme;
@@ -226,58 +222,15 @@ export const createEpicsTableColumns = (params: CreateColumnsParams): GridColDef
       headerName: "Tareas conectadas",
       width: 320,
       renderCell: (cellParams) => (
-        <Stack direction="row" spacing={0.5} flexWrap="wrap" alignItems="center" sx={{ py: 0.5 }}>
-          {(cellParams.value as Array<{ id: string; title: string }>).map((task) => (
-            <Zoom key={task.id} in timeout={200}>
-              <Chip
-                label={task.title}
-                size="small"
-                onDelete={() => handleDisconnectTask(cellParams.row.id as string, task.id)}
-                sx={{
-                  m: 0.25,
-                  bgcolor: alpha(theme.palette.success.main, 0.1),
-                  border: `1px solid ${alpha(theme.palette.success.main, 0.2)}`,
-                  color: theme.palette.success.dark,
-                  fontWeight: 500,
-                  transition: "all 0.2s ease",
-                  "&:hover": {
-                    bgcolor: alpha(theme.palette.success.main, 0.2),
-                    transform: "translateY(-1px)",
-                  },
-                }}
-                deleteIcon={
-                  <CloseIcon
-                    sx={{
-                      fontSize: 16,
-                      "&:hover": {
-                        color: theme.palette.error.main,
-                      },
-                    }}
-                  />
-                }
-              />
-            </Zoom>
-          ))}
-          <Tooltip title="Conectar tareas" placement="top">
-            <IconButton
-              size="small"
-              onClick={() => {
-                setTaskSearchOpen(cellParams.row.id as string);
-                setTaskSearchText("");
-              }}
-              sx={{
-                bgcolor: alpha(theme.palette.primary.main, 0.08),
-                transition: "all 0.2s ease",
-                "&:hover": {
-                  bgcolor: alpha(theme.palette.primary.main, 0.15),
-                  transform: "rotate(90deg)",
-                },
-              }}
-            >
-              <AddIcon fontSize="small" />
-            </IconButton>
-          </Tooltip>
-        </Stack>
+        <TaskListCell
+          epicId={cellParams.row.id as string}
+          tasks={cellParams.value as Array<{ id: string; title: string }>}
+          onAddTask={(epicId) => {
+            setTaskSearchOpen(epicId);
+            setTaskSearchText("");
+          }}
+          onRemoveTask={handleDisconnectTask}
+        />
       ),
     },
     {

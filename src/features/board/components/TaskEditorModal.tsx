@@ -31,6 +31,7 @@ import "quill/dist/quill.snow.css";
 import { useEffect, useRef, useState } from "react";
 import { alpha, useTheme } from "@mui/material/styles";
 import type { IssueType, Priority, PointValue } from "../../api/catalogService";
+import IconRenderer from "../../../shared/ui/IconRenderer";
 
 type TaskEditorModalProps = {
   open: boolean;
@@ -157,7 +158,6 @@ const TaskEditorModal = ({
 
     setTitle(task.title);
     
-    // ✨ NUEVO: Determinar destino basado en column_id
     if (task.column_id) {
       setDestination("scrum");
       setColumnId(task.column_id);
@@ -424,14 +424,13 @@ const TaskEditorModal = ({
                   {issueTypes.map((type) => (
                     <MenuItem key={type.id} value={type.id}>
                       <Stack direction="row" spacing={1} alignItems="center">
-                        <span>{type.icon}</span>
+                        <IconRenderer icon={type.icon} />
                         <span>{type.name}</span>
                       </Stack>
                     </MenuItem>
                   ))}
                 </Select>
               </FormControl>
-
               <FormControl fullWidth>
                 <InputLabel>Prioridad</InputLabel>
                 <Select

@@ -10,6 +10,8 @@ export type BacklogTask = {
   priority_id: string | null;
   story_points: string | null;
   parent_task_id: string | null;
+  epic_id: string | null;
+  issue_type_id: string | null;
   task_id_display: string | null;
   github_link: string | null;
   position: number;
@@ -22,7 +24,6 @@ export type BacklogTaskWithDetails = BacklogTask & {
   priority_name?: string;
   priority_color?: string;
   epic_name?: string;
-  epic_id?: string | null;
   project_name?: string;
 };
 
@@ -31,11 +32,8 @@ export const fetchBacklogTasks = async (
   userId: string,
   projectId?: string | null
 ): Promise<BacklogTaskWithDetails[]> => {
-  // ✅ CRÍTICO: NO filtrar por user_id porque no existe en tasks
-  // Las tareas se filtran por project_id
   
   if (!projectId) {
-    // Si no hay proyecto seleccionado, retornar array vacío
     return [];
   }
 
@@ -68,11 +66,11 @@ export const fetchBacklogTasks = async (
       }
       
       // Buscar épica
-      if (item.parent_task_id) {
+      if (item.epic_id) {
         const { data: epic } = await supabase
           .from("epics")
           .select("name")
-          .eq("id", item.parent_task_id)
+          .eq("id", item.epic_id)
           .maybeSingle();
         
         epicName = epic?.name;
@@ -81,7 +79,7 @@ export const fetchBacklogTasks = async (
       return {
         ...item,
         user_id: userId, // Agregar manualmente para compatibilidad de tipos
-        epic_id: item.parent_task_id,
+        epic_id: item.epic_id,
         assignee_name: assigneeName,
         priority_name: item.priority?.name,
         priority_color: item.priority?.color,
@@ -116,7 +114,7 @@ export const createBacklogTask = async (
       assignee_id: data.assignee_id || null,
       priority_id: data.priority_id || null,
       story_points: data.story_points || null,
-      parent_task_id: data.epic_id || null,
+      epic_id: data.epic_id || null,
       github_link: data.github_link || null,
       in_backlog: true,
       column_id: null,
@@ -151,12 +149,6 @@ export const updateBacklogTask = async (
     ...updates,
     updated_at: new Date().toISOString(),
   };
-
-  // Mapear epic_id a parent_task_id
-  if (updates.epic_id !== undefined) {
-    updateData.parent_task_id = updates.epic_id;
-    delete updateData.epic_id;
-  }
 
   const { error } = await supabase
     .from("tasks")

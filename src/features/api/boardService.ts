@@ -59,14 +59,15 @@ export const fetchColumnOrder = async (projectId: string): Promise<string[]> => 
 
 export const fetchBoardDataByProject = async (
   userId: string,
-  projectId: string | null
+  projectId: string | null,
+  sprintId: string | null = null // ✅ NUEVO parámetro
 ): Promise<{
   board: BoardRecord | null;
   columns: ColumnRecord[];
   tasks: TaskRecord[];
   columnOrder: string[];
 }> => {
-  // ✅ CAMBIO: Buscar board es opcional ahora
+  // Buscar board es opcional ahora
   const { data: board } = await supabase
     .from("boards")
     .select("id, name, user_id")
@@ -75,7 +76,7 @@ export const fetchBoardDataByProject = async (
     .limit(1)
     .maybeSingle();
 
-  // ✅ Si no hay projectId, retornar vacío
+  // Si no hay projectId, retornar vacío
   if (!projectId) {
     return {
       board: board ?? null,
@@ -85,16 +86,16 @@ export const fetchBoardDataByProject = async (
     };
   }
 
-  // ✅ CRÍTICO: Buscar columnas directamente por project_id (sin depender de board)
+  // Buscar columnas directamente por project_id
   const { data: columns, error: columnsError } = await supabase
     .from("columns")
     .select("id, project_id, name, position")
     .eq("project_id", projectId)
-    .order("position", { ascending: true }); // ✨ Ordenar aquí directamente
+    .order("position", { ascending: true });
 
   if (columnsError) throw columnsError;
 
-  console.log("📊 Columnas encontradas:", columns); // ✨ DEBUG
+  console.log("📊 Columnas encontradas:", columns);
 
   // Buscar el orden de columnas
   const columnOrder = await fetchColumnOrder(projectId);
@@ -117,19 +118,30 @@ export const fetchBoardDataByProject = async (
     };
   }
 
-  // Buscar tareas de esas columnas
-  const { data: tasks, error: tasksError } = await supabase
+  // ✅ Buscar tareas con filtro de sprint
+  let tasksQuery = supabase
     .from("tasks")
     .select(
       "id, column_id, title, description, position, issue_type_id, priority_id, story_points, assignee_id"
     )
-    .in("column_id", columnIds)
-    .order("position", { ascending: true });
+    .in("column_id", columnIds);
+
+  // ✅ CRÍTICO: Solo mostrar tareas del sprint activo
+  if (sprintId) {
+    tasksQuery = tasksQuery.eq("sprint_id", sprintId);
+  } else {
+    // Si no hay sprint activo, no mostrar ninguna tarea
+    tasksQuery = tasksQuery.eq("sprint_id", "00000000-0000-0000-0000-000000000000"); // UUID imposible
+  }
+
+  const { data: tasks, error: tasksError } = await tasksQuery.order("position", { ascending: true });
 
   if (tasksError) throw tasksError;
 
+  console.log("📋 Tareas del sprint:", tasks);
+
   return {
-    board: board ?? null, // ✅ Board es opcional
+    board: board ?? null,
     columns: columns ?? [],
     tasks: tasks ?? [],
     columnOrder: finalColumnOrder,

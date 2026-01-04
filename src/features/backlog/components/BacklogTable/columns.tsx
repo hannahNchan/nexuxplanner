@@ -34,10 +34,6 @@ export const createBacklogTableColumns = (props: ColumnsProps): GridColDef[] => 
   const {
     theme,
     editingTitle,
-    editingPriority,
-    editingEffort,
-    editingEpic,
-    editingAssignee,
     editingGithubLink,
     setEditingTitle,
     setEditingPriority,

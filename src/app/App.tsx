@@ -4,7 +4,8 @@ import AuthGate from "../features/auth/AuthGate";
 import Layout from "./Layout";
 import Board from "../features/board/components/Board";
 import EpicsTable from "../features/board/components/EpicsTable/EpicsTable";
-import { BacklogTable } from "../features/backlog"; // ✨ NUEVO
+import { BacklogTable } from "../features/backlog";
+import Roadmap from "../features/roadmap/components/Roadmap";
 import QuillEditor from "../features/editor/QuillEditor";
 import { Container, Stack, Typography } from "@mui/material";
 import { ProjectProvider } from "../shared/contexts/ProjectContext";
@@ -23,7 +24,7 @@ const App = () => {
                   <Route
                     path="tablero"
                     element={
-                      <Container maxWidth="xl">
+                      <Container maxWidth={false}>
                         <Stack spacing={3}>
                           <Stack spacing={1}>
                             <Typography variant="h4" fontWeight={700}>
@@ -44,16 +45,20 @@ const App = () => {
                     element={<EpicsTable userId={session.user.id} />}
                   />
                   
-                  {/* ✨ NUEVA RUTA - Backlog */}
                   <Route
                     path="backlog"
                     element={<BacklogTable userId={session.user.id} />}
+                  />
+
+                  <Route
+                    path="roadmap"
+                    element={<Roadmap userId={session.user.id} />}
                   />
                   
                   <Route
                     path="editor"
                     element={
-                      <Container maxWidth="xl">
+                      <Container maxWidth={false}>
                         <Stack spacing={3}>
                           <Stack spacing={1}>
                             <Typography variant="h4" fontWeight={700}>
