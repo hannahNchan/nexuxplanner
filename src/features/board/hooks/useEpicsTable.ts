@@ -254,7 +254,7 @@ export const useEpicsTable = (userId: string) => {
                 ...epic,
                 phase_id: phaseId || null,
                 phase_name: phase?.name,
-                phase_color: phase?.color,
+                phase_color: phase?.color ?? undefined,
               }
             : epic
         )
