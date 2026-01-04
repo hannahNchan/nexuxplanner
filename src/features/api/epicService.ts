@@ -16,6 +16,8 @@ export type Epic = {
   estimated_effort: string | null;
   epic_id_display: string | null;
   project_id: string | null;
+  start_date: string | null;
+  end_date: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -101,6 +103,8 @@ export const createEpic = async (
     phase_id?: string | null;
     estimated_effort?: string | null;
     project_id?: string | null;
+    start_date?: string | null;
+    end_date?: string | null;
   }
 ): Promise<Epic> => {
   const { data: created, error } = await supabase
@@ -123,6 +127,8 @@ export const updateEpic = async (
     owner_id?: string | null;
     phase_id?: string | null;
     estimated_effort?: string | null;
+    start_date?: string | null;
+    end_date?: string | null;
   }
 ): Promise<Epic> => {
   const { data, error } = await supabase
@@ -171,21 +177,27 @@ export const disconnectTaskFromEpic = async (
   if (error) throw error;
 };
 
-export const searchTasks = async (userId: string, query: string = ""): Promise<Array<{ id: string; title: string }>> => {
-  const { data: board } = await supabase
-    .from("boards")
-    .select("id")
-    .eq("user_id", userId)
-    .single();
+export const searchTasks = async (
+  projectId: string | null,
+  query: string = ""
+): Promise<Array<{ id: string; title: string }>> => {
 
-  if (!board) return [];
+  if (!projectId) {
+    return [];
+  }
 
-  const { data: columns } = await supabase
+  const { data: columns, error: columnsError } = await supabase
     .from("columns")
     .select("id")
-    .eq("board_id", board.id);
+    .eq("project_id", projectId);
 
-  if (!columns || columns.length === 0) return [];
+  if (columnsError) {
+    throw columnsError;
+  }
+
+  if (!columns || columns.length === 0) {
+    return [];
+  }
 
   const columnIds = columns.map((c) => c.id);
 
@@ -203,6 +215,9 @@ export const searchTasks = async (userId: string, query: string = ""): Promise<A
 
   const { data, error } = await queryBuilder;
 
-  if (error) throw error;
+  if (error) {
+    throw error;
+  }
+
   return data ?? [];
 };

@@ -5,7 +5,7 @@ import {
   Stack,
   Typography,
 } from "@mui/material";
-import EpicsTable from "../../../features/board/components/EpicsTable";
+import EpicsTable from "../../board/components/EpicsTable/EpicsTable";
 import {
   fetchEpics,
   fetchEpicPhases,
@@ -72,7 +72,7 @@ const EpicsPage = ({ userId }: EpicsPageProps) => {
 
   if (isLoading) {
     return (
-      <Container maxWidth="xl" sx={{ py: 4 }}>
+      <Container maxWidth={false} sx={{ py: 4 }}>
         <Stack spacing={2} alignItems="center" py={8}>
           <CircularProgress />
           <Typography color="text.secondary">Cargando épicas...</Typography>
@@ -83,7 +83,7 @@ const EpicsPage = ({ userId }: EpicsPageProps) => {
 
   if (error) {
     return (
-      <Container maxWidth="xl" sx={{ py: 4 }}>
+      <Container maxWidth={false} sx={{ py: 4 }}>
         <Stack spacing={2} alignItems="center" py={8}>
           <Typography color="error" variant="h6">
             {error}
@@ -94,7 +94,7 @@ const EpicsPage = ({ userId }: EpicsPageProps) => {
   }
 
   return (
-    <Container maxWidth="xl" sx={{ py: 4 }}>
+    <Container maxWidth={false} sx={{ py: 4 }}>
       <Stack spacing={3}>
         {/* Header */}
         <Stack spacing={1}>

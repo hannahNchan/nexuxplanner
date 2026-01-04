@@ -3,40 +3,18 @@ import {
   Button,
   CircularProgress,
   Stack,
-  TextField,
   Typography,
   Paper,
   Alert,
+  Chip,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
-import { DragDropContext, Droppable, type DropResult } from "@hello-pangea/dnd";
-import { useEffect, useState } from "react";
+import { DragDropContext, Droppable } from "@hello-pangea/dnd";
 import { alpha, useTheme } from "@mui/material/styles";
 import Column from "./Column";
 import TaskEditorModal from "./TaskEditorModal";
 import AddColumnModal from "./AddColumnModal";
-import type { BoardState, Task } from "../../../shared/types/board";
-import {
-  createBoard,
-  createColumn,
-  createTask,
-  deleteTask,
-  fetchBoardDataByProject,
-  persistColumnOrder,
-  persistTaskOrder,
-  toBoardState,
-  updateTask,
-} from "../../api/boardService";
-import {
-  fetchIssueTypes,
-  fetchPriorities,
-  fetchDefaultPointSystem,
-  fetchPointValues,
-  type IssueType,
-  type Priority,
-  type PointValue,
-} from "../../api/catalogService";
-import { useProject } from "../../../shared/contexts/ProjectContext";
+import { useBoardManager } from "../hooks/useBoardManager";
 
 type BoardProps = {
   userId: string;
@@ -44,485 +22,22 @@ type BoardProps = {
 
 const Board = ({ userId }: BoardProps) => {
   const theme = useTheme();
-  const [data, setData] = useState<BoardState | null>(null);
-  const [boardId, setBoardId] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [boardName, setBoardName] = useState("Tablero principal");
-  const [isCreatingBoard, setIsCreatingBoard] = useState(false);
-  const [creatingTaskColumnId, setCreatingTaskColumnId] = useState<string | null>(null);
+  const board = useBoardManager(userId);
 
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [selectedTask, setSelectedTask] = useState<{
-    id: string;
-    title: string;
-    description?: string;
-    column_id: string;
-    issue_type_id?: string | null;
-    priority_id?: string | null;
-    story_points?: string | null;
-    assignee_id?: string | null; 
-  } | null>(null);
-
-  const [issueTypes, setIssueTypes] = useState<IssueType[]>([]);
-  const [priorities, setPriorities] = useState<Priority[]>([]);
-  const [pointValues, setPointValues] = useState<PointValue[]>([]);
-  const [catalogsLoaded, setCatalogsLoaded] = useState(false);
-
-  const [isAddColumnModalOpen, setIsAddColumnModalOpen] = useState(false);
-
-  const { currentProject } = useProject();
-
-  useEffect(() => {
-    const loadCatalogs = async () => {
-      try {
-        const [types, prioritiesList, pointSystem] = await Promise.all([
-          fetchIssueTypes(),
-          fetchPriorities(),
-          fetchDefaultPointSystem(),
-        ]);
-
-        setIssueTypes(types);
-        setPriorities(prioritiesList);
-
-        if (pointSystem) {
-          const points = await fetchPointValues(pointSystem.id);
-          setPointValues(points);
-        }
-
-        setCatalogsLoaded(true);
-      } catch (error) {
-        console.error("Error cargando catálogos:", error);
-      }
-    };
-
-    void loadCatalogs();
-  }, []);
-
-  useEffect(() => {
-    const loadBoard = async () => {
-      // ✅ CAMBIO 1: Si no hay proyecto, no cargar nada
-      if (!currentProject) {
-        setData(null);
-        setBoardId(null);
-        setIsLoading(false);
-        return;
-      }
-
-      try {
-        setIsLoading(true);
-        console.log("🔍 Cargando board para proyecto:", currentProject.id); // ✅ DEBUG
-        
-        const response = await fetchBoardDataByProject(userId, currentProject.id);
-        
-        console.log("📦 Response recibida:", response); // ✅ DEBUG
-        
-        if (!response.board) {
-          console.log("❌ No hay board"); // ✅ DEBUG
-          setBoardId(null);
-          setData(null);
-          return;
-        }
-        
-        console.log("📊 Columnas:", response.columns); // ✅ DEBUG
-        console.log("📋 Column order:", response.columnOrder); // ✅ DEBUG
-        
-        const boardState = toBoardState(
-          response.columns, 
-          response.tasks, 
-          response.columnOrder
-        );
-        
-        console.log("✅ BoardState creado:", boardState); // ✅ DEBUG
-        
-        setBoardId(response.board.id);
-        setData(boardState);
-        setErrorMessage(null);
-      } catch (error) {
-        console.error("💥 Error cargando board:", error); // ✅ DEBUG
-        setErrorMessage("No se pudo cargar el tablero desde Supabase.");
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    void loadBoard();
-  }, [userId, currentProject]);
-
-const handleCreateBoard = async () => {
-  if (!boardName.trim()) {
-    setErrorMessage("Ingresa un nombre para el tablero.");
-    return;
-  }
-
-  setIsCreatingBoard(true);
-  setErrorMessage(null);
-  try {
-    const created = await createBoard(userId, boardName.trim());
-    
-    setBoardId(created.board.id);
-    setData(toBoardState([], [], []));
-  } catch (error) {
-    console.error(error);
-    setErrorMessage("No se pudo crear el tablero.");
-  } finally {
-    setIsCreatingBoard(false);
-  }
-};
-
-  const handleCreateColumn = async (columnName: string) => {
-    if (!currentProject || !data) {
-      setErrorMessage("Selecciona un proyecto primero");
-      return;
-    }
-
-    try {
-      const position = data.columnOrder.length;
-      const newColumn = await createColumn(currentProject.id, columnName, position);
-      const newColumnOrder = [...data.columnOrder, newColumn.id];
-
-      setData((previous) => {
-        if (!previous) return previous;
-
-        return {
-          ...previous,
-          columns: {
-            ...previous.columns,
-            [newColumn.id]: {
-              id: newColumn.id,
-              title: newColumn.name,
-              taskIds: [],
-            },
-          },
-          columnOrder: newColumnOrder,
-        };
-      });
-
-      setErrorMessage(null);
-    } catch (error) {
-      console.error("Error creando columna:", error);
-      setErrorMessage("No se pudo crear la columna.");
-      throw error;
-    }
-  };
-
-  const handleCreateTask = async (columnId: string) => {
-    if (!data) {
-      return;
-    }
-
-    setCreatingTaskColumnId(columnId);
-    try {
-      const column = data.columns[columnId];
-      const position = column.taskIds.length;
-      const created = await createTask(columnId, "Nueva tarea", position);
-
-      setData((previous) => {
-        if (!previous) {
-          return previous;
-        }
-        return {
-          ...previous,
-          tasks: {
-            ...previous.tasks,
-            [created.id]: {
-              id: created.id,
-              title: created.title,
-              description: created.description ?? undefined,
-              issue_type_id: created.issue_type_id ?? undefined,
-              priority_id: created.priority_id ?? undefined,
-              story_points: created.story_points ?? undefined,
-              assignee_id: created.assignee_id ?? undefined,
-            },
-          },
-          columns: {
-            ...previous.columns,
-            [columnId]: {
-              ...previous.columns[columnId],
-              taskIds: [...previous.columns[columnId].taskIds, created.id],
-            },
-          },
-        };
-      });
-
-      setSelectedTask({
-        id: created.id,
-        title: created.title,
-        description: created.description ?? undefined,
-        column_id: created.column_id,
-        issue_type_id: created.issue_type_id,
-        priority_id: created.priority_id,
-        story_points: created.story_points,
-        assignee_id: created.assignee_id,
-      });
-      setIsModalOpen(true);
-
-      setErrorMessage(null);
-    } catch (error) {
-      console.error(error);
-      setErrorMessage("No se pudo crear la tarea.");
-    } finally {
-      setCreatingTaskColumnId(null);
-    }
-  };
-
-  const handleTaskClick = (task: Task) => {
-    if (!data) return;
-
-    let columnId = "";
-    for (const [colId, column] of Object.entries(data.columns)) {
-      if (column.taskIds.includes(task.id)) {
-        columnId = colId;
-        break;
-      }
-    }
-
-    setSelectedTask({
-      id: task.id,
-      title: task.title,
-      description: task.description,
-      column_id: columnId,
-      issue_type_id: task.issue_type_id ?? null,
-      priority_id: task.priority_id ?? null,
-      story_points: task.story_points ?? null,
-      assignee_id: task.assignee_id ?? null,
-    });
-    setIsModalOpen(true);
-  };
-
-  const handleSaveTask = async (
-    taskId: string,
-    updates: {
-      title: string;
-      description: string;
-      column_id: string;
-      issue_type_id: string | null;
-      priority_id: string | null;
-      story_points: string | null;
-      assignee_id: string | null;
-    }
-  ) => {
-    if (!data) return;
-
-    try {
-      const updated = await updateTask(taskId, updates);
-
-      setData((previous) => {
-        if (!previous) return previous;
-
-        const updatedTasks = {
-          ...previous.tasks,
-          [taskId]: {
-            id: updated.id,
-            title: updated.title,
-            description: updated.description ?? undefined,
-            issue_type_id: updated.issue_type_id ?? undefined,
-            priority_id: updated.priority_id ?? undefined,
-            story_points: updated.story_points ?? undefined,
-            assignee_id: updated.assignee_id ?? undefined,
-          },
-        };
-
-        const oldColumnId = Object.keys(previous.columns).find((colId) =>
-          previous.columns[colId].taskIds.includes(taskId)
-        );
-
-        if (oldColumnId && oldColumnId !== updates.column_id) {
-          const updatedOldColumn = {
-            ...previous.columns[oldColumnId],
-            taskIds: previous.columns[oldColumnId].taskIds.filter((id) => id !== taskId),
-          };
-
-          const updatedNewColumn = {
-            ...previous.columns[updates.column_id],
-            taskIds: [...previous.columns[updates.column_id].taskIds, taskId],
-          };
-
-          return {
-            ...previous,
-            tasks: updatedTasks,
-            columns: {
-              ...previous.columns,
-              [oldColumnId]: updatedOldColumn,
-              [updates.column_id]: updatedNewColumn,
-            },
-          };
-        }
-
-        return {
-          ...previous,
-          tasks: updatedTasks,
-        };
-      });
-    } catch (error) {
-      console.error("Error actualizando tarea:", error);
-      throw error;
-    }
-  };
-
-  const handleDeleteTask = async (taskId: string) => {
-    if (!data) return;
-
-    try {
-      await deleteTask(taskId);
-
-      setData((previous) => {
-        if (!previous) return previous;
-
-        const { [taskId]: _removed, ...remainingTasks } = previous.tasks;
-
-        const updatedColumns = { ...previous.columns };
-        for (const colId of Object.keys(updatedColumns)) {
-          if (updatedColumns[colId].taskIds.includes(taskId)) {
-            updatedColumns[colId] = {
-              ...updatedColumns[colId],
-              taskIds: updatedColumns[colId].taskIds.filter((id) => id !== taskId),
-            };
-          }
-        }
-
-        return {
-          ...previous,
-          tasks: remainingTasks,
-          columns: updatedColumns,
-        };
-      });
-    } catch (error) {
-      console.error("Error eliminando tarea:", error);
-      throw error;
-    }
-  };
-
-  const onDragEnd = async (result: DropResult) => {
-    const { destination, source, draggableId, type } = result;
-
-    if (!destination || !data) {
-      return;
-    }
-
-    if (
-      destination.droppableId === source.droppableId &&
-      destination.index === source.index
-    ) {
-      return;
-    }
-
-    if (type === "column") {
-      if (!currentProject) return;
-
-      const newColumnOrder = Array.from(data.columnOrder);
-      newColumnOrder.splice(source.index, 1);
-      newColumnOrder.splice(destination.index, 0, draggableId);
-
-      setData({
-        ...data,
-        columnOrder: newColumnOrder,
-      });
-
-      try {
-        await persistColumnOrder(currentProject.id, newColumnOrder);
-      } catch (error) {
-        console.error("Error guardando orden de columnas:", error);
-        setData({
-          ...data,
-          columnOrder: data.columnOrder,
-        });
-      }
-      return;
-    }
-
-    const startColumn = data.columns[source.droppableId];
-    const finishColumn = data.columns[destination.droppableId];
-
-    if (startColumn.id === finishColumn.id) {
-      const newTaskIds = Array.from(startColumn.taskIds);
-      newTaskIds.splice(source.index, 1);
-      newTaskIds.splice(destination.index, 0, draggableId);
-
-      const updatedColumn = {
-        ...startColumn,
-        taskIds: newTaskIds,
-      };
-
-      setData({
-        ...data,
-        columns: {
-          ...data.columns,
-          [updatedColumn.id]: updatedColumn,
-        },
-      });
-
-      const taskUpdates = newTaskIds.map((taskId, index) => ({
-        id: taskId,
-        column_id: startColumn.id,
-        position: index,
-      }));
-
-      try {
-        await persistTaskOrder(taskUpdates);
-      } catch (error) {
-        console.error(error);
-      }
-      return;
-    }
-
-    const startTaskIds = Array.from(startColumn.taskIds);
-    startTaskIds.splice(source.index, 1);
-    const finishTaskIds = Array.from(finishColumn.taskIds);
-    finishTaskIds.splice(destination.index, 0, draggableId);
-
-    const updatedStart = {
-      ...startColumn,
-      taskIds: startTaskIds,
-    };
-
-    const updatedFinish = {
-      ...finishColumn,
-      taskIds: finishTaskIds,
-    };
-
-    setData({
-      ...data,
-      columns: {
-        ...data.columns,
-        [updatedStart.id]: updatedStart,
-        [updatedFinish.id]: updatedFinish,
-      },
-    });
-
-    const taskUpdates = [
-      ...startTaskIds.map((taskId, index) => ({
-        id: taskId,
-        column_id: startColumn.id,
-        position: index,
-      })),
-      ...finishTaskIds.map((taskId, index) => ({
-        id: taskId,
-        column_id: finishColumn.id,
-        position: index,
-      })),
-    ];
-
-    try {
-      await persistTaskOrder(taskUpdates);
-    } catch (error) {
-      console.error(error);
-    }
-  };
-
-  if (isLoading || !catalogsLoaded) {
+  // Loading state
+  if (board.isLoading || !board.catalogsLoaded) {
     return (
       <Stack spacing={2} alignItems="center" py={6}>
         <CircularProgress />
         <Typography color="text.secondary">
-          {!catalogsLoaded ? "Cargando catálogos..." : "Cargando tablero..."}
+          {!board.catalogsLoaded ? "Cargando catálogos..." : "Cargando tablero..."}
         </Typography>
       </Stack>
     );
   }
 
-  // ✅ CAMBIO 2: Detectar si no hay proyecto seleccionado
-  if (!currentProject) {
+  // No project selected
+  if (!board.currentProject) {
     return (
       <Stack spacing={3} py={4} alignItems="center">
         <Alert severity="info" sx={{ maxWidth: 600 }}>
@@ -532,42 +47,29 @@ const handleCreateBoard = async () => {
     );
   }
 
-  // ✅ CAMBIO 3: Si no hay board, mostrar opción de crear
-  if (!boardId) {
+  // No sprint
+  if (!board.displaySprint) {
     return (
-      <Stack spacing={1} py={4}>
-        <Typography variant="h5" fontWeight={700}>
-          Tablero
-        </Typography>
-        <Stack spacing={2} maxWidth={360}>
-          <Typography color="text.secondary">
-            Aún no tienes un tablero creado.
+      <Stack spacing={3} py={4} alignItems="center">
+        <Alert severity="info" sx={{ maxWidth: 600 }}>
+          <Typography variant="subtitle1" fontWeight={600} gutterBottom>
+            No hay sprint
           </Typography>
-          <TextField
-            label="Nombre del tablero"
-            value={boardName}
-            onChange={(event) => setBoardName(event.target.value)}
-            size="small"
-          />
-          <Button
-            variant="contained"
-            onClick={handleCreateBoard}
-            disabled={isCreatingBoard}
-          >
-            {isCreatingBoard ? "Creando..." : "Crear tablero"}
-          </Button>
-        </Stack>
+          <Typography variant="body2">
+            Ve al Backlog para crear un sprint. El tablero Scrum muestra las tareas del sprint activo.
+          </Typography>
+        </Alert>
       </Stack>
     );
   }
 
-  // ✅ CAMBIO 4: Si no hay data o no hay columnas
-  if (!data || data.columnOrder.length === 0) {
+  // No columns
+  if (!board.data || board.data.columnOrder.length === 0) {
     return (
       <Stack spacing={3} py={4}>
         <Alert severity="warning">
-          Este proyecto no tiene columnas. 
-          {currentProject && ` Proyecto: ${currentProject.title}`}
+          Este proyecto no tiene columnas.
+          {board.currentProject && ` Proyecto: ${board.currentProject.title}`}
         </Alert>
         <Typography variant="body2" color="text.secondary">
           Revisa la consola del navegador (F12) para ver los detalles.
@@ -576,14 +78,10 @@ const handleCreateBoard = async () => {
     );
   }
 
-  const columnOptions = data.columnOrder.map((colId) => ({
-    id: colId,
-    title: data.columns[colId].title,
-  }));
-
   return (
     <>
       <Stack spacing={2}>
+        {/* Header */}
         <Paper
           elevation={0}
           sx={{
@@ -595,32 +93,45 @@ const handleCreateBoard = async () => {
         >
           <Stack direction="row" justifyContent="space-between" alignItems="center">
             <Box>
-              <Typography variant="h5" fontWeight={700}>
-                {currentProject.title}
-              </Typography>
+              <Stack direction="row" spacing={1} alignItems="center">
+                <Typography variant="h5" fontWeight={700}>
+                  {board.currentProject.title}
+                </Typography>
+                {board.displaySprint && (
+                  <Chip
+                    label={
+                      board.displaySprint.status === "active" ? "SPRINT ACTIVO" : "SPRINT FUTURO"
+                    }
+                    color={board.displaySprint.status === "active" ? "success" : "warning"}
+                    size="small"
+                    sx={{ fontWeight: 600 }}
+                  />
+                )}
+              </Stack>
               <Typography variant="body2" color="text.secondary">
-                Arrastra columnas o tareas para reorganizar.
+                {board.displaySprint?.name} - Arrastra columnas o tareas para reorganizar.
               </Typography>
             </Box>
-            
+
             <Button
               variant="outlined"
               startIcon={<AddIcon />}
-              onClick={() => setIsAddColumnModalOpen(true)}
+              onClick={() => board.setIsAddColumnModalOpen(true)}
               size="small"
             >
               Añadir columna
             </Button>
           </Stack>
-          
-          {errorMessage && (
+
+          {board.errorMessage && (
             <Typography variant="body2" color="error" sx={{ mt: 1 }}>
-              {errorMessage}
+              {board.errorMessage}
             </Typography>
           )}
         </Paper>
 
-        <DragDropContext onDragEnd={onDragEnd}>
+        {/* Board */}
+        <DragDropContext onDragEnd={board.onDragEnd}>
           <Droppable droppableId="board" direction="horizontal" type="column">
             {(provided) => (
               <Box
@@ -641,18 +152,18 @@ const handleCreateBoard = async () => {
                   backdropFilter: "blur(10px)",
                 }}
               >
-                {data.columnOrder.map((columnId, index) => {
-                  const column = data.columns[columnId];
-                  const tasks = column.taskIds.map((taskId) => data.tasks[taskId]);
+                {board.data?.columnOrder.map((columnId, index) => {
+                  const column = board.data!.columns[columnId];
+                  const tasks = column.taskIds.map((taskId) => board.data!.tasks[taskId]);
                   return (
                     <Column
                       key={column.id}
                       column={column}
                       tasks={tasks}
                       index={index}
-                      onCreateTask={handleCreateTask}
-                      onTaskClick={handleTaskClick}
-                      isCreatingTask={creatingTaskColumnId === column.id}
+                      onCreateTask={board.handleCreateTask}
+                      onTaskClick={board.handleTaskClick}
+                      isCreatingTask={board.creatingTaskColumnId === column.id}
                       currentUserId={userId}
                     />
                   );
@@ -664,23 +175,24 @@ const handleCreateBoard = async () => {
         </DragDropContext>
       </Stack>
 
+      {/* Modals */}
       <TaskEditorModal
-        open={isModalOpen}
-        task={selectedTask}
-        columns={columnOptions}
-        issueTypes={issueTypes}
-        priorities={priorities}
-        pointValues={pointValues}
+        open={board.isModalOpen}
+        task={board.selectedTask}
+        columns={board.columnOptions}
+        issueTypes={board.issueTypes}
+        priorities={board.priorities}
+        pointValues={board.pointValues}
         currentUserId={userId}
-        onClose={() => setIsModalOpen(false)}
-        onSave={handleSaveTask}
-        onDelete={handleDeleteTask}
+        onClose={() => board.setIsModalOpen(false)}
+        onSave={board.handleSaveTask}
+        onDelete={board.handleDeleteTask}
       />
 
       <AddColumnModal
-        open={isAddColumnModalOpen}
-        onClose={() => setIsAddColumnModalOpen(false)}
-        onSave={handleCreateColumn}
+        open={board.isAddColumnModalOpen}
+        onClose={() => board.setIsAddColumnModalOpen(false)}
+        onSave={board.handleCreateColumn}
       />
     </>
   );

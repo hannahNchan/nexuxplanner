@@ -20,12 +20,14 @@ import {
 } from "@mui/material";
 import DashboardIcon from "@mui/icons-material/Dashboard";
 import FlagIcon from "@mui/icons-material/Flag";
+import ListAltIcon from "@mui/icons-material/ListAlt"; // ✨ NUEVO - Icono para Backlog
 import DescriptionIcon from "@mui/icons-material/Description";
 import LogoutIcon from "@mui/icons-material/Logout";
 import Brightness4Icon from "@mui/icons-material/Brightness4";
 import Brightness7Icon from "@mui/icons-material/Brightness7";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
+import TimelineIcon from "@mui/icons-material/Timeline";
 import { supabase } from "../lib/supabase";
 import { useThemeMode } from "./ThemeContext";
 import { useState, useEffect, useRef } from "react";
@@ -85,15 +87,18 @@ const Layout = () => {
     };
   }, [isResizing]);
 
+  // ✨ ACTUALIZADO: Agregar /backlog
   const getCurrentTab = () => {
     if (location.pathname.startsWith("/tablero")) return 0;
     if (location.pathname.startsWith("/epicas")) return 1;
-    if (location.pathname.startsWith("/editor")) return 2;
+    if (location.pathname.startsWith("/backlog")) return 2;
+    if (location.pathname.startsWith("/roadmap")) return 3;
+    if (location.pathname.startsWith("/editor")) return 4;
     return 0;
   };
 
   const handleTabChange = (_: any, newValue: number) => {
-    const routes = ["/tablero", "/epicas", "/editor"];
+    const routes = ["/tablero", "/epicas", "/backlog", "/roadmap", "/editor"];
     navigate(routes[newValue]);
   };
 
@@ -285,7 +290,7 @@ const Layout = () => {
         <Box sx={{ flexGrow: 1, display: "flex", flexDirection: "column" }}>
           {/* Navegación con Tabs */}
           <Box sx={{ borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
-            <Container maxWidth="xl">
+            <Container maxWidth={false}>
               <Tabs
                 value={getCurrentTab()}
                 onChange={handleTabChange}
@@ -301,6 +306,18 @@ const Layout = () => {
                   icon={<FlagIcon />}
                   iconPosition="start"
                   label="Épicas"
+                  sx={{ textTransform: "none", minHeight: 64 }}
+                />
+                <Tab
+                  icon={<ListAltIcon />}
+                  iconPosition="start"
+                  label="Backlog"
+                  sx={{ textTransform: "none", minHeight: 64 }}
+                />
+                <Tab
+                  icon={<TimelineIcon />}
+                  iconPosition="start"
+                  label="Roadmap"
                   sx={{ textTransform: "none", minHeight: 64 }}
                 />
                 <Tab
@@ -330,7 +347,7 @@ const Layout = () => {
               borderColor: "divider",
             }}
           >
-            <Container maxWidth="xl">
+            <Container maxWidth={false}>
               <Typography variant="body2" color="text.secondary" align="center">
                 Nexux Planner © 2025
               </Typography>

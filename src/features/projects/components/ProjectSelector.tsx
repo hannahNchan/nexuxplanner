@@ -3,24 +3,30 @@ import {
   ListItemButton,
   ListItemIcon,
   ListItemText,
-  Menu,
-  MenuItem,
   TextField,
   InputAdornment,
   Divider,
   Stack,
   Typography,
   CircularProgress,
+  Collapse,
+  List,
+  Box,
+  Menu,
+  MenuItem,
 } from "@mui/material";
 import FolderIcon from "@mui/icons-material/Folder";
 import SearchIcon from "@mui/icons-material/Search";
 import AddIcon from "@mui/icons-material/Add";
 import ExploreIcon from "@mui/icons-material/Explore";
-import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
-import { useState, useEffect } from "react"; // ✅ Agregado useEffect
+import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import SettingsIcon from '@mui/icons-material/Settings';
+import { useState, useEffect } from "react";
 import { useProjects } from "../hooks/useProjects";
 import CreateProjectModal from "./CreateProjectModal";
 import ExploreProjectsModal from "./ExploreProjectsModal";
+import ProjectSettingsModal from "./ProjectSettingsModal";
 import type { ProjectWithTags } from "../../api/projectService";
 import { useProject } from "../../../shared/contexts/ProjectContext";
 
@@ -30,11 +36,13 @@ type ProjectSelectorProps = {
 };
 
 const ProjectSelector = ({ userId, collapsed }: ProjectSelectorProps) => {
+  const [expanded, setExpanded] = useState(false);
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [exploreModalOpen, setExploreModalOpen] = useState(false);
   const [editingProject, setEditingProject] = useState<ProjectWithTags | null>(null);
+  const [settingsModalOpen, setSettingsModalOpen] = useState(false);
 
   const { currentProject, setCurrentProject } = useProject();
 
@@ -47,9 +55,8 @@ const ProjectSelector = ({ userId, collapsed }: ProjectSelectorProps) => {
     refetch 
   } = useProjects(userId);
 
-  const open = Boolean(anchorEl);
+  const menuOpen = Boolean(anchorEl);
 
-  // ✅ CAMBIO: Auto-seleccionar el primer proyecto al cargar
   useEffect(() => {
     if (!loading && projects.length > 0 && !currentProject) {
       setCurrentProject(projects[0]);
@@ -57,10 +64,14 @@ const ProjectSelector = ({ userId, collapsed }: ProjectSelectorProps) => {
   }, [projects, loading, currentProject, setCurrentProject]);
 
   const handleClick = (event: React.MouseEvent<HTMLElement>) => {
-    setAnchorEl(event.currentTarget);
+    if (collapsed) {
+      setAnchorEl(event.currentTarget);
+    } else {
+      setExpanded(!expanded);
+    }
   };
 
-  const handleClose = () => {
+  const handleCloseMenu = () => {
     setAnchorEl(null);
     setSearchQuery("");
   };
@@ -70,7 +81,9 @@ const ProjectSelector = ({ userId, collapsed }: ProjectSelectorProps) => {
     if (project) {
       setCurrentProject(project);
     }
-    handleClose();
+    setExpanded(false);
+    setSearchQuery("");
+    handleCloseMenu();
   };
 
   const handleEditProject = (project: ProjectWithTags) => {
@@ -82,17 +95,73 @@ const ProjectSelector = ({ userId, collapsed }: ProjectSelectorProps) => {
     title: string,
     description: string,
     tags: string[],
+    projectKey: string,
     projectId?: string
   ) => {
     if (projectId) {
-      await updateProject(projectId, { title, description, tags });
+      await updateProject(projectId, { 
+        title, 
+        description, 
+        tags,
+        project_key: projectKey,
+      });
     } else {
-      const newProject = await createProject(title, description, tags); // ✅ CAMBIO: Capturar el proyecto creado
-      setCurrentProject(newProject); // ✅ CAMBIO: Auto-seleccionarlo
+      const newProject = await createProject(title, description, tags, projectKey);
+      setCurrentProject(newProject);
     }
   };
 
   const filteredProjects = searchQuery ? searchProjects(searchQuery) : projects;
+
+  const projectsList = (
+    <>
+      {loading ? (
+        <Stack direction="row" spacing={2} alignItems="center" width="100%" sx={{ p: 2 }}>
+          <CircularProgress size={20} />
+          <Typography variant="body2">Cargando proyectos...</Typography>
+        </Stack>
+      ) : filteredProjects.length === 0 ? (
+        <Typography variant="body2" color="text.secondary" sx={{ p: 2 }}>
+          {searchQuery ? "No se encontraron proyectos" : "No tienes proyectos"}
+        </Typography>
+      ) : (
+        filteredProjects.map((project) => (
+          <ListItemButton
+            key={project.id}
+            onClick={() => handleProjectSelect(project.id)}
+            selected={project.id === currentProject?.id}
+            sx={{ pl: collapsed ? 2 : 4 }}
+          >
+            <ListItemText
+              primary={
+                <Stack direction="row" spacing={1} alignItems="center">
+                  <Typography fontWeight={500} noWrap>
+                    {project.title}
+                  </Typography>
+                  <Typography
+                    variant="caption"
+                    sx={{
+                      fontFamily: "monospace",
+                      fontWeight: 700,
+                      color: "primary.main",
+                      bgcolor: "action.selected",
+                      px: 0.75,
+                      py: 0.25,
+                      borderRadius: 0.5,
+                    }}
+                  >
+                    {project.project_key}
+                  </Typography>
+                </Stack>
+              }
+              secondary={project.description}
+              secondaryTypographyProps={{ noWrap: true }}
+            />
+          </ListItemButton>
+        ))
+      )}
+    </>
+  );
 
   return (
     <>
@@ -110,100 +179,152 @@ const ProjectSelector = ({ userId, collapsed }: ProjectSelectorProps) => {
                   fontWeight: currentProject ? 600 : 400,
                 }}
               />
-              <KeyboardArrowDownIcon />
+              {expanded ? <ExpandMoreIcon /> : <ChevronRightIcon />}
             </>
           )}
         </ListItemButton>
       </ListItem>
 
-      <Menu
-        anchorEl={anchorEl}
-        open={open}
-        onClose={handleClose}
-        PaperProps={{
-          sx: { width: 320, maxHeight: 400 },
-        }}
-      >
-        <MenuItem disableRipple sx={{ "&:hover": { bgcolor: "transparent" } }}>
-          <TextField
-            fullWidth
-            size="small"
-            placeholder="Buscar proyectos"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon fontSize="small" />
-                </InputAdornment>
-              ),
+      {collapsed ? (
+        <Menu
+          anchorEl={anchorEl}
+          open={menuOpen}
+          onClose={handleCloseMenu}
+          PaperProps={{
+            sx: { width: 320, maxHeight: 400 },
+          }}
+        >
+          <MenuItem disableRipple sx={{ "&:hover": { bgcolor: "transparent" } }}>
+            <TextField
+              fullWidth
+              size="small"
+              placeholder="Buscar proyectos"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon fontSize="small" />
+                  </InputAdornment>
+                ),
+              }}
+              onClick={(e) => e.stopPropagation()}
+            />
+          </MenuItem>
+
+          <Divider />
+
+          {projectsList}
+
+          <Divider />
+
+          <MenuItem
+            onClick={() => {
+              handleCloseMenu();
+              setCreateModalOpen(true);
             }}
-            onClick={(e) => e.stopPropagation()}
-          />
-        </MenuItem>
-
-        <Divider />
-
-        {loading ? (
-          <MenuItem disabled>
-            <Stack direction="row" spacing={2} alignItems="center" width="100%">
-              <CircularProgress size={20} />
-              <Typography variant="body2">Cargando proyectos...</Typography>
-            </Stack>
+          >
+            <ListItemIcon>
+              <AddIcon fontSize="small" />
+            </ListItemIcon>
+            <ListItemText primary="Crear nuevo proyecto" />
           </MenuItem>
-        ) : filteredProjects.length === 0 ? (
-          <MenuItem disabled>
-            <Typography variant="body2" color="text.secondary">
-              {searchQuery ? "No se encontraron proyectos" : "No tienes proyectos"}
-            </Typography>
+
+          <MenuItem
+            onClick={() => {
+              handleCloseMenu();
+              setExploreModalOpen(true);
+            }}
+          >
+            <ListItemIcon>
+              <ExploreIcon fontSize="small" />
+            </ListItemIcon>
+            <ListItemText primary="Explorar todo" />
           </MenuItem>
-        ) : (
-          filteredProjects.map((project) => (
-            <MenuItem
-              key={project.id}
-              onClick={() => handleProjectSelect(project.id)}
-              selected={project.id === currentProject?.id}
-            >
-              <Stack spacing={0.5} width="100%">
-                <Typography fontWeight={500} noWrap>
-                  {project.title}
-                </Typography>
-                {project.description && (
-                  <Typography variant="caption" color="text.secondary" noWrap>
-                    {project.description}
-                  </Typography>
-                )}
-              </Stack>
-            </MenuItem>
-          ))
-        )}
 
-        <Divider />
+          <MenuItem
+            onClick={() => {
+              handleCloseMenu();
+              setSettingsModalOpen(true);
+            }}
+          >
+            <ListItemIcon>
+              <SettingsIcon fontSize="small" />
+            </ListItemIcon>
+            <ListItemText primary="Project settings" />
+          </MenuItem>
+        </Menu>
+      ) : (
+        <Collapse in={expanded} timeout="auto" unmountOnExit>
+          <Box sx={{ bgcolor: "action.hover", py: 1 }}>
+            <Box sx={{ px: 2, pb: 1 }}>
+              <TextField
+                fullWidth
+                size="small"
+                placeholder="Buscar proyectos"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon fontSize="small" />
+                    </InputAdornment>
+                  ),
+                }}
+              />
+            </Box>
 
-        <MenuItem
-          onClick={() => {
-            handleClose();
-            setCreateModalOpen(true);
-          }}
-        >
-          <ListItemIcon>
-            <AddIcon fontSize="small" />
-          </ListItemIcon>
-          <ListItemText primary="Crear nuevo proyecto" />
-        </MenuItem>
+            <Divider />
 
-        <MenuItem
-          onClick={() => {
-            handleClose();
-            setExploreModalOpen(true);
-          }}
-        >
-          <ListItemIcon>
-            <ExploreIcon fontSize="small" />
-          </ListItemIcon>
-          <ListItemText primary="Explorar todo" />
-        </MenuItem>
-      </Menu>
+            <List disablePadding sx={{ maxHeight: 300, overflow: "auto" }}>
+              {projectsList}
+            </List>
+
+            <Divider />
+
+            <List disablePadding>
+              <ListItemButton
+                onClick={() => {
+                  setExpanded(false);
+                  setCreateModalOpen(true);
+                }}
+                sx={{ pl: 4 }}
+              >
+                <ListItemIcon sx={{ minWidth: 36 }}>
+                  <AddIcon fontSize="small" />
+                </ListItemIcon>
+                <ListItemText primary="Crear nuevo proyecto" />
+              </ListItemButton>
+
+              <ListItemButton
+                onClick={() => {
+                  setExpanded(false);
+                  setExploreModalOpen(true);
+                }}
+                sx={{ pl: 4 }}
+              >
+                <ListItemIcon sx={{ minWidth: 36 }}>
+                  <ExploreIcon fontSize="small" />
+                </ListItemIcon>
+                <ListItemText primary="Explorar todo" />
+              </ListItemButton>
+
+              <ListItemButton
+                onClick={() => {
+                  setExpanded(false);
+                  setSettingsModalOpen(true);
+                }}
+                sx={{ pl: 4 }}
+              >
+                <ListItemIcon sx={{ minWidth: 36 }}>
+                  <SettingsIcon fontSize="small" />
+                </ListItemIcon>
+                <ListItemText primary="Project settings" />
+              </ListItemButton>
+            </List>
+          </Box>
+        </Collapse>
+      )}
 
       <CreateProjectModal
         open={createModalOpen}
@@ -223,6 +344,11 @@ const ProjectSelector = ({ userId, collapsed }: ProjectSelectorProps) => {
         onSelectProject={setCurrentProject}
         onEditProject={handleEditProject}
         onRefresh={refetch}
+      />
+      <ProjectSettingsModal
+        open={settingsModalOpen}
+        projectName={currentProject?.title || ""}
+        onClose={() => setSettingsModalOpen(false)}
       />
     </>
   );
