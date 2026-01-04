@@ -26,7 +26,7 @@ import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea
 import { useProjectCatalogs } from "../hooks/useProjectCatalogs";
 import IconPicker from "../../../shared/ui/IconPicker";
 import ColorPicker from "../../../shared/ui/ColorPicker";
-import type { IssueType, Priority, EpicPhase } from "../api/catalogService";
+import type { IssueType, Priority, EpicPhase } from "../../../features/api/catalogService";
 
 type ProjectSettingsModalProps = {
   open: boolean;
