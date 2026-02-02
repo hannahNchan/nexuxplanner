@@ -18,12 +18,17 @@ type TaskRecord = {
   id: string;
   column_id: string;
   title: string;
+  task_id_display: string | null;
+  subtitle: string | null;
   description: string | null;
   position: number;
   issue_type_id: string | null;
   priority_id: string | null;
   story_points: string | null;
   assignee_id: string | null;
+  epic_id?: string | null;
+  epic_name?: string | null;
+  epic_color?: string | null;
 };
 
 export const fetchPrimaryBoard = async (userId: string): Promise<BoardRecord | null> => {
@@ -60,14 +65,14 @@ export const fetchColumnOrder = async (projectId: string): Promise<string[]> => 
 export const fetchBoardDataByProject = async (
   userId: string,
   projectId: string | null,
-  sprintId: string | null = null // ✅ NUEVO parámetro
+  sprintId: string | null = null
 ): Promise<{
   board: BoardRecord | null;
   columns: ColumnRecord[];
   tasks: TaskRecord[];
   columnOrder: string[];
+  boardState?: BoardState;
 }> => {
-  // Buscar board es opcional ahora
   const { data: board } = await supabase
     .from("boards")
     .select("id, name, user_id")
@@ -76,7 +81,6 @@ export const fetchBoardDataByProject = async (
     .limit(1)
     .maybeSingle();
 
-  // Si no hay projectId, retornar vacío
   if (!projectId) {
     return {
       board: board ?? null,
@@ -86,7 +90,6 @@ export const fetchBoardDataByProject = async (
     };
   }
 
-  // Buscar columnas directamente por project_id
   const { data: columns, error: columnsError } = await supabase
     .from("columns")
     .select("id, project_id, name, position")
@@ -95,12 +98,8 @@ export const fetchBoardDataByProject = async (
 
   if (columnsError) throw columnsError;
 
-  console.log("📊 Columnas encontradas:", columns);
-
-  // Buscar el orden de columnas
   const columnOrder = await fetchColumnOrder(projectId);
 
-  // Si no hay orden guardado, usar el orden por posición
   const finalColumnOrder =
     columnOrder.length > 0
       ? columnOrder
@@ -108,7 +107,6 @@ export const fetchBoardDataByProject = async (
 
   const columnIds = (columns ?? []).map((column) => column.id);
 
-  // Si no hay columnas, retornar vacío
   if (columnIds.length === 0) {
     return {
       board: board ?? null,
@@ -118,32 +116,61 @@ export const fetchBoardDataByProject = async (
     };
   }
 
-  // ✅ Buscar tareas con filtro de sprint
   let tasksQuery = supabase
     .from("tasks")
     .select(
-      "id, column_id, title, description, position, issue_type_id, priority_id, story_points, assignee_id"
+      "id, column_id, title, task_id_display, subtitle, description, position, issue_type_id, priority_id, story_points, assignee_id, epic_id"
     )
     .in("column_id", columnIds);
 
-  // ✅ CRÍTICO: Solo mostrar tareas del sprint activo
   if (sprintId) {
     tasksQuery = tasksQuery.eq("sprint_id", sprintId);
   } else {
-    // Si no hay sprint activo, no mostrar ninguna tarea
-    tasksQuery = tasksQuery.eq("sprint_id", "00000000-0000-0000-0000-000000000000"); // UUID imposible
+    tasksQuery = tasksQuery.eq("sprint_id", "00000000-0000-0000-0000-000000000000");
   }
 
   const { data: tasks, error: tasksError } = await tasksQuery.order("position", { ascending: true });
 
   if (tasksError) throw tasksError;
 
-  console.log("📋 Tareas del sprint:", tasks);
+  let tasksWithEpics = tasks ?? [];
+  if (tasksWithEpics.length > 0) {
+    const taskIds = tasksWithEpics.map(t => t.id);
+    
+  const { data: epicTasks } = await supabase
+    .from("epic_tasks")
+    .select(`
+      task_id,
+      epic:epic_id(id, name, color)
+    `)
+    .in("task_id", taskIds);
+
+    const taskEpicMap: Record<string, { id: string; name: string; color: string | null  }> = {};
+    if (epicTasks) {
+      epicTasks.forEach((et: any) => {
+        if (et.epic && !taskEpicMap[et.task_id]) {
+          taskEpicMap[et.task_id] = {
+            id: et.epic.id,
+            name: et.epic.name,
+            color: et.epic.color,
+          };
+        }
+      });
+    }
+
+    tasksWithEpics = tasksWithEpics.map(task => ({
+      ...task,
+      epic_id: taskEpicMap[task.id]?.id || task.epic_id || null,
+      epic_name: taskEpicMap[task.id]?.name || null,
+      epic_color: taskEpicMap[task.id]?.color || null,
+    }));
+
+  }
 
   return {
     board: board ?? null,
     columns: columns ?? [],
-    tasks: tasks ?? [],
+    tasks: tasksWithEpics,
     columnOrder: finalColumnOrder,
   };
 };
@@ -196,14 +223,28 @@ export const createTask = async (
   isBacklog = false
 ): Promise<TaskRecord> => {
 
+  let projectId: string | null = null;
+  
+  if (!isBacklog) {
+    const { data: column } = await supabase
+      .from("columns")
+      .select("project_id")
+      .eq("id", columnIdOrProjectId)
+      .single();
+    
+    projectId = column?.project_id || null;
+  } else {
+    projectId = columnIdOrProjectId;
+  }
+
   const taskData: any = {
     title,
     position,
     in_backlog: isBacklog,
+    project_id: projectId,
   };
 
   if (isBacklog) {
-    taskData.project_id = columnIdOrProjectId;
     taskData.column_id = null;
   } else {
     taskData.column_id = columnIdOrProjectId;
@@ -211,8 +252,8 @@ export const createTask = async (
 
   const { data, error } = await supabase
     .from("tasks")
-    .insert({ column_id: columnIdOrProjectId, title, position })
-    .select("id, column_id, title, description, position, issue_type_id, priority_id, story_points, assignee_id")
+    .insert(taskData)
+    .select("id, column_id, title, task_id_display, subtitle, description, position, issue_type_id, priority_id, story_points, assignee_id")
     .single();
 
   if (error) {
@@ -226,6 +267,7 @@ export const updateTask = async (
   taskId: string,
   updates: {
     title?: string;
+    subtitle?: string;
     description?: string;
     column_id?: string | null;
     issue_type_id?: string | null;
@@ -252,7 +294,7 @@ export const updateTask = async (
       updated_at: new Date().toISOString(),
     })
     .eq("id", taskId)
-    .select("id, column_id, title, description, position, issue_type_id, priority_id, story_points, assignee_id")
+    .select("id, column_id, title, task_id_display, subtitle, description, position, issue_type_id, priority_id, story_points, assignee_id")
     .single();
 
   if (error) {
@@ -277,6 +319,7 @@ export const toBoardState = (
   tasks: TaskRecord[],
   columnOrder: string[]
 ): BoardState => {
+  
   const taskMap: Record<string, Task> = {};
   const columnMap: Record<string, Column> = {};
 
@@ -284,11 +327,16 @@ export const toBoardState = (
     taskMap[task.id] = {
       id: task.id,
       title: task.title,
+      task_id_display: task.task_id_display ?? undefined,
+      subtitle: task.subtitle ?? undefined,
       description: task.description ?? undefined,
       issue_type_id: task.issue_type_id ?? undefined,
       priority_id: task.priority_id ?? undefined,
       story_points: task.story_points ?? undefined,
       assignee_id: task.assignee_id ?? undefined,
+      epic_id: task.epic_id ?? undefined,
+      epic_name: task.epic_name ?? undefined,
+      epic_color: task.epic_color ?? undefined,
     };
   });
 

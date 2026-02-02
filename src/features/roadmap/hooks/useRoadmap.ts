@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
-import { fetchEpics, updateEpic, type EpicWithDetails } from "../../api/epicService";
-import { fetchDependencies, createDependency, deleteDependency, type EpicDependency } from "../../api/dependencyService";
+import { fetchEpics, updateEpic, type EpicWithDetails } from "../../../features/api/epicService";
+import { fetchDependencies, createDependency, deleteDependency, type EpicDependency } from "../../../features/api/dependencyService";
 
 export const useRoadmap = (userId: string, projectId: string | null) => {
   const [epics, setEpics] = useState<EpicWithDetails[]>([]);
@@ -40,9 +40,21 @@ export const useRoadmap = (userId: string, projectId: string | null) => {
     await updateEpic(epicId, { start_date: startDate, end_date: endDate });
   };
 
-  const addDependency = async (epicId: string, dependsOnEpicId: string) => {
-    const newDep = await createDependency(epicId, dependsOnEpicId);
-    setDependencies(prev => [...prev, newDep]);
+  const addDependency = async (epicId: string, dependsOnEpicId: string, dependencyType: string = "finish-to-start") => {
+    const exists = dependencies.some(
+      d => d.epic_id === epicId && d.depends_on_epic_id === dependsOnEpicId
+    );
+    
+    if (exists) {
+      return;
+    }
+
+    try {
+      const newDep = await createDependency(epicId, dependsOnEpicId, dependencyType);
+      setDependencies(prev => [...prev, newDep]);
+    } catch (error) {
+      console.error("Error creating dependency:", error);
+    }
   };
 
   const removeDependency = async (dependencyId: string) => {

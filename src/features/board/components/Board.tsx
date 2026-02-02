@@ -18,11 +18,14 @@ import { useBoardManager } from "../hooks/useBoardManager";
 
 type BoardProps = {
   userId: string;
+  initials: string;
 };
 
-const Board = ({ userId }: BoardProps) => {
+const Board = ({ userId, initials }: BoardProps) => {
   const theme = useTheme();
   const board = useBoardManager(userId);
+
+  const allowBoardTaskCreation = board.currentProject?.allow_board_task_creation ?? false;
 
   // Loading state
   if (board.isLoading || !board.catalogsLoaded) {
@@ -81,7 +84,6 @@ const Board = ({ userId }: BoardProps) => {
   return (
     <>
       <Stack spacing={2}>
-        {/* Header */}
         <Paper
           elevation={0}
           sx={{
@@ -135,41 +137,51 @@ const Board = ({ userId }: BoardProps) => {
           <Droppable droppableId="board" direction="horizontal" type="column">
             {(provided) => (
               <Box
-                ref={provided.innerRef}
-                {...provided.droppableProps}
-                display="flex"
-                gap={3}
-                flexWrap="nowrap"
-                overflow="auto"
-                pb={1}
                 sx={{
-                  p: 2,
-                  borderRadius: 2,
-                  background: `linear-gradient(135deg, 
-                    ${alpha(theme.palette.primary.main, 0.08)} 0%, 
-                    ${alpha(theme.palette.secondary.main, 0.05)} 100%)`,
-                  border: `1px solid ${alpha(theme.palette.primary.main, 0.1)}`,
-                  backdropFilter: "blur(10px)",
+                  overflowX: "auto",
+                  overflowY: "hidden",
                 }}
               >
-                {board.data?.columnOrder.map((columnId, index) => {
-                  const column = board.data!.columns[columnId];
-                  const tasks = column.taskIds.map((taskId) => board.data!.tasks[taskId]);
-                  return (
-                    <Column
-                      key={column.id}
-                      column={column}
-                      tasks={tasks}
-                      index={index}
-                      onCreateTask={board.handleCreateTask}
-                      onTaskClick={board.handleTaskClick}
-                      isCreatingTask={board.creatingTaskColumnId === column.id}
-                      currentUserId={userId}
-                    />
-                  );
-                })}
-                {provided.placeholder}
-              </Box>
+                <Box
+                  ref={provided.innerRef}
+                  {...provided.droppableProps}
+                  display="inline-flex"
+                  gap={3}
+                  flexWrap="nowrap"
+                  overflow="auto"
+                  pb={1}
+                  sx={{
+                    p: 2,
+                    borderRadius: 1,
+                    background: `linear-gradient(135deg, 
+                      ${alpha(theme.palette.primary.main, 0.08)} 0%, 
+                      ${alpha(theme.palette.secondary.main, 0.05)} 100%)`,
+                    border: `1px solid ${alpha(theme.palette.primary.main, 0.1)}`,
+                    backdropFilter: "blur(10px)",
+                    minWidth: "fit-content"
+                  }}
+                >
+                  {board.data?.columnOrder.map((columnId, index) => {
+                    const column = board.data!.columns[columnId];
+                    const tasks = column.taskIds.map((taskId) => board.data!.tasks[taskId]);
+                    return (
+                      <Column
+                        key={column.id}
+                        column={column}
+                        tasks={tasks}
+                        index={index}
+                        onCreateTask={board.handleCreateTask}
+                        onTaskClick={board.handleTaskClick}
+                        isCreatingTask={board.creatingTaskColumnId === column.id}
+                        currentUserId={userId}
+                        currentUserInitials={initials}
+                        allowTaskCreation={allowBoardTaskCreation}
+                      />
+                    );
+                  })}
+                  {provided.placeholder}
+                </Box>
+            </Box>
             )}
           </Droppable>
         </DragDropContext>

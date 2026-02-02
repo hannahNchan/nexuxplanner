@@ -18,13 +18,16 @@ import TaskListCell from "./TaskListCell";
 type CreateColumnsParams = {
   theme: Theme;
   editingName: string | null;
+  editingColor: string | null;
   editingPhase: string | null;
   editingEffort: string | null;
   editingProject: string | null;
   setEditingName: (id: string | null) => void;
+  setEditingColor: (id: string | null) => void;
   setEditingPhase: (id: string | null) => void;
   setEditingEffort: (id: string | null) => void;
   setEditingProject: (id: string | null) => void;
+  setColorMenuAnchor: (el: HTMLElement | null) => void;
   setPhaseMenuAnchor: (el: HTMLElement | null) => void;
   setEffortMenuAnchor: (el: HTMLElement | null) => void;
   setProjectMenuAnchor: (el: HTMLElement | null) => void;
@@ -40,9 +43,11 @@ export const createEpicsTableColumns = (params: CreateColumnsParams): GridColDef
     theme,
     editingName,
     setEditingName,
+    setEditingColor,
     setEditingPhase,
     setEditingEffort,
     setEditingProject,
+    setColorMenuAnchor,
     setPhaseMenuAnchor,
     setEffortMenuAnchor,
     setProjectMenuAnchor,
@@ -54,6 +59,49 @@ export const createEpicsTableColumns = (params: CreateColumnsParams): GridColDef
   } = params;
 
   return [
+    {
+      field: "color",
+      headerName: "Color",
+      width: 80,
+      renderCell: (cellParams) => (
+        <Tooltip title="Click para cambiar color" placement="top">
+          <Box
+            sx={{
+              cursor: "pointer",
+              width: "100%",
+              height: "100%",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              position: "relative",
+              zIndex: 1,
+            }}
+            onClick={(e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              setEditingColor(cellParams.row.id as string);
+              setColorMenuAnchor(e.currentTarget);
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <Box
+              sx={{
+                width: 32,
+                height: 32,
+                borderRadius: 2,
+                bgcolor: cellParams.value as string,
+                border: `2px solid ${alpha(theme.palette.common.black, 0.1)}`,
+                transition: "all 0.2s ease",
+                "&:hover": {
+                  transform: "scale(1.15)",
+                  boxShadow: `0 4px 12px ${alpha(cellParams.value as string, 0.4)}`,
+                },
+              }}
+            />
+          </Box>
+        </Tooltip>
+      ),
+    },
     {
       field: "name",
       headerName: "Épica",

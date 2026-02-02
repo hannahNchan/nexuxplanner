@@ -44,7 +44,7 @@ const ProjectSelector = ({ userId, collapsed }: ProjectSelectorProps) => {
   const [editingProject, setEditingProject] = useState<ProjectWithTags | null>(null);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
 
-  const { currentProject, setCurrentProject } = useProject();
+  const { currentProject, setCurrentProject, updateCurrentProject } = useProject();
 
   const { 
     projects,
@@ -247,6 +247,7 @@ const ProjectSelector = ({ userId, collapsed }: ProjectSelectorProps) => {
               handleCloseMenu();
               setSettingsModalOpen(true);
             }}
+            disabled={!currentProject}
           >
             <ListItemIcon>
               <SettingsIcon fontSize="small" />
@@ -315,6 +316,7 @@ const ProjectSelector = ({ userId, collapsed }: ProjectSelectorProps) => {
                   setSettingsModalOpen(true);
                 }}
                 sx={{ pl: 4 }}
+                disabled={!currentProject}
               >
                 <ListItemIcon sx={{ minWidth: 36 }}>
                   <SettingsIcon fontSize="small" />
@@ -345,10 +347,22 @@ const ProjectSelector = ({ userId, collapsed }: ProjectSelectorProps) => {
         onEditProject={handleEditProject}
         onRefresh={refetch}
       />
+      
       <ProjectSettingsModal
         open={settingsModalOpen}
         projectName={currentProject?.title || ""}
+        projectId={currentProject?.id || ""}
+        allowBoardTaskCreation={currentProject?.allow_board_task_creation ?? false}
         onClose={() => setSettingsModalOpen(false)}
+        onUpdateAllowBoardTaskCreation={async (projectId: string, value: boolean) => {
+          await updateProject(projectId, {
+            allow_board_task_creation: value,
+          });
+          
+          updateCurrentProject({
+            allow_board_task_creation: value,
+          });
+        }}
       />
     </>
   );

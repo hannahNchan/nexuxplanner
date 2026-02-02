@@ -32,6 +32,7 @@ import {
   HideMenu,
   ProjectMenu,
   PhaseMenu,
+  ColorMenu,
   EffortMenu,
   TaskConnectDialog,
   DeleteConfirmDialog,
@@ -49,13 +50,16 @@ const EpicsTable = ({ userId }: EpicsTableProps) => {
   const columns = createEpicsTableColumns({
     theme,
     editingName: epic.editingName,
+    editingColor: epic.editingColor,
     editingPhase: epic.editingPhase,
     editingEffort: epic.editingEffort,
     editingProject: epic.editingProject,
     setEditingName: epic.setEditingName,
+    setEditingColor: epic.setEditingColor,
     setEditingPhase: epic.setEditingPhase,
     setEditingEffort: epic.setEditingEffort,
     setEditingProject: epic.setEditingProject,
+    setColorMenuAnchor: epic.setColorMenuAnchor,
     setPhaseMenuAnchor: epic.setPhaseMenuAnchor,
     setEffortMenuAnchor: epic.setEffortMenuAnchor,
     setProjectMenuAnchor: epic.setProjectMenuAnchor,
@@ -265,10 +269,32 @@ const EpicsTable = ({ userId }: EpicsTableProps) => {
             }}
           />
         ) : (
-          <DataTable rows={epic.rows} columns={columns} />
+          <DataTable 
+            rows={epic.rows} 
+            columns={columns}
+            disableRowSelectionOnClick // ✅ NUEVO
+            sx={{
+              '& .MuiDataGrid-cell:focus': {
+                outline: 'none',
+              },
+              '& .MuiDataGrid-cell:focus-within': {
+                outline: 'none',
+              },
+            } as any}
+          />
         )}
 
         {/* Menús */}
+        <ColorMenu
+          anchorEl={epic.colorMenuAnchor}
+          editingColor={epic.editingColor}
+          currentColor={epic.rows.find((r) => r.id === epic.editingColor)?.color as string}
+          onClose={() => {
+            epic.setColorMenuAnchor(null);
+            epic.setEditingColor(null);
+          }}
+          onColorChange={epic.handleColorChange}
+        />
         <FilterMenu
           anchorEl={epic.filterAnchor}
           filters={epic.filters}

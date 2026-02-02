@@ -23,6 +23,14 @@ const Roadmap = ({ userId }: RoadmapProps) => {
 
   const currentYear = new Date().getFullYear();
 
+  const handleCreateDependency = async (fromEpicId: string, toEpicId: string, dependencyType: string) => {
+    try {
+      await addDependency(fromEpicId, toEpicId, dependencyType);
+    } catch (error) {
+      console.error("Error creating dependency:", error);
+    }
+  };
+
   return (
     <Container maxWidth="xl">
       <Stack spacing={3} sx={{ height: "calc(100vh - 250px)" }}>
@@ -44,7 +52,7 @@ const Roadmap = ({ userId }: RoadmapProps) => {
           epics={epics} 
           dependencies={dependencies}
           onUpdateEpicDates={updateEpicDates}
-          onCreateDependency={addDependency}
+          onCreateDependency={handleCreateDependency}
         />
       </Stack>
     </Container>

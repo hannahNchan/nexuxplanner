@@ -17,6 +17,8 @@ type ColumnProps = {
   onTaskClick: (task: Task) => void;
   isCreatingTask?: boolean;
   currentUserId?: string;
+  allowTaskCreation?: boolean;
+  currentUserInitials?: string;
 };
 
 const Column = ({
@@ -27,6 +29,8 @@ const Column = ({
   onTaskClick,
   isCreatingTask = false,
   currentUserId,
+  allowTaskCreation = false,
+  currentUserInitials = "User",
 }: ColumnProps) => {
   const theme = useTheme();
 
@@ -40,7 +44,7 @@ const Column = ({
           sx={{
             minWidth: 300,
             maxWidth: 300,
-            borderRadius: 2,
+            borderRadius: 0,
             backgroundColor: snapshot.isDragging 
               ? alpha(theme.palette.warning.main, 0.15)
               : "background.paper",
@@ -186,11 +190,13 @@ const Column = ({
                             variant="caption"
                             color="text.secondary"
                             sx={{
-                              fontSize: "0.75rem",
+                              fontSize: "1rem",
                               opacity: 0.7,
                             }}
                           >
-                            Arrastra tareas aquí o crea una nueva
+                            {allowTaskCreation 
+                              ? "Arrastra tareas aquí o crea una nueva"
+                              : "Arrastra tareas aquí desde el Backlog"}
                           </Typography>
                         </>
                       )}
@@ -229,6 +235,7 @@ const Column = ({
                                   onClick={() => onTaskClick(task)}
                                   currentUserId={currentUserId}
                                   isDragging={taskSnapshot.isDragging}
+                                  currentUserInitials={currentUserInitials}
                                 />
                               </Box>
                             );
@@ -250,6 +257,7 @@ const Column = ({
                                     onClick={() => {}}
                                     currentUserId={currentUserId}
                                     isDragging={true}
+                                    currentUserInitials={currentUserInitials}
                                   />
                                 </Box>,
                                 document.body
@@ -282,22 +290,24 @@ const Column = ({
             </Droppable>
 
             {/* Botón para agregar tarea */}
-            <Button
-              variant="text"
-              startIcon={<AddIcon />}
-              onClick={() => onCreateTask(column.id)}
-              disabled={isCreatingTask}
-              sx={{
-                justifyContent: "flex-start",
-                color: "text.secondary",
-                textTransform: "none",
-                "&:hover": {
-                  backgroundColor: "action.hover",
-                },
-              }}
-            >
-              {isCreatingTask ? "Creando..." : "Agregar tarea"}
-            </Button>
+            {allowTaskCreation && (
+              <Button
+                variant="text"
+                startIcon={<AddIcon />}
+                onClick={() => onCreateTask(column.id)}
+                disabled={isCreatingTask}
+                sx={{
+                  justifyContent: "flex-start",
+                  color: "text.secondary",
+                  textTransform: "none",
+                  "&:hover": {
+                    backgroundColor: "action.hover",
+                  },
+                }}
+              >
+                {isCreatingTask ? "Creando..." : "Agregar tarea"}
+              </Button>
+            )}
           </Stack>
         </Paper>
       )}

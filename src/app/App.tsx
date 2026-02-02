@@ -28,13 +28,13 @@ const App = () => {
                         <Stack spacing={3}>
                           <Stack spacing={1}>
                             <Typography variant="h4" fontWeight={700}>
-                              Tablero de Scrum
+                              Tablero
                             </Typography>
-                            <Typography variant="body1" color="text.secondary">
+                            {/* <Typography variant="body1" color="text.secondary">
                               Organiza y gestiona tus tareas con el tablero visual.
-                            </Typography>
+                            </Typography> */}
                           </Stack>
-                          <Board userId={session.user.id} />
+                          <Board userId={session.user.id} initials={session?.user?.email?.split("")[0] ?? ""} />
                         </Stack>
                       </Container>
                     }

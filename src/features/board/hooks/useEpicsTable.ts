@@ -57,12 +57,14 @@ export const useEpicsTable = (userId: string) => {
   const [filterAnchor, setFilterAnchor] = useState<HTMLElement | null>(null);
   const [sortAnchor, setSortAnchor] = useState<HTMLElement | null>(null);
   const [hideAnchor, setHideAnchor] = useState<HTMLElement | null>(null);
+  const [colorMenuAnchor, setColorMenuAnchor] = useState<HTMLElement | null>(null);
   const [phaseMenuAnchor, setPhaseMenuAnchor] = useState<HTMLElement | null>(null);
   const [effortMenuAnchor, setEffortMenuAnchor] = useState<HTMLElement | null>(null);
   const [projectMenuAnchor, setProjectMenuAnchor] = useState<HTMLElement | null>(null);
 
   // Estado de edición
   const [editingName, setEditingName] = useState<string | null>(null);
+  const [editingColor, setEditingColor] = useState<string | null>(null);
   const [editingPhase, setEditingPhase] = useState<string | null>(null);
   const [editingEffort, setEditingEffort] = useState<string | null>(null);
   const [editingProject, setEditingProject] = useState<string | null>(null);
@@ -102,12 +104,10 @@ export const useEpicsTable = (userId: string) => {
     }
   };
 
-  // Efecto: Cargar datos cuando cambia el usuario o proyecto
   useEffect(() => {
     void loadData();
   }, [userId, currentProject]);
 
-  // Efecto: Procesar y filtrar épicas
   useEffect(() => {
     let processedEpics = epics.filter((epic) => !hiddenEpics.includes(epic.id));
 
@@ -183,6 +183,7 @@ export const useEpicsTable = (userId: string) => {
       return {
         id: epic.id,
         name: epic.name,
+        color: epic.color || "#3B82F6",
         owner: "Usuario",
         phase_id: epic.phase_id,
         phase: epic.phase_name || "Sin fase",
@@ -199,14 +200,12 @@ export const useEpicsTable = (userId: string) => {
     setRows(mappedRows);
   }, [epics, projects, hiddenEpics, searchText, filters, sortColumn, sortOrder]);
 
-  // Efecto: Buscar tareas
   useEffect(() => {
     if (taskSearchOpen !== null) {
       searchTasks(currentProject?.id ?? null, taskSearchText).then(setTaskOptions);
     }
   }, [taskSearchText, taskSearchOpen, userId, currentProject]);
 
-  // ✅ Handlers optimizados (sin recargar todo)
   const handleAddEpic = async () => {
     try {
       const newEpic = await createEpic(userId, {
@@ -214,7 +213,6 @@ export const useEpicsTable = (userId: string) => {
         project_id: currentProject?.id ?? null,
       });
 
-      // ✅ Actualizar solo el estado local
       const epicWithDetails: EpicWithDetails = {
         ...newEpic,
         phase_name: undefined,
@@ -228,11 +226,30 @@ export const useEpicsTable = (userId: string) => {
     }
   };
 
+  const handleColorChange = async (epicId: string, color: string | null) => {
+    console.log("🎨 Cambiando color de épica:", epicId, "a color:", color);
+    
+    try {
+      const result = await updateEpic(epicId, { color });
+      console.log("🎨 Resultado de updateEpic:", result);
+
+      // ✅ Actualizar solo el estado local
+      setEpics((prev) =>
+        prev.map((epic) =>
+          epic.id === epicId ? { ...epic, color } : epic
+        )
+      );
+      
+      console.log("🎨 Estado local actualizado");
+    } catch (error) {
+      console.error("Error actualizando color:", error);
+    }
+  };
+
   const handleNameChange = async (epicId: string, newName: string) => {
     try {
       await updateEpic(epicId, { name: newName });
 
-      // ✅ Actualizar solo el estado local
       setEpics((prev) =>
         prev.map((epic) => (epic.id === epicId ? { ...epic, name: newName } : epic))
       );
@@ -245,7 +262,6 @@ export const useEpicsTable = (userId: string) => {
     try {
       await updateEpic(epicId, { phase_id: phaseId || null });
 
-      // ✅ Actualizar solo el estado local
       const phase = phases.find((p) => p.id === phaseId);
       setEpics((prev) =>
         prev.map((epic) =>
@@ -268,7 +284,6 @@ export const useEpicsTable = (userId: string) => {
     try {
       await updateEpic(epicId, { estimated_effort: effort || null });
 
-      // ✅ Actualizar solo el estado local
       setEpics((prev) =>
         prev.map((epic) =>
           epic.id === epicId ? { ...epic, estimated_effort: effort || null } : epic
@@ -283,7 +298,6 @@ export const useEpicsTable = (userId: string) => {
     try {
       await linkEpicToProject(epicId, projectId || null);
 
-      // ✅ Actualizar solo el estado local
       setEpics((prev) =>
         prev.map((epic) =>
           epic.id === epicId ? { ...epic, project_id: projectId || null } : epic
@@ -298,7 +312,6 @@ export const useEpicsTable = (userId: string) => {
     try {
       await connectTaskToEpic(epicId, taskId);
 
-      // ✅ Actualizar solo el estado local
       const task = taskOptions.find((t) => t.id === taskId);
       if (task) {
         setEpics((prev) =>
@@ -321,7 +334,6 @@ export const useEpicsTable = (userId: string) => {
     try {
       await disconnectTaskFromEpic(epicId, taskId);
 
-      // ✅ Actualizar solo el estado local
       setEpics((prev) =>
         prev.map((epic) =>
           epic.id === epicId
@@ -348,7 +360,6 @@ export const useEpicsTable = (userId: string) => {
     try {
       await deleteEpic(epicToDelete);
 
-      // ✅ Actualizar solo el estado local
       setEpics((prev) => prev.filter((epic) => epic.id !== epicToDelete));
       setDeleteDialogOpen(false);
       setEpicToDelete(null);
@@ -389,9 +400,15 @@ export const useEpicsTable = (userId: string) => {
     taskSearchText,
     deleteDialogOpen,
     epicToDelete,
+    editingColor,
+    colorMenuAnchor,
+
     activeFiltersCount,
 
     // Setters
+    setEditingColor,
+    setColorMenuAnchor,
+    handleColorChange,
     setSearchOpen,
     setSearchText,
     setFilters,

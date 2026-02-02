@@ -5,9 +5,10 @@ export type Project = {
   user_id: string;
   title: string;
   description: string | null;
-  project_key: string; // ✨ NUEVO
-  task_sequence: number; // ✨ NUEVO
-  epic_sequence: number; // ✨ NUEVO
+  project_key: string;
+  task_sequence: number;
+  epic_sequence: number;
+  allow_board_task_creation: boolean;
   created_at: string;
   updated_at: string;
 };
@@ -112,7 +113,6 @@ export const fetchProjectById = async (projectId: string): Promise<ProjectWithTa
   };
 };
 
-// ✨ ACTUALIZADO: Ahora VERIFICA que las columnas existan antes de retornar
 export const createProject = async (
   userId: string,
   data: { 
@@ -122,7 +122,6 @@ export const createProject = async (
     project_key: string;
   }
 ): Promise<ProjectWithTags> => {
-  // Validaciones previas
   if (!data.project_key || data.project_key.trim().length === 0) {
     throw new Error("Las siglas del proyecto son obligatorias");
   }
@@ -143,7 +142,6 @@ export const createProject = async (
     throw new Error(`Las siglas "${data.project_key}" ya están en uso por otro proyecto`);
   }
 
-  // Crear el proyecto
   const { data: project, error: projectError } = await supabase
     .from("projects")
     .insert({
@@ -159,7 +157,6 @@ export const createProject = async (
 
   if (projectError) throw projectError;
 
-  // Crear tags si existen
   if (data.tags && data.tags.length > 0) {
     const tagRecords = data.tags.map((tag) => ({
       project_id: project.id,
@@ -173,10 +170,8 @@ export const createProject = async (
     if (tagsError) throw tagsError;
   }
 
-  // ✅ CRÍTICO: Crear columnas
   await createDefaultColumns(project.id);
 
-  // ✅ NUEVO: Verificar que las columnas realmente existan (con reintentos)
   let columnsExist = false;
   let attempts = 0;
   const maxAttempts = 5;
@@ -208,19 +203,19 @@ export const createProject = async (
   };
 };
 
-// ✨ ACTUALIZADO: Ahora puede actualizar project_key (solo si no tiene tareas/épicas)
 export const updateProject = async (
   projectId: string,
   updates: { 
     title?: string; 
     description?: string; 
     tags?: string[];
-    project_key?: string; // ✨ NUEVO - OPCIONAL
+    project_key?: string;
+    allow_board_task_creation?: boolean;
   }
 ): Promise<void> => {
-  // Si se intenta cambiar el project_key, validar que no haya tareas o épicas
+  console.log("🔧 updateProject called with:", { projectId, updates });
+  
   if (updates.project_key !== undefined) {
-    // ✅ PASO 1: Obtener IDs de columnas del proyecto
     const { data: columns, error: columnsError } = await supabase
       .from("columns")
       .select("id")
@@ -230,7 +225,6 @@ export const updateProject = async (
 
     const columnIds = (columns ?? []).map((c) => c.id);
 
-    // ✅ PASO 2: Verificar si hay tareas en esas columnas (solo si hay columnas)
     let taskCount = 0;
     if (columnIds.length > 0) {
       const { count, error: taskCountError } = await supabase
@@ -242,7 +236,6 @@ export const updateProject = async (
       taskCount = count ?? 0;
     }
 
-    // ✅ PASO 3: Verificar si hay épicas asociadas
     const { count: epicCount, error: epicCountError } = await supabase
       .from("epics")
       .select("id", { count: "exact", head: true })
@@ -250,12 +243,10 @@ export const updateProject = async (
 
     if (epicCountError) throw epicCountError;
 
-    // ✅ PASO 4: Si hay tareas o épicas, no permitir el cambio
     if (taskCount > 0 || (epicCount ?? 0) > 0) {
       throw new Error("No se pueden cambiar las siglas de un proyecto que ya tiene tareas o épicas");
     }
 
-    // ✅ PASO 5: Verificar que las nuevas siglas no estén en uso
     const { data: existingProject, error: checkError } = await supabase
       .from("projects")
       .select("id")
@@ -270,22 +261,34 @@ export const updateProject = async (
     }
   }
 
-  // Actualizar campos básicos del proyecto
-  if (updates.title !== undefined || updates.description !== undefined || updates.project_key !== undefined) {
+  // ✅ CRÍTICO: Agregar allow_board_task_creation a la condición
+  if (updates.title !== undefined || updates.description !== undefined || updates.project_key !== undefined || updates.allow_board_task_creation !== undefined) {
+    console.log("🔧 Entrando al bloque de actualización");
+    
+    const updateData = {
+      ...(updates.title !== undefined && { title: updates.title }),
+      ...(updates.description !== undefined && { description: updates.description }),
+      ...(updates.project_key !== undefined && { project_key: updates.project_key.toUpperCase() }),
+      ...(updates.allow_board_task_creation !== undefined && { allow_board_task_creation: updates.allow_board_task_creation }),
+      updated_at: new Date().toISOString(),
+    };
+
+    console.log("🔧 Datos a actualizar en BD:", updateData);
+
     const { error: projectError } = await supabase
       .from("projects")
-      .update({
-        ...(updates.title !== undefined && { title: updates.title }),
-        ...(updates.description !== undefined && { description: updates.description }),
-        ...(updates.project_key !== undefined && { project_key: updates.project_key.toUpperCase() }),
-        updated_at: new Date().toISOString(),
-      })
+      .update(updateData)
       .eq("id", projectId);
 
+    console.log("🔧 Error de Supabase:", projectError);
+
     if (projectError) throw projectError;
+    
+    console.log("🔧 ✅ Actualización exitosa en BD");
+  } else {
+    console.log("🔧 ⚠️ No se entró al bloque de actualización - ninguna condición cumplida");
   }
 
-  // Actualizar tags
   if (updates.tags !== undefined) {
     const { error: deleteError } = await supabase
       .from("project_tags")
@@ -329,7 +332,7 @@ export const searchProjects = async (userId: string, query: string): Promise<Pro
       project.title.toLowerCase().includes(lowerQuery) ||
       project.description?.toLowerCase().includes(lowerQuery) ||
       project.tags.some((tag) => tag.toLowerCase().includes(lowerQuery)) ||
-      project.project_key.toLowerCase().includes(lowerQuery) // ✨ NUEVO - Buscar por siglas también
+      project.project_key.toLowerCase().includes(lowerQuery)
   );
 };
 
