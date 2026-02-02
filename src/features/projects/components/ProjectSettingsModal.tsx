@@ -15,6 +15,8 @@ import {
   Button,
   TextField,
   CircularProgress,
+  FormControlLabel,
+  Switch,
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import AddIcon from "@mui/icons-material/Add";
@@ -31,12 +33,22 @@ import type { IssueType, Priority, EpicPhase } from "../../../features/api/catal
 type ProjectSettingsModalProps = {
   open: boolean;
   projectName: string;
+  projectId: string;
+  allowBoardTaskCreation: boolean;
   onClose: () => void;
+  onUpdateAllowBoardTaskCreation: (projectId: string, value: boolean) => Promise<void>;
 };
 
 type Section = "tasks" | "epics";
 
-const ProjectSettingsModal = ({ open, projectName, onClose }: ProjectSettingsModalProps) => {
+const ProjectSettingsModal = ({ 
+  open, 
+  projectName,
+  projectId,
+  allowBoardTaskCreation: initialAllowBoardTaskCreation,
+  onClose,
+  onUpdateAllowBoardTaskCreation,
+}: ProjectSettingsModalProps) => {
   const theme = useTheme();
   const [selectedSection, setSelectedSection] = useState<Section>("tasks");
   const catalogs = useProjectCatalogs();
@@ -44,14 +56,30 @@ const ProjectSettingsModal = ({ open, projectName, onClose }: ProjectSettingsMod
   const [editingIssueTypes, setEditingIssueTypes] = useState<Record<string, Partial<IssueType>>>({});
   const [editingPriorities, setEditingPriorities] = useState<Record<string, Partial<Priority>>>({});
   const [editingPhases, setEditingPhases] = useState<Record<string, Partial<EpicPhase>>>({});
-
   const [newPointValue, setNewPointValue] = useState("");
+  const [allowBoardTaskCreation, setAllowBoardTaskCreation] = useState(initialAllowBoardTaskCreation);
 
   useEffect(() => {
     if (open) {
+      setAllowBoardTaskCreation(initialAllowBoardTaskCreation);
       void catalogs.refetch();
     }
-  }, [open]);
+  }, [open, initialAllowBoardTaskCreation]);
+
+  const handleToggleBoardTaskCreation = async (checked: boolean) => {
+    console.log("🎯 Toggle checkbox:", checked);
+    console.log("🎯 Project ID:", projectId);
+    
+    setAllowBoardTaskCreation(checked);
+    try {
+      console.log("🎯 Llamando onUpdateAllowBoardTaskCreation...");
+      await onUpdateAllowBoardTaskCreation(projectId, checked);
+      console.log("🎯 ✅ Actualización exitosa");
+    } catch (error) {
+      console.error("🎯 ❌ Error actualizando configuración:", error);
+      setAllowBoardTaskCreation(!checked);
+    }
+  };
 
   const handleIssueTypeChange = (id: string, field: keyof IssueType, value: string) => {
     setEditingIssueTypes((prev) => ({
@@ -158,6 +186,51 @@ const ProjectSettingsModal = ({ open, projectName, onClose }: ProjectSettingsMod
 
   const renderTasksSettings = () => (
     <Stack spacing={4}>
+      {/* Creación de Tareas */}
+      <Box>
+        <Typography variant="h6" fontWeight={600} gutterBottom>
+          Creación de Tareas
+        </Typography>
+        <Typography variant="body2" color="text.secondary" paragraph>
+          Controla dónde se pueden crear nuevas tareas
+        </Typography>
+
+        <Paper
+          elevation={0}
+          sx={{
+            p: 2,
+            mt: 2,
+            border: `1px solid ${theme.palette.divider}`,
+            bgcolor: alpha(theme.palette.primary.main, 0.02),
+          }}
+        >
+          <FormControlLabel
+            control={
+              <Switch
+                checked={allowBoardTaskCreation}
+                onChange={(e) => handleToggleBoardTaskCreation(e.target.checked)}
+                color="primary"
+              />
+            }
+            label={
+              <Box>
+                <Typography variant="body1" fontWeight={600}>
+                  Permitir crear tareas desde el Tablero Scrum
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {allowBoardTaskCreation
+                    ? "Las tareas se pueden crear directamente en cada columna del tablero"
+                    : "Las tareas solo se pueden crear desde el Backlog"}
+                </Typography>
+              </Box>
+            }
+          />
+        </Paper>
+      </Box>
+
+      <Divider />
+
+      {/* Tipos de Issue */}
       <Box>
         <Typography variant="h6" fontWeight={600} gutterBottom>
           Tipos de Issue
@@ -245,6 +318,7 @@ const ProjectSettingsModal = ({ open, projectName, onClose }: ProjectSettingsMod
 
       <Divider />
 
+      {/* Prioridades */}
       <Box>
         <Typography variant="h6" fontWeight={600} gutterBottom>
           Prioridades
@@ -322,6 +396,7 @@ const ProjectSettingsModal = ({ open, projectName, onClose }: ProjectSettingsMod
 
       <Divider />
 
+      {/* Story Points */}
       <Box>
         <Typography variant="h6" fontWeight={600} gutterBottom>
           Story Points

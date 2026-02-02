@@ -16,7 +16,6 @@ export const useProjects = (userId: string) => {
       const projectsData = await projectService.fetchProjects(userId);
       setProjects(projectsData);
 
-      // Set current project if none is set
       if (!currentProject && projectsData.length > 0) {
         setCurrentProject(projectsData[0]);
       }
@@ -28,14 +27,14 @@ export const useProjects = (userId: string) => {
     }
   };
 
-  // ✨ ACTUALIZADO: Ahora acepta project_key
   const updateProject = async (
     projectId: string,
     updates: { 
       title?: string; 
       description?: string; 
       tags?: string[];
-      project_key?: string; // ✨ NUEVO
+      project_key?: string;
+      allow_board_task_creation?: boolean;
     }
   ) => {
     try {
@@ -43,34 +42,32 @@ export const useProjects = (userId: string) => {
       await fetchProjects();
     } catch (err) {
       console.error("Error updating project:", err);
-      throw err; // ✨ Propagar el error original para mostrar mensaje específico
+      throw err;
     }
   };
 
-  // ✨ ACTUALIZADO: Ahora requiere project_key
   const createProject = async (
     title: string, 
     description: string, 
     tags: string[],
-    projectKey: string // ✨ NUEVO - OBLIGATORIO
+    projectKey: string
   ) => {
     try {
       const newProject = await projectService.createProject(userId, {
         title,
         description,
         tags,
-        project_key: projectKey, // ✨ NUEVO
+        project_key: projectKey,
       });
       await fetchProjects();
       setCurrentProject(newProject);
       return newProject;
     } catch (err) {
       console.error("Error creating project:", err);
-      throw err; // ✨ Propagar el error original
+      throw err;
     }
   };
 
-  // Búsqueda síncrona local (no async)
   const searchProjects = (query: string): ProjectWithTags[] => {
     if (!query.trim()) return projects;
 
@@ -80,7 +77,7 @@ export const useProjects = (userId: string) => {
         project.title.toLowerCase().includes(lowerQuery) ||
         project.description?.toLowerCase().includes(lowerQuery) ||
         project.tags.some((tag) => tag.toLowerCase().includes(lowerQuery)) ||
-        project.project_key.toLowerCase().includes(lowerQuery) // ✨ NUEVO - Buscar por siglas
+        project.project_key.toLowerCase().includes(lowerQuery)
     );
   };
 

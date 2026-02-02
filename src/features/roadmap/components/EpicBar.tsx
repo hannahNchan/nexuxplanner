@@ -1,17 +1,19 @@
-import { Box, Typography, Menu, MenuItem } from "@mui/material";
+import { Box, Typography, Tooltip } from "@mui/material";
 import { useState, useEffect, useRef } from "react";
 import { format, differenceInDays, addDays } from "date-fns";
 import { es } from "date-fns/locale";
-import { ArcherElement } from "react-archer";
-import type { EpicWithDetails } from "../../api/epicService";
+import { useXarrow } from "react-xarrows";
+import type { EpicWithDetails } from "../../../features/api/epicService";
 
 type EpicBarProps = {
   epic: EpicWithDetails;
   monthStart: Date;
   monthEnd: Date;
   onUpdateDates: (epicId: string, startDate: string, endDate: string) => void;
-  onCreateDependency: (fromEpicId: string, toEpicId: string) => void;
-  dependencies: Array<{ epic_id: string; depends_on_epic_id: string }>;
+  isDraggingConnection: boolean;
+  onStartConnection: (epicId: string) => void;
+  onEndConnection: (epicId: string) => void;
+  draggingFromEpic: string | null;
 };
 
 const EpicBar = ({ 
@@ -19,24 +21,27 @@ const EpicBar = ({
   monthStart, 
   monthEnd, 
   onUpdateDates, 
-  onCreateDependency,
-  dependencies 
+  isDraggingConnection,
+  onStartConnection,
+  onEndConnection,
+  draggingFromEpic
 }: EpicBarProps) => {
   const [isResizingStart, setIsResizingStart] = useState(false);
   const [isResizingEnd, setIsResizingEnd] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [tooltipDate, setTooltipDate] = useState<Date | null>(null);
   const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 });
-  const [contextMenu, setContextMenu] = useState<{ mouseX: number; mouseY: number; isEnd: boolean } | null>(null);
+  const [isHovering, setIsHovering] = useState(false);
   
   const [tempStartDate, setTempStartDate] = useState<Date | null>(null);
   const [tempEndDate, setTempEndDate] = useState<Date | null>(null);
-  const [selectedForConnection, setSelectedForConnection] = useState<string | null>(null);
   
   const containerRef = useRef<HTMLDivElement>(null);
   const dragStartX = useRef(0);
   const originalStartDate = useRef<Date | null>(null);
   const originalEndDate = useRef<Date | null>(null);
+
+  const updateXarrow = useXarrow();
 
   const epicStart = tempStartDate || (epic.start_date ? new Date(epic.start_date) : null);
   const epicEnd = tempEndDate || (epic.end_date ? new Date(epic.end_date) : null);
@@ -69,6 +74,7 @@ const EpicBar = ({
           setTempStartDate(newDate);
           setTooltipDate(newDate);
           setTooltipPosition({ x: e.clientX, y: e.clientY });
+          updateXarrow();
         }
       } else if (isResizingEnd) {
         const newDate = calculateDateFromX(e.clientX);
@@ -76,6 +82,7 @@ const EpicBar = ({
           setTempEndDate(newDate);
           setTooltipDate(newDate);
           setTooltipPosition({ x: e.clientX, y: e.clientY });
+          updateXarrow();
         }
       } else if (isDragging && originalStartDate.current && originalEndDate.current) {
         const timelineContainer = containerRef.current.parentElement;
@@ -94,6 +101,7 @@ const EpicBar = ({
           setTempEndDate(newEnd);
           setTooltipDate(newStart);
           setTooltipPosition({ x: e.clientX, y: e.clientY });
+          updateXarrow();
         }
       }
     };
@@ -126,7 +134,7 @@ const EpicBar = ({
       document.removeEventListener("mousemove", handleMouseMove);
       document.removeEventListener("mouseup", handleMouseUp);
     };
-  }, [isResizingStart, isResizingEnd, isDragging, epic.id, epicStart, epicEnd, monthStart, monthEnd, totalDays, tempStartDate, tempEndDate, onUpdateDates]);
+  }, [isResizingStart, isResizingEnd, isDragging, epic.id, epicStart, epicEnd, monthStart, monthEnd, totalDays, tempStartDate, tempEndDate, onUpdateDates, updateXarrow]);
 
   if (!epic.start_date || !epic.end_date || !epicStart || !epicEnd) return null;
 
@@ -155,6 +163,7 @@ const EpicBar = ({
   };
 
   const handleMouseDownDrag = (e: React.MouseEvent) => {
+    if (isDraggingConnection) return;
     e.stopPropagation();
     setIsDragging(true);
     dragStartX.current = e.clientX;
@@ -166,65 +175,49 @@ const EpicBar = ({
     setTooltipPosition({ x: e.clientX, y: e.clientY });
   };
 
-  const handleConnectorRightClick = (e: React.MouseEvent, isEnd: boolean) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setContextMenu({ mouseX: e.clientX, mouseY: e.clientY, isEnd });
-  };
-
-  const handleContextMenuClose = () => {
-    setContextMenu(null);
-  };
-
   const handleConnectorClick = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (selectedForConnection && selectedForConnection !== epic.id) {
-      onCreateDependency(selectedForConnection, epic.id);
-      setSelectedForConnection(null);
-    } else {
-      setSelectedForConnection(epic.id);
+    if (isDraggingConnection && draggingFromEpic && draggingFromEpic !== epic.id) {
+      onEndConnection(epic.id);
+    } else if (!isDraggingConnection) {
+      onStartConnection(epic.id);
     }
   };
 
-  const relations = dependencies
-    .filter(d => d.depends_on_epic_id === epic.id)
-    .map(d => ({
-      targetId: d.epic_id,
-      targetAnchor: "left" as const,
-      sourceAnchor: "right" as const,
-      style: { strokeColor: "#666", strokeWidth: 2 },
-    }));
+  const showConnectors = isHovering || isDraggingConnection;
 
   return (
-    <ArcherElement id={epic.id} relations={relations}>
-      <Box sx={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0 }}>
-        <Box
-          ref={containerRef}
-          sx={{
-            position: "absolute",
-            left: `${leftPercent}%`,
-            width: `${widthPercent}%`,
-            height: 48,
-            top: "50%",
-            transform: "translateY(-50%)",
-            bgcolor: epic.phase_color || "#3B82F6",
-            borderRadius: 1,
-            display: "flex",
-            alignItems: "center",
-            px: 1,
-            cursor: isDragging ? "grabbing" : "grab",
-            opacity: isDragging || isResizingStart || isResizingEnd ? 0.7 : 1,
-            transition: isDragging || isResizingStart || isResizingEnd ? "none" : "opacity 0.2s",
-            "&:hover": {
-              opacity: 0.9,
-            },
-            boxShadow: 2,
-          }}
-          onMouseDown={handleMouseDownDrag}
-        >
+    <Box sx={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0 }}>
+      <Box
+        ref={containerRef}
+        onMouseEnter={() => setIsHovering(true)}
+        onMouseLeave={() => setIsHovering(false)}
+        sx={{
+          position: "absolute",
+          left: `${leftPercent}%`,
+          width: `${widthPercent}%`,
+          height: 48,
+          top: "50%",
+          transform: "translateY(-50%)",
+          bgcolor: epic.phase_color || "#3B82F6",
+          borderRadius: 1,
+          display: "flex",
+          alignItems: "center",
+          px: 1,
+          cursor: isDragging ? "grabbing" : "grab",
+          opacity: isDragging || isResizingStart || isResizingEnd ? 0.7 : 1,
+          transition: isDragging || isResizingStart || isResizingEnd ? "none" : "opacity 0.2s",
+          "&:hover": {
+            opacity: 0.9,
+          },
+          boxShadow: 2,
+        }}
+        onMouseDown={handleMouseDownDrag}
+      >
+        <Tooltip title="Conectar épica" placement="left">
           <Box
+            id={`${epic.id}-left`}
             onClick={handleConnectorClick}
-            onContextMenu={(e) => handleConnectorRightClick(e, false)}
             sx={{
               position: "absolute",
               left: -6,
@@ -233,98 +226,103 @@ const EpicBar = ({
               width: 12,
               height: 12,
               borderRadius: "50%",
-              bgcolor: selectedForConnection === epic.id ? "#FFC107" : "white",
+              bgcolor: draggingFromEpic === epic.id ? "#4CAF50" : "white",
               border: "2px solid",
               borderColor: epic.phase_color || "#3B82F6",
-              cursor: "pointer",
-              zIndex: 10,
+              cursor: "crosshair",
+              zIndex: 100,
+              transition: "all 0.2s",
+              visibility: showConnectors ? "visible" : "hidden",
+              opacity: showConnectors ? 1 : 0,
               "&:hover": {
-                bgcolor: "#FFC107",
-                transform: "translateY(-50%) scale(1.2)",
+                bgcolor: "#4CAF50",
+                transform: "translateY(-50%) scale(1.3)",
               },
             }}
           />
+        </Tooltip>
 
+        <Box
+          sx={{
+            position: "absolute",
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: 12,
+            cursor: "ew-resize",
+            bgcolor: "rgba(0,0,0,0.3)",
+            borderTopLeftRadius: 4,
+            borderBottomLeftRadius: 4,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            "&:hover": {
+              bgcolor: "rgba(0,0,0,0.5)",
+            },
+          }}
+          onMouseDown={handleMouseDownStart}
+        >
           <Box
             sx={{
-              position: "absolute",
-              left: 0,
-              top: 0,
-              bottom: 0,
-              width: 12,
-              cursor: "ew-resize",
-              bgcolor: "rgba(0,0,0,0.3)",
-              borderTopLeftRadius: 4,
-              borderBottomLeftRadius: 4,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              "&:hover": {
-                bgcolor: "rgba(0,0,0,0.5)",
-              },
+              width: 2,
+              height: 16,
+              bgcolor: "rgba(255,255,255,0.6)",
+              borderRadius: 1,
             }}
-            onMouseDown={handleMouseDownStart}
-          >
-            <Box
-              sx={{
-                width: 2,
-                height: 16,
-                bgcolor: "rgba(255,255,255,0.6)",
-                borderRadius: 1,
-              }}
-            />
-          </Box>
+          />
+        </Box>
 
-          <Typography
-            variant="caption"
-            fontWeight={600}
-            sx={{
-              color: "white",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-              flex: 1,
-              px: 2,
-              pointerEvents: "none",
-              userSelect: "none",
-            }}
-          >
-            {epic.epic_id_display || epic.name}
-          </Typography>
+        <Typography
+          variant="caption"
+          fontWeight={600}
+          sx={{
+            color: "white",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+            flex: 1,
+            px: 2,
+            pointerEvents: "none",
+            userSelect: "none",
+          }}
+        >
+          {epic.epic_id_display || epic.name}
+        </Typography>
 
+        <Box
+          sx={{
+            position: "absolute",
+            right: 0,
+            top: 0,
+            bottom: 0,
+            width: 12,
+            cursor: "ew-resize",
+            bgcolor: "rgba(0,0,0,0.3)",
+            borderTopRightRadius: 4,
+            borderBottomRightRadius: 4,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            "&:hover": {
+              bgcolor: "rgba(0,0,0,0.5)",
+            },
+          }}
+          onMouseDown={handleMouseDownEnd}
+        >
           <Box
             sx={{
-              position: "absolute",
-              right: 0,
-              top: 0,
-              bottom: 0,
-              width: 12,
-              cursor: "ew-resize",
-              bgcolor: "rgba(0,0,0,0.3)",
-              borderTopRightRadius: 4,
-              borderBottomRightRadius: 4,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              "&:hover": {
-                bgcolor: "rgba(0,0,0,0.5)",
-              },
+              width: 2,
+              height: 16,
+              bgcolor: "rgba(255,255,255,0.6)",
+              borderRadius: 1,
             }}
-            onMouseDown={handleMouseDownEnd}
-          >
-            <Box
-              sx={{
-                width: 2,
-                height: 16,
-                bgcolor: "rgba(255,255,255,0.6)",
-                borderRadius: 1,
-              }}
-            />
-          </Box>
+          />
+        </Box>
 
+        <Tooltip title="Conectar épica" placement="right">
           <Box
+            id={`${epic.id}-right`}
             onClick={handleConnectorClick}
-            onContextMenu={(e) => handleConnectorRightClick(e, true)}
             sx={{
               position: "absolute",
               right: -6,
@@ -333,57 +331,46 @@ const EpicBar = ({
               width: 12,
               height: 12,
               borderRadius: "50%",
-              bgcolor: selectedForConnection === epic.id ? "#FFC107" : "white",
+              bgcolor: draggingFromEpic === epic.id ? "#4CAF50" : "white",
               border: "2px solid",
               borderColor: epic.phase_color || "#3B82F6",
-              cursor: "pointer",
-              zIndex: 10,
+              cursor: "crosshair",
+              zIndex: 100,
+              transition: "all 0.2s",
+              visibility: showConnectors ? "visible" : "hidden",
+              opacity: showConnectors ? 1 : 0,
               "&:hover": {
-                bgcolor: "#FFC107",
-                transform: "translateY(-50%) scale(1.2)",
+                bgcolor: "#4CAF50",
+                transform: "translateY(-50%) scale(1.3)",
               },
             }}
           />
-        </Box>
-
-        {tooltipDate && (
-          <Box
-            sx={{
-              position: "fixed",
-              left: tooltipPosition.x + 15,
-              top: tooltipPosition.y - 35,
-              bgcolor: "rgba(0, 0, 0, 0.9)",
-              color: "white",
-              px: 2,
-              py: 1,
-              borderRadius: 1,
-              fontSize: 13,
-              fontWeight: 600,
-              pointerEvents: "none",
-              zIndex: 9999,
-              boxShadow: 3,
-              whiteSpace: "nowrap",
-            }}
-          >
-            {format(tooltipDate, "d MMM yyyy", { locale: es })}
-          </Box>
-        )}
-
-        <Menu
-          open={contextMenu !== null}
-          onClose={handleContextMenuClose}
-          anchorReference="anchorPosition"
-          anchorPosition={
-            contextMenu !== null
-              ? { top: contextMenu.mouseY, left: contextMenu.mouseX }
-              : undefined
-          }
-        >
-          <MenuItem onClick={handleContextMenuClose}>Esta épica depende de...</MenuItem>
-          <MenuItem onClick={handleContextMenuClose}>Otras dependen de esta</MenuItem>
-        </Menu>
+        </Tooltip>
       </Box>
-    </ArcherElement>
+
+      {tooltipDate && (
+        <Box
+          sx={{
+            position: "fixed",
+            left: tooltipPosition.x + 15,
+            top: tooltipPosition.y - 35,
+            bgcolor: "rgba(0, 0, 0, 0.9)",
+            color: "white",
+            px: 2,
+            py: 1,
+            borderRadius: 1,
+            fontSize: 13,
+            fontWeight: 600,
+            pointerEvents: "none",
+            zIndex: 9999,
+            boxShadow: 3,
+            whiteSpace: "nowrap",
+          }}
+        >
+          {format(tooltipDate, "d MMM yyyy", { locale: es })}
+        </Box>
+      )}
+    </Box>
   );
 };
 

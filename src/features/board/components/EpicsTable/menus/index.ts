@@ -1,3 +1,4 @@
+export { default as ColorMenu } from "./ColorMenu";
 export { FilterMenu } from "./FilterMenu";
 export { SortMenu } from "./SortMenu";
 export { HideMenu } from "./HideMenu";

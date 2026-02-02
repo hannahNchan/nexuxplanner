@@ -5,6 +5,7 @@ export type BacklogTask = {
   user_id: string;
   project_id: string | null;
   title: string;
+  subtitle: string | null;
   description: string | null;
   assignee_id: string | null;
   priority_id: string | null;
@@ -97,6 +98,7 @@ export const createBacklogTask = async (
   projectId: string,
   data: {
     title: string;
+    subtitle?: string;
     description?: string;
     assignee_id?: string | null;
     priority_id?: string | null;
@@ -110,6 +112,7 @@ export const createBacklogTask = async (
     .insert({
       project_id: projectId, // ✅ Usar project_id, no user_id
       title: data.title,
+      subtitle: data.subtitle || null,
       description: data.description || null,
       assignee_id: data.assignee_id || null,
       priority_id: data.priority_id || null,
@@ -137,6 +140,7 @@ export const updateBacklogTask = async (
   taskId: string,
   updates: {
     title?: string;
+    subtitle?: string;
     description?: string;
     assignee_id?: string | null;
     priority_id?: string | null;

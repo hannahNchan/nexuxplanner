@@ -45,14 +45,52 @@ export const ThemeProvider = ({ children }: ThemeProviderProps) => {
     setMode((prev) => (prev === "light" ? "dark" : "light"));
   };
 
-  // ✅ Tema MUI simple - solo cambia entre light/dark
   const theme = useMemo(() => {
     return createTheme({
       palette: {
-        mode, // ✅ Esto hace que MUI cambie TODOS los colores automáticamente
+        mode,
       },
       typography: {
-        fontFamily: '"Inter", "Roboto", "Helvetica", "Arial", sans-serif',
+        fontFamily: "Inter, sans-serif",
+      h1: {
+        fontWeight: 800,
+      },
+      h2: {
+        fontWeight: 700,
+      },
+      h3: {
+        fontWeight: 600,
+      },
+      h4: {
+        fontWeight: 500,
+      },
+      h5: {
+        fontWeight: 400,
+      },
+      h6: {
+        fontWeight: 300,
+      },
+      button: {
+        fontWeight: 500,
+      },
+      subtitle1: {
+        fontWeight: 500,
+      },
+      subtitle2: {
+        fontWeight: 400,
+      },
+      body1: {
+        fontWeight: 500,
+      },
+      body2: {
+        fontWeight: 400,
+      },
+      caption: {
+        fontWeight: 400,
+      },
+      overline: {
+        fontWeight: 200,
+      },
       },
       components: {
         MuiButton: {

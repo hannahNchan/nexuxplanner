@@ -1,46 +1,46 @@
-import { Paper, Stack, Typography, Chip } from "@mui/material";
+import { Paper, Stack, Typography, Chip, Avatar } from "@mui/material";
 import { useTheme, alpha } from "@mui/material/styles";
-import PersonIcon from "@mui/icons-material/Person";
 import type { Task } from "../../../shared/types/board";
 
 type TaskCardProps = {
   task: Task;
   onClick: () => void;
   currentUserId?: string;
-  isDragging?: boolean;  // ✅ NUEVO: Para efectos visuales al arrastrar
+  isDragging?: boolean;
+  currentUserInitials: string;
 };
 
-const TaskCard = ({ task, onClick, currentUserId, isDragging = false }: TaskCardProps) => {
+const TaskCard = ({
+  task,
+  onClick,
+  // currentUserId,
+  isDragging = false,
+  currentUserInitials,
+}: TaskCardProps) => {
   const theme = useTheme();
-  const isAssignedToMe = task.assignee_id === currentUserId;
+  // const isAssignedToMe = task.assignee_id === currentUserId;
 
   return (
     <Paper
-      elevation={isDragging ? 8 : 1}  // ✅ Mayor elevación al arrastrar
+      elevation={isDragging ? 8 : 1}
       onClick={onClick}
       sx={{
         p: 2,
-        borderRadius: 2,
-        // ✅ Color amarillo translúcido al arrastrar
-        bgcolor: isDragging 
+        borderRadius: 1,
+        bgcolor: isDragging
           ? alpha(theme.palette.warning.main, 0.2)
           : "background.paper",
-        // ✅ Borde amarillo al arrastrar
         border: isDragging
           ? `2px solid ${theme.palette.warning.main}`
           : `1px solid ${alpha(theme.palette.primary.main, 0.1)}`,
         cursor: isDragging ? "grabbing" : "pointer",
-        // ✅ Rotación sutil al arrastrar
         transform: isDragging ? "rotate(3deg)" : "none",
         transition: "all 0.2s ease-in-out",
-        // ✅ Sombra más pronunciada al arrastrar
-        boxShadow: isDragging 
-          ? theme.shadows[8]
-          : theme.shadows[1],
+        boxShadow: isDragging ? theme.shadows[8] : theme.shadows[1],
         "&:hover": {
           elevation: 3,
           transform: isDragging ? "rotate(3deg)" : "translateY(-2px)",
-          bgcolor: isDragging 
+          bgcolor: isDragging
             ? alpha(theme.palette.warning.main, 0.2)
             : "action.hover",
           borderColor: isDragging
@@ -50,39 +50,102 @@ const TaskCard = ({ task, onClick, currentUserId, isDragging = false }: TaskCard
         },
       }}
     >
-      <Stack spacing={1}>
-        {isAssignedToMe && (
-          <Chip
-            icon={<PersonIcon sx={{ fontSize: 16 }} />}
-            label="Asignada a ti"
-            size="small"
-            color="primary"
-            sx={{
-              height: 20,
-              fontSize: "0.75rem",
-              fontWeight: 600,
-              alignSelf: "flex-start",
-            }}
-          />
-        )}
-
-        <Typography fontWeight={600}>{task.title}</Typography>
-        
-        {task.description && (
+      <Stack>
+        <Stack direction="column" justifyContent="start" alignItems="start" spacing={1}>
+          <Typography fontWeight={600} fontSize={20}>
+            {task.title}
+          </Typography>
+          {task.subtitle && (
+            <Typography
+              variant="body2"
+              color="text.secondary"
+              sx={{
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                display: "-webkit-box",
+                WebkitLineClamp: 2,
+                WebkitBoxOrient: "vertical",
+              }}
+            >
+              {task.subtitle}
+            </Typography>
+          )}
+          {task.epic_name && (
+            <Chip
+              label={task.epic_name.toUpperCase()}
+              size="small"
+              sx={{
+                height: 24,
+                padding: "0 3px",
+                borderRadius: 0.8,
+                fontSize: "0.7rem",
+                fontWeight: 600,
+                bgcolor:
+                  task.epic_color || alpha(theme.palette.secondary.main, 0.1),
+                color: "#fff",
+                border: `1px solid ${alpha(task.epic_color || theme.palette.secondary.main, 0.3)}`,
+                "& .MuiChip-icon": {
+                  color: "#fff !important",
+                },
+                "& .MuiChip-label": {
+                  px: 0,
+                },
+              }}
+            />
+          )}
+        </Stack>
+        {/* <Stack
+          direction="row"
+          justifyContent="space-between"
+          alignItems="center"
+        >
+          {isAssignedToMe && (
+            <Chip
+              icon={<PersonIcon sx={{ fontSize: 16 }} />}
+              label="Asignada a ti"
+              size="small"
+              color="primary"
+              sx={{
+                borderRadius: 1,
+                height: 20,
+                fontSize: "0.75rem",
+                fontWeight: 600,
+                alignSelf: "flex-start",
+              }}
+            />
+          )}
+        </Stack> */}
+        <Stack
+          direction="row"
+          justifyContent="space-between"
+          alignItems="center"
+        >
           <Typography
-            variant="body2"
+            variant="body1"
             color="text.secondary"
             sx={{
               overflow: "hidden",
+              fontSize: 12,
               textOverflow: "ellipsis",
               display: "-webkit-box",
               WebkitLineClamp: 2,
               WebkitBoxOrient: "vertical",
             }}
           >
-            {task.description}
+            {task.task_id_display || "SIN-ID"}
           </Typography>
-        )}
+          <Avatar
+            sx={{
+              width: 36,
+              height: 36,
+              bgcolor: "secondary.main",
+              fontSize: "0.875rem",
+              fontWeight: 600,
+            }}
+          >
+            {currentUserInitials.toUpperCase()}
+          </Avatar>
+        </Stack>
       </Stack>
     </Paper>
   );

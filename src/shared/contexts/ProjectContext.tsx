@@ -4,6 +4,7 @@ import type { ProjectWithTags } from "../../features/api/projectService";
 type ProjectContextType = {
   currentProject: ProjectWithTags | null;
   setCurrentProject: (project: ProjectWithTags | null) => void;
+  updateCurrentProject: (updates: Partial<ProjectWithTags>) => void; // ✅ NUEVO
 };
 
 const ProjectContext = createContext<ProjectContextType | undefined>(undefined);
@@ -11,8 +12,17 @@ const ProjectContext = createContext<ProjectContextType | undefined>(undefined);
 export const ProjectProvider = ({ children }: { children: ReactNode }) => {
   const [currentProject, setCurrentProject] = useState<ProjectWithTags | null>(null);
 
+  const updateCurrentProject = (updates: Partial<ProjectWithTags>) => {
+    if (currentProject) {
+      setCurrentProject({
+        ...currentProject,
+        ...updates,
+      });
+    }
+  };
+
   return (
-    <ProjectContext.Provider value={{ currentProject, setCurrentProject }}>
+    <ProjectContext.Provider value={{ currentProject, setCurrentProject, updateCurrentProject }}>
       {children}
     </ProjectContext.Provider>
   );

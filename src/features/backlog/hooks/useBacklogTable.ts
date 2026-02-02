@@ -187,6 +187,7 @@ export const useBacklogTable = (userId: string) => {
     setSelectedBacklogTask({
       id: newTask.id,
       title: newTask.title,
+      subtitle: newTask.subtitle ?? undefined,
       description: newTask.description ?? undefined,
       column_id: null,
       issue_type_id: newTask.issue_type_id ?? null,
@@ -298,6 +299,7 @@ export const useBacklogTable = (userId: string) => {
     taskId: string,
     updates: {
       title: string;
+      subtitle: string;
       description: string;
       destination: "backlog" | "scrum";
       column_id: string | null;
@@ -312,6 +314,7 @@ export const useBacklogTable = (userId: string) => {
       
       await updateBacklogTask(taskId, {
         title: updates.title,
+        subtitle: updates.subtitle,
         description: updates.description,
         assignee_id: updates.assignee_id,
         priority_id: updates.priority_id,
@@ -323,6 +326,7 @@ export const useBacklogTable = (userId: string) => {
 
     await updateBacklogTask(taskId, {
       title: updates.title,
+      subtitle: updates.subtitle,
       description: updates.description,
       assignee_id: updates.assignee_id,
       priority_id: updates.priority_id,
@@ -336,6 +340,7 @@ export const useBacklogTable = (userId: string) => {
           ? ({
               ...task,
               title: updates.title,
+              subtitle: updates.subtitle,
               description: updates.description ?? null,
               assignee_id: updates.assignee_id,
               priority_id: updates.priority_id,

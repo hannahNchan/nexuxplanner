@@ -45,6 +45,7 @@ export const useBoardManager = (userId: string) => {
   const [selectedTask, setSelectedTask] = useState<{
     id: string;
     title: string;
+    subtitle?: string;
     description?: string;
     column_id: string;
     issue_type_id?: string | null;
@@ -102,8 +103,6 @@ export const useBoardManager = (userId: string) => {
 
       try {
         setIsLoading(true);
-        console.log("🔍 Cargando board para sprint:", displaySprint?.id);
-        console.log("🕐 Sprint lastUpdate:", sprintManager.lastUpdate);
 
         const response = await fetchBoardDataByProject(
           userId,
@@ -111,10 +110,7 @@ export const useBoardManager = (userId: string) => {
           displaySprint?.id || null
         );
 
-        console.log("📦 Response recibida:", response);
-
         if (!response.columns || response.columns.length === 0) {
-          console.log("⚠️ No hay columnas para este proyecto");
           setBoardId(null);
           setData(null);
           return;
@@ -122,14 +118,10 @@ export const useBoardManager = (userId: string) => {
 
         const boardState = toBoardState(response.columns, response.tasks, response.columnOrder);
 
-        console.log("✅ BoardState creado:", boardState);
-        console.log("📊 Total tareas en board:", Object.keys(boardState.tasks).length);
-
         setBoardId(response.board?.id ?? null);
         setData(boardState);
         setErrorMessage(null);
       } catch (error) {
-        console.error("💥 Error cargando board:", error);
         setErrorMessage("No se pudo cargar el tablero desde Supabase.");
       } finally {
         setIsLoading(false);
@@ -195,6 +187,7 @@ export const useBoardManager = (userId: string) => {
             [created.id]: {
               id: created.id,
               title: created.title,
+              subtitle: created.subtitle ?? undefined,
               description: created.description ?? undefined,
               issue_type_id: created.issue_type_id ?? undefined,
               priority_id: created.priority_id ?? undefined,
@@ -246,6 +239,7 @@ export const useBoardManager = (userId: string) => {
     setSelectedTask({
       id: task.id,
       title: task.title,
+      subtitle: task.subtitle,
       description: task.description,
       column_id: columnId,
       issue_type_id: task.issue_type_id ?? null,
@@ -260,6 +254,7 @@ export const useBoardManager = (userId: string) => {
     taskId: string,
     updates: {
       title: string;
+      subtitle: string;
       description: string;
       destination: "backlog" | "scrum";
       column_id: string | null;
@@ -289,6 +284,7 @@ export const useBoardManager = (userId: string) => {
           [taskId]: {
             id: updated.id,
             title: updated.title,
+            subtitle: updated.subtitle ?? undefined,
             description: updated.description ?? undefined,
             issue_type_id: updated.issue_type_id ?? undefined,
             priority_id: updated.priority_id ?? undefined,

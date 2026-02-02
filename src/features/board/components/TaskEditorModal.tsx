@@ -26,20 +26,23 @@ import WarningIcon from "@mui/icons-material/Warning";
 import PersonIcon from "@mui/icons-material/Person";
 import ListAltIcon from "@mui/icons-material/ListAlt";
 import DashboardIcon from "@mui/icons-material/Dashboard";
+import ImageIcon from "@mui/icons-material/Image";
 import Quill from "quill";
 import "quill/dist/quill.snow.css";
 import { useEffect, useRef, useState } from "react";
 import { alpha, useTheme } from "@mui/material/styles";
 import type { IssueType, Priority, PointValue } from "../../api/catalogService";
 import IconRenderer from "../../../shared/ui/IconRenderer";
+import { uploadImageToStorage } from "../../../lib/imageUpload";
 
 type TaskEditorModalProps = {
   open: boolean;
   task: {
     id: string;
     title: string;
+    subtitle?: string; // ✅ NUEVO
     description?: string;
-    column_id: string | null; // ✨ Ahora nullable
+    column_id: string | null;
     issue_type_id?: string | null;
     priority_id?: string | null;
     story_points?: string | null;
@@ -50,14 +53,15 @@ type TaskEditorModalProps = {
   priorities: Priority[];
   pointValues: PointValue[];
   currentUserId: string;
-  defaultDestination?: "backlog" | "scrum"; // ✨ NUEVO
-  disableDestinationSelector?: boolean; // ✨ NUEVO
+  defaultDestination?: "backlog" | "scrum";
+  disableDestinationSelector?: boolean;
   onClose: () => void;
   onSave: (taskId: string, updates: {
     title: string;
+    subtitle: string;
     description: string;
-    destination: "backlog" | "scrum"; // ✨ NUEVO
-    column_id: string | null; // ✨ Ahora nullable
+    destination: "backlog" | "scrum";
+    column_id: string | null;
     issue_type_id: string | null;
     priority_id: string | null;
     story_points: string | null;
@@ -74,8 +78,8 @@ const TaskEditorModal = ({
   priorities,
   pointValues,
   currentUserId,
-  defaultDestination = "scrum", // ✨ NUEVO
-  disableDestinationSelector = false, // ✨ NUEVO
+  defaultDestination = "scrum",
+  disableDestinationSelector = false,
   onClose,
   onSave,
   onDelete,
@@ -83,9 +87,12 @@ const TaskEditorModal = ({
   const theme = useTheme();
   const editorRef = useRef<HTMLDivElement | null>(null);
   const quillRef = useRef<Quill | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   
+
   const [title, setTitle] = useState("");
-  const [destination, setDestination] = useState<"backlog" | "scrum">(defaultDestination); // ✨ NUEVO
+  const [subtitle, setSubtitle] = useState("");
+  const [destination, setDestination] = useState<"backlog" | "scrum">(defaultDestination);
   const [columnId, setColumnId] = useState<string>("");
   const [issueTypeId, setIssueTypeId] = useState<string>("");
   const [priorityId, setPriorityId] = useState<string>("");
@@ -93,6 +100,7 @@ const TaskEditorModal = ({
   const [assigneeId, setAssigneeId] = useState<string>("");
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
   
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
@@ -103,7 +111,7 @@ const TaskEditorModal = ({
 
     const timer = setTimeout(() => {
       if (!editorRef.current) {
-        console.error("❌ editorRef.current sigue siendo null después del timeout");
+        console.error("❌ editorRef.current sigue siendo null");
         return;
       }
 
@@ -112,21 +120,25 @@ const TaskEditorModal = ({
         return;
       }
 
-      console.log("🚀 Inicializando Quill para tarea:", task.id);
-
       try {
         const toolbarOptions = [
           [{ header: [1, 2, 3, false] }],
           ["bold", "italic", "underline", "link"],
           ["blockquote", "code-block"],
           [{ list: "ordered" }, { list: "bullet" }],
+          ["image"],
           ["clean"],
         ];
 
         const quill = new Quill(editorRef.current, {
           theme: "snow",
           modules: {
-            toolbar: toolbarOptions,
+            toolbar: {
+              container: toolbarOptions,
+              handlers: {
+                image: imageHandler,
+              },
+            },
           },
           placeholder: "Escribe la descripción de la tarea...",
         });
@@ -134,10 +146,12 @@ const TaskEditorModal = ({
         quillRef.current = quill;
 
         if (task.description) {
-          quill.setText(task.description);
+          quill.root.innerHTML = task.description;
         }
 
-        console.log("✅ Quill inicializado correctamente");
+        quill.root.addEventListener("paste", handlePaste, true);
+
+        console.log("✅ Quill inicializado con soporte de imágenes");
       } catch (error) {
         console.error("💥 Error al inicializar Quill:", error);
       }
@@ -146,10 +160,69 @@ const TaskEditorModal = ({
     return () => {
       clearTimeout(timer);
       if (quillRef.current) {
+        quillRef.current.root.removeEventListener("paste", handlePaste, true);
         quillRef.current.off("text-change");
       }
     };
   }, [open, task]);
+
+  const handlePaste = async (e: ClipboardEvent) => {
+    const clipboardData = e.clipboardData;
+    if (!clipboardData) return;
+
+    const items = clipboardData.items;
+    
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.indexOf("image") !== -1) {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        
+        const file = items[i].getAsFile();
+        if (file) {
+          await insertImageFromFile(file);
+        }
+        return;
+      }
+    }
+  };
+
+  const imageHandler = () => {
+    if (fileInputRef.current) {
+      fileInputRef.current.click();
+    }
+  };
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      await insertImageFromFile(file);
+    }
+    // Reset input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
+  const insertImageFromFile = async (file: File) => {
+    if (!quillRef.current) return;
+
+    try {
+      setIsUploadingImage(true);
+      const imageUrl = await uploadImageToStorage(file);
+      
+      const range = quillRef.current.getSelection(true);
+      quillRef.current.insertEmbed(range.index, "image", imageUrl);
+      quillRef.current.setSelection(range.index + 1, 0);
+      
+      console.log("✅ Imagen subida:", imageUrl);
+    } catch (error) {
+      console.error("Error subiendo imagen:", error);
+      alert("Error al subir la imagen");
+    } finally {
+      setIsUploadingImage(false);
+    }
+  };
 
   useEffect(() => {
     if (!task) {
@@ -157,13 +230,14 @@ const TaskEditorModal = ({
     }
 
     setTitle(task.title);
+    setSubtitle(task.subtitle || "");
     
     if (task.column_id) {
       setDestination("scrum");
       setColumnId(task.column_id);
     } else {
       setDestination("backlog");
-      setColumnId(columns[0]?.id || ""); // Default a primera columna si existe
+      setColumnId(columns[0]?.id || "");
     }
     
     setIssueTypeId(task.issue_type_id || "");
@@ -175,6 +249,7 @@ const TaskEditorModal = ({
   useEffect(() => {
     if (!open) {
       setTitle("");
+      setSubtitle("");
       setDestination(defaultDestination);
       setColumnId("");
       setIssueTypeId("");
@@ -192,7 +267,6 @@ const TaskEditorModal = ({
       return;
     }
 
-    // ✨ VALIDACIÓN: Si va a Scrum, debe tener columna
     if (destination === "scrum" && !columnId) {
       alert("Selecciona una columna para el Tablero Scrum");
       return;
@@ -200,16 +274,17 @@ const TaskEditorModal = ({
 
     let description = "";
     if (quillRef.current) {
-      description = quillRef.current.getText().trim();
+      description = quillRef.current.root.innerHTML;
     }
 
     setIsSaving(true);
     try {
       await onSave(task.id, {
         title: title.trim() || "Sin título",
+        subtitle: subtitle.trim(),
         description,
-        destination, // ✨ NUEVO
-        column_id: destination === "scrum" ? columnId : null, // ✨ NULL si es backlog
+        destination,
+        column_id: destination === "scrum" ? columnId : null,
         issue_type_id: issueTypeId || null,
         priority_id: priorityId || null,
         story_points: storyPoints || null,
@@ -254,6 +329,14 @@ const TaskEditorModal = ({
 
   return (
     <>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        style={{ display: "none" }}
+        onChange={handleFileSelect}
+      />
+
       <Dialog
         open={open}
         onClose={onClose}
@@ -281,6 +364,15 @@ const TaskEditorModal = ({
           </IconButton>
 
           <Stack direction="row" spacing={1}>
+            {isUploadingImage && (
+              <Chip
+                icon={<ImageIcon />}
+                label="Subiendo imagen..."
+                size="small"
+                color="info"
+              />
+            )}
+            
             <Button
               variant="outlined"
               color="error"
@@ -297,7 +389,7 @@ const TaskEditorModal = ({
               size="small"
               startIcon={<SaveIcon />}
               onClick={handleSave}
-              disabled={isSaving || !task}
+              disabled={isSaving || !task || isUploadingImage}
             >
               {isSaving ? "Guardando..." : "Guardar"}
             </Button>
@@ -321,7 +413,20 @@ const TaskEditorModal = ({
               }}
             />
 
-            {/* ✨ NUEVO: Selector de Destino */}
+            <TextField
+              fullWidth
+              variant="outlined"
+              label="Subtítulo (opcional)"
+              placeholder="Añade un breve resumen..."
+              value={subtitle}
+              onChange={(e) => setSubtitle(e.target.value)}
+              InputProps={{
+                sx: {
+                  fontSize: 16,
+                },
+              }}
+            />
+
             <Paper
               sx={{
                 p: 2,
@@ -373,7 +478,6 @@ const TaskEditorModal = ({
               )}
             </Paper>
 
-            {/* Asignación al usuario */}
             <Box
               sx={{
                 p: 2,
@@ -461,7 +565,6 @@ const TaskEditorModal = ({
             </Stack>
 
             <Stack direction="row" spacing={2}>
-              {/* ✨ MODIFICADO: Solo mostrar selector de columna si destino es "scrum" */}
               <FormControl fullWidth disabled={destination === "backlog"}>
                 <InputLabel>Estado</InputLabel>
                 <Select
@@ -503,9 +606,17 @@ const TaskEditorModal = ({
             </Stack>
 
             <Box>
-              <Typography variant="subtitle2" gutterBottom color="text.secondary">
-                Descripción
-              </Typography>
+              <Stack direction="row" spacing={1} alignItems="center" mb={1}>
+                <Typography variant="subtitle2" color="text.secondary">
+                  Descripción
+                </Typography>
+                <Chip
+                  icon={<ImageIcon />}
+                  label="Soporta imágenes"
+                  size="small"
+                  variant="outlined"
+                />
+              </Stack>
               <Box
                 ref={editorRef}
                 sx={{

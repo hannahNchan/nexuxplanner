@@ -11,6 +11,7 @@ export type Epic = {
   id: string;
   user_id: string;
   name: string;
+  color: string | null;
   owner_id: string | null;
   phase_id: string | null;
   estimated_effort: string | null;
@@ -99,6 +100,7 @@ export const createEpic = async (
   userId: string,
   data: {
     name: string;
+    color?: string | null;
     owner_id?: string | null;
     phase_id?: string | null;
     estimated_effort?: string | null;
@@ -111,6 +113,7 @@ export const createEpic = async (
     .from("epics")
     .insert({
       user_id: userId,
+       color: data.color || "#3B82F6",
       ...data,
     })
     .select()
@@ -124,6 +127,7 @@ export const updateEpic = async (
   epicId: string,
   updates: {
     name?: string;
+    color?: string | null;
     owner_id?: string | null;
     phase_id?: string | null;
     estimated_effort?: string | null;
