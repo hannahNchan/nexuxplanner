@@ -81,6 +81,7 @@ export const useBacklogTable = (userId: string) => {
   const [selectedBacklogTask, setSelectedBacklogTask] = useState<{
     id: string;
     title: string;
+    subtitle?: string | null;
     description?: string;
     column_id: string | null;
     issue_type_id?: string | null;
