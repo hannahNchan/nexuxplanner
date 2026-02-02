@@ -430,7 +430,14 @@ const BacklogTable = ({ userId }: BacklogTableProps) => {
 
           <TaskEditorModal
             open={backlog.isTaskModalOpen}
-            task={backlog.selectedBacklogTask}
+            task={
+              backlog.selectedBacklogTask
+                ? {
+                    ...backlog.selectedBacklogTask,
+                    subtitle: backlog.selectedBacklogTask.subtitle ?? undefined,
+                  }
+                : null
+            }
             columns={[]}
             issueTypes={backlog.issueTypes}
             priorities={backlog.priorities}
