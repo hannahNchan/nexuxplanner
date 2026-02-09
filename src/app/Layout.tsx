@@ -9,7 +9,6 @@ import {
   Toolbar,
   IconButton,
   Tooltip,
-  Avatar,
   Menu,
   MenuItem,
   ListItemIcon,
@@ -28,10 +27,13 @@ import Brightness7Icon from "@mui/icons-material/Brightness7";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import TimelineIcon from "@mui/icons-material/Timeline";
+import SettingsIcon from "@mui/icons-material/Settings";
 import { supabase } from "../lib/supabase";
 import { useThemeMode } from "./ThemeContext";
 import { useState, useEffect, useRef } from "react";
 import ProjectSelector from "../features/projects/components/ProjectSelector";
+import UserAvatar from "../shared/ui/UserAvatar";
+import { useBoardManager } from "../features/board/hooks/useBoardManager";
 
 const SIDEBAR_MIN_WIDTH = 60;
 const SIDEBAR_DEFAULT_WIDTH = 240;
@@ -49,6 +51,7 @@ const Layout = () => {
   const [isResizing, setIsResizing] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
   const open = Boolean(anchorEl);
+  const { currentProject } = useBoardManager(userId);
 
   useEffect(() => {
     const getUser = async () => {
@@ -61,7 +64,6 @@ const Layout = () => {
     getUser();
   }, []);
 
-  // Handle resize
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (!isResizing) return;
@@ -87,7 +89,6 @@ const Layout = () => {
     };
   }, [isResizing]);
 
-  // ✨ ACTUALIZADO: Agregar /backlog
   const getCurrentTab = () => {
     if (location.pathname.startsWith("/tablero")) return 0;
     if (location.pathname.startsWith("/epicas")) return 1;
@@ -124,11 +125,6 @@ const Layout = () => {
     setIsResizing(true);
   };
 
-  const getInitials = (email: string) => {
-    if (!email) return "U";
-    return email.charAt(0).toUpperCase();
-  };
-
   const currentWidth = sidebarOpen ? sidebarWidth : SIDEBAR_MIN_WIDTH;
 
   return (
@@ -137,7 +133,7 @@ const Layout = () => {
       <AppBar position="static" elevation={0}>
         <Toolbar>
           <Typography variant="h6" component="div" sx={{ flexGrow: 1, fontWeight: 700 }}>
-            Nexux Planner
+            {currentProject?.title}
           </Typography>
 
           {/* Toggle Dark/Light Mode */}
@@ -157,17 +153,12 @@ const Layout = () => {
               aria-haspopup="true"
               aria-expanded={open ? "true" : undefined}
             >
-              <Avatar
-                sx={{
-                  width: 36,
-                  height: 36,
-                  bgcolor: "secondary.main",
-                  fontSize: "0.875rem",
-                  fontWeight: 600,
-                }}
-              >
-                {getInitials(userEmail)}
-              </Avatar>
+            <UserAvatar 
+              userId={userId}
+              userEmail={userEmail}
+              size={36}
+              showTooltip={false}
+            />
             </IconButton>
           </Tooltip>
 
@@ -196,15 +187,12 @@ const Layout = () => {
           >
             <MenuItem disabled sx={{ opacity: 1 }}>
               <ListItemIcon>
-                <Avatar
-                  sx={{
-                    bgcolor: "secondary.main",
-                    fontSize: "0.75rem",
-                    fontWeight: 600,
-                  }}
-                >
-                  {getInitials(userEmail)}
-                </Avatar>
+              <UserAvatar 
+                userId={userId}
+                userEmail={userEmail}
+                size={36}
+                showTooltip={false}
+              />
               </ListItemIcon>
               <Box>
                 <Typography variant="body2" fontWeight={600}>
@@ -213,6 +201,12 @@ const Layout = () => {
               </Box>
             </MenuItem>
             <Divider />
+            <MenuItem onClick={() => { handleMenuClose(); navigate("/ajustes"); }}>
+              <ListItemIcon>
+                <SettingsIcon fontSize="small" />
+              </ListItemIcon>
+              <ListItemText>Ajustes de usuario</ListItemText>
+            </MenuItem>
             <MenuItem onClick={handleLogout}>
               <ListItemIcon>
                 <LogoutIcon fontSize="small" />
