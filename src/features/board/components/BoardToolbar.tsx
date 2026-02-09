@@ -45,7 +45,7 @@ const BoardToolbar = ({ tasks, onSearchChange }: BoardToolbarProps) => {
     >
       <TextField
         size="small"
-        placeholder="Buscar ..."
+        placeholder="Buscar cualquier cosa ..."
         value={searchQuery}
         onChange={(e) => handleSearchChange(e.target.value)}
         onFocus={() => setChangeInput(600)}
