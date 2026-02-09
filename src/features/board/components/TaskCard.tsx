@@ -1,24 +1,27 @@
-import { Paper, Stack, Typography, Chip, Avatar } from "@mui/material";
+import { Paper, Stack, Typography, Chip } from "@mui/material";
 import { useTheme, alpha } from "@mui/material/styles";
 import type { Task } from "../../../shared/types/board";
+import UserAvatar from "../../../shared/ui/UserAvatar";
 
 type TaskCardProps = {
   task: Task;
   onClick: () => void;
   currentUserId?: string;
   isDragging?: boolean;
-  currentUserInitials: string;
+  currentUserEmail?: string;
 };
 
 const TaskCard = ({
   task,
   onClick,
-  // currentUserId,
+  currentUserId,
   isDragging = false,
-  currentUserInitials,
+  currentUserEmail = "",
 }: TaskCardProps) => {
   const theme = useTheme();
   // const isAssignedToMe = task.assignee_id === currentUserId;
+  const displayUserId = task.assignee_id || currentUserId;
+  const displayUserEmail = task.assignee_id ? "" : currentUserEmail;
 
   return (
     <Paper
@@ -134,17 +137,12 @@ const TaskCard = ({
           >
             {task.task_id_display || "SIN-ID"}
           </Typography>
-          <Avatar
-            sx={{
-              width: 36,
-              height: 36,
-              bgcolor: "secondary.main",
-              fontSize: "0.875rem",
-              fontWeight: 600,
-            }}
-          >
-            {currentUserInitials.toUpperCase()}
-          </Avatar>
+          <UserAvatar 
+            userId={displayUserId}
+            userEmail={displayUserEmail}
+            size={36}
+            showTooltip={true}
+          />
         </Stack>
       </Stack>
     </Paper>

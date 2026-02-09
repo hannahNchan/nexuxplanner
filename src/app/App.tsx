@@ -7,8 +7,10 @@ import EpicsTable from "../features/board/components/EpicsTable/EpicsTable";
 import { BacklogTable } from "../features/backlog";
 import Roadmap from "../features/roadmap/components/Roadmap";
 import QuillEditor from "../features/editor/QuillEditor";
+import UserSettingsPage from "../features/users/components/UserSettingsPage";
 import { Container, Stack, Typography } from "@mui/material";
 import { ProjectProvider } from "../shared/contexts/ProjectContext";
+import BoardInfo from "../features/board/components/BoardInfo";
 
 const App = () => {
   return (
@@ -26,15 +28,16 @@ const App = () => {
                     element={
                       <Container maxWidth={false}>
                         <Stack spacing={3}>
-                          <Stack spacing={1}>
+                          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
                             <Typography variant="h4" fontWeight={700}>
-                              Tablero
+                              Tablero de Scrum
                             </Typography>
                             {/* <Typography variant="body1" color="text.secondary">
                               Organiza y gestiona tus tareas con el tablero visual.
                             </Typography> */}
+                            <BoardInfo userId={session.user.id} />
                           </Stack>
-                          <Board userId={session.user.id} initials={session?.user?.email?.split("")[0] ?? ""} />
+                          <Board userId={session.user.id} userEmail={session.user.email || ""} />
                         </Stack>
                       </Container>
                     }
@@ -71,6 +74,16 @@ const App = () => {
                           <QuillEditor userId={session.user.id} />
                         </Stack>
                       </Container>
+                    }
+                  />
+
+                  <Route
+                    path="ajustes"
+                    element={
+                      <UserSettingsPage 
+                        userId={session.user.id} 
+                        userEmail={session.user.email || ""} 
+                      />
                     }
                   />
                   

@@ -4,30 +4,62 @@ import {
   CircularProgress,
   Stack,
   Typography,
-  Paper,
   Alert,
-  Chip,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import { DragDropContext, Droppable } from "@hello-pangea/dnd";
-import { alpha, useTheme } from "@mui/material/styles";
+import { useState, useMemo } from "react";
 import Column from "./Column";
 import TaskEditorModal from "./TaskEditorModal";
 import AddColumnModal from "./AddColumnModal";
+import BoardToolbar from "./BoardToolbar";
 import { useBoardManager } from "../hooks/useBoardManager";
+import { useMaxElementHeight } from "../hooks/useMaxElementHeight";
 
 type BoardProps = {
   userId: string;
-  initials: string;
+  userEmail: string;
 };
 
-const Board = ({ userId, initials }: BoardProps) => {
-  const theme = useTheme();
+const Board = ({ userId, userEmail }: BoardProps) => {
   const board = useBoardManager(userId);
-
   const allowBoardTaskCreation = board.currentProject?.allow_board_task_creation ?? false;
 
-  // Loading state
+  const numColumns = board.data?.columnOrder.length || 0;
+  const [setColumnRef, maxHeight] = useMaxElementHeight(numColumns, board.data?.tasks);
+
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const filteredData = useMemo(() => {
+    if (!board.data || !searchQuery) return board.data;
+
+    const filteredTasks: typeof board.data.tasks = {};
+    Object.entries(board.data.tasks).forEach(([taskId, task]) => {
+      const searchLower = searchQuery.toLowerCase();
+      if (
+        task.title.toLowerCase().includes(searchLower) ||
+        task.subtitle?.toLowerCase().includes(searchLower) ||
+        task.task_id_display?.toLowerCase().includes(searchLower)
+      ) {
+        filteredTasks[taskId] = task;
+      }
+    });
+
+    const filteredColumns = { ...board.data.columns };
+    Object.keys(filteredColumns).forEach(colId => {
+      filteredColumns[colId] = {
+        ...filteredColumns[colId],
+        taskIds: filteredColumns[colId].taskIds.filter(taskId => filteredTasks[taskId]),
+      };
+    });
+
+    return {
+      ...board.data,
+      tasks: filteredTasks,
+      columns: filteredColumns,
+    };
+  }, [board.data, searchQuery]);
+
   if (board.isLoading || !board.catalogsLoaded) {
     return (
       <Stack spacing={2} alignItems="center" py={6}>
@@ -39,7 +71,6 @@ const Board = ({ userId, initials }: BoardProps) => {
     );
   }
 
-  // No project selected
   if (!board.currentProject) {
     return (
       <Stack spacing={3} py={4} alignItems="center">
@@ -50,7 +81,6 @@ const Board = ({ userId, initials }: BoardProps) => {
     );
   }
 
-  // No sprint
   if (!board.displaySprint) {
     return (
       <Stack spacing={3} py={4} alignItems="center">
@@ -66,7 +96,6 @@ const Board = ({ userId, initials }: BoardProps) => {
     );
   }
 
-  // No columns
   if (!board.data || board.data.columnOrder.length === 0) {
     return (
       <Stack spacing={3} py={4}>
@@ -81,58 +110,16 @@ const Board = ({ userId, initials }: BoardProps) => {
     );
   }
 
+  const displayData = filteredData || board.data;
+
   return (
     <>
       <Stack spacing={2}>
-        <Paper
-          elevation={0}
-          sx={{
-            p: 2,
-            borderRadius: 2,
-            borderLeft: `4px solid ${theme.palette.primary.main}`,
-            bgcolor: alpha(theme.palette.primary.main, 0.05),
-          }}
-        >
-          <Stack direction="row" justifyContent="space-between" alignItems="center">
-            <Box>
-              <Stack direction="row" spacing={1} alignItems="center">
-                <Typography variant="h5" fontWeight={700}>
-                  {board.currentProject.title}
-                </Typography>
-                {board.displaySprint && (
-                  <Chip
-                    label={
-                      board.displaySprint.status === "active" ? "SPRINT ACTIVO" : "SPRINT FUTURO"
-                    }
-                    color={board.displaySprint.status === "active" ? "success" : "warning"}
-                    size="small"
-                    sx={{ fontWeight: 600 }}
-                  />
-                )}
-              </Stack>
-              <Typography variant="body2" color="text.secondary">
-                {board.displaySprint?.name} - Arrastra columnas o tareas para reorganizar.
-              </Typography>
-            </Box>
+        <BoardToolbar 
+          tasks={board.data?.tasks || {}}
+          onSearchChange={setSearchQuery}
+        />
 
-            <Button
-              variant="outlined"
-              startIcon={<AddIcon />}
-              onClick={() => board.setIsAddColumnModalOpen(true)}
-              size="small"
-            >
-              Añadir columna
-            </Button>
-          </Stack>
-
-          {board.errorMessage && (
-            <Typography variant="body2" color="error" sx={{ mt: 1 }}>
-              {board.errorMessage}
-            </Typography>
-          )}
-        </Paper>
-
-        {/* Board */}
         <DragDropContext onDragEnd={board.onDragEnd}>
           <Droppable droppableId="board" direction="horizontal" type="column">
             {(provided) => (
@@ -150,44 +137,60 @@ const Board = ({ userId, initials }: BoardProps) => {
                   flexWrap="nowrap"
                   overflow="auto"
                   pb={1}
-                  sx={{
-                    p: 2,
-                    borderRadius: 1,
-                    background: `linear-gradient(135deg, 
-                      ${alpha(theme.palette.primary.main, 0.08)} 0%, 
-                      ${alpha(theme.palette.secondary.main, 0.05)} 100%)`,
-                    border: `1px solid ${alpha(theme.palette.primary.main, 0.1)}`,
-                    backdropFilter: "blur(10px)",
-                    minWidth: "fit-content"
-                  }}
+                  sx={{ width: "100%" }}
                 >
-                  {board.data?.columnOrder.map((columnId, index) => {
-                    const column = board.data!.columns[columnId];
-                    const tasks = column.taskIds.map((taskId) => board.data!.tasks[taskId]);
-                    return (
-                      <Column
-                        key={column.id}
-                        column={column}
-                        tasks={tasks}
-                        index={index}
-                        onCreateTask={board.handleCreateTask}
-                        onTaskClick={board.handleTaskClick}
-                        isCreatingTask={board.creatingTaskColumnId === column.id}
-                        currentUserId={userId}
-                        currentUserInitials={initials}
-                        allowTaskCreation={allowBoardTaskCreation}
-                      />
-                    );
-                  })}
+                  <Stack direction="column" justifyContent="space-between" alignItems="end" sx={{ width: "100%" }}>
+                    <Button
+                      variant="outlined"
+                      startIcon={<AddIcon />}
+                      onClick={() => board.setIsAddColumnModalOpen(true)}
+                      size="small"
+                    >
+                      Añadir columna
+                    </Button>
+                    <Stack direction="row" alignItems="start" spacing={2} mt={2} sx={{ width: "100%" }}>
+                      {displayData?.columnOrder.map((columnId, index) => {
+                        const column = displayData!.columns[columnId];
+                        const tasks = column.taskIds.map((taskId) => displayData!.tasks[taskId]);
+                        return (
+                          <Box
+                            key={column.id}
+                            display="inline-flex"
+                            gap={3}
+                            flexWrap="nowrap"
+                            overflow="auto"
+                            pb={1}
+                            sx={{
+                              borderRadius: 1,
+                              width: "100%",
+                            }}
+                          >
+                            <Column
+                              column={column}
+                              tasks={tasks}
+                              index={index}
+                              onCreateTask={board.handleCreateTask}
+                              onTaskClick={board.handleTaskClick}
+                              isCreatingTask={board.creatingTaskColumnId === column.id}
+                              currentUserId={userId}
+                              currentUserEmail={userEmail}
+                              allowTaskCreation={allowBoardTaskCreation}
+                              columnRef={(el) => setColumnRef(el, index)}
+                              maxHeight={maxHeight}
+                            />
+                          </Box>
+                        );
+                      })}
+                    </Stack>
+                  </Stack>
                   {provided.placeholder}
                 </Box>
-            </Box>
+              </Box>
             )}
           </Droppable>
         </DragDropContext>
       </Stack>
 
-      {/* Modals */}
       <TaskEditorModal
         open={board.isModalOpen}
         task={board.selectedTask}
