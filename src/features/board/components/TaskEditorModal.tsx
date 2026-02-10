@@ -190,6 +190,7 @@ const TaskEditorModal = ({
   const handlePaste = async (e: ClipboardEvent) => {
     const clipboardData = e.clipboardData;
     if (!clipboardData) return;
+    console.log("📋 Datos del portapapeles:", clipboardData);
 
     const items = clipboardData.items;
     
