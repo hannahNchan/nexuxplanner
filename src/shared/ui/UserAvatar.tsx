@@ -19,11 +19,10 @@ const UserAvatar = ({
   // Determinar qué mostrar en el avatar
   const getAvatarContent = () => {
     if (profile?.avatar_url) {
-      return null; // Mostrar imagen
+      return null;
     }
 
     if (profile?.full_name) {
-      // Usar iniciales del nombre completo
       const names = profile.full_name.trim().split(" ");
       if (names.length >= 2) {
         return `${names[0][0]}${names[names.length - 1][0]}`.toUpperCase();
@@ -31,7 +30,6 @@ const UserAvatar = ({
       return profile.full_name[0].toUpperCase();
     }
 
-    // Fallback: primera letra del email
     return userEmail ? userEmail[0].toUpperCase() : "U";
   };
 
@@ -54,7 +52,6 @@ const UserAvatar = ({
     return avatarElement;
   }
 
-  // Tooltip content
   const tooltipContent = (
     <Stack spacing={0.5}>
       {profile?.full_name && (
@@ -81,7 +78,30 @@ const UserAvatar = ({
   );
 
   return (
-    <Tooltip title={tooltipContent} arrow>
+    <Tooltip
+      title={tooltipContent}
+      arrow
+      slotProps={{
+        tooltip: {
+          sx: {
+            bgcolor: "background.paper",
+            color: "text.primary",
+            border: "1px solid",
+            borderColor: "divider",
+            boxShadow: 2,
+          },
+        },
+        arrow: {
+          sx: {
+            color: "background.paper",
+            '&::before': {
+              border: "1px solid",
+              borderColor: "divider",
+            },
+          },
+        },
+      }}
+    >
       {avatarElement}
     </Tooltip>
   );

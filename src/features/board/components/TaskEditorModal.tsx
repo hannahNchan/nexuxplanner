@@ -14,8 +14,6 @@ import {
   Stack,
   TextField,
   Typography,
-  Checkbox,
-  FormControlLabel,
   Chip,
   Alert,
 } from "@mui/material";
@@ -23,7 +21,6 @@ import CloseIcon from "@mui/icons-material/Close";
 import DeleteIcon from "@mui/icons-material/Delete";
 import SaveIcon from "@mui/icons-material/Save";
 import WarningIcon from "@mui/icons-material/Warning";
-import PersonIcon from "@mui/icons-material/Person";
 import ListAltIcon from "@mui/icons-material/ListAlt";
 import DashboardIcon from "@mui/icons-material/Dashboard";
 import ImageIcon from "@mui/icons-material/Image";
@@ -33,7 +30,10 @@ import { useEffect, useRef, useState } from "react";
 import { alpha, useTheme } from "@mui/material/styles";
 import type { IssueType, Priority, PointValue } from "../../api/catalogService";
 import IconRenderer from "../../../shared/ui/IconRenderer";
+import { fetchProjectMembers } from "../../api/projectService";
 import { uploadImageToStorage } from "../../../lib/imageUpload";
+import { supabase } from "../../../lib/supabase";
+import UserAvatar from "../../../shared/ui/UserAvatar";
 
 type TaskEditorModalProps = {
   open: boolean;
@@ -101,7 +101,8 @@ const TaskEditorModal = ({
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
-  
+  const [projectMembers, setProjectMembers] = useState<Array<{ user_id: string; user_profiles: { full_name: string | null; avatar_url: string | null } }>>([]);
+  const [, setProjectId] = useState<string>("");
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   useEffect(() => {
@@ -165,6 +166,26 @@ const TaskEditorModal = ({
       }
     };
   }, [open, task]);
+
+  useEffect(() => {
+    const loadProjectMembers = async () => {
+      if (!open || !task) return;
+
+      const { data: column } = await supabase
+        .from("columns")
+        .select("project_id")
+        .eq("id", task.column_id || columns[0]?.id)
+        .single();
+
+      if (column) {
+        setProjectId(column.project_id);
+        const members = await fetchProjectMembers(column.project_id);
+        setProjectMembers(members);
+      }
+    };
+
+    loadProjectMembers();
+  }, [open, task, columns]);
 
   const handlePaste = async (e: ClipboardEvent) => {
     const clipboardData = e.clipboardData;
@@ -319,13 +340,13 @@ const TaskEditorModal = ({
     }
   };
 
-  const handleToggleAssignment = () => {
-    if (assigneeId === currentUserId) {
-      setAssigneeId("");
-    } else {
-      setAssigneeId(currentUserId);
-    }
-  };
+  // const handleToggleAssignment = () => {
+  //   if (assigneeId === currentUserId) {
+  //     setAssigneeId("");
+  //   } else {
+  //     setAssigneeId(currentUserId);
+  //   }
+  // };
 
   return (
     <>
@@ -478,41 +499,29 @@ const TaskEditorModal = ({
               )}
             </Paper>
 
-            <Box
-              sx={{
-                p: 2,
-                borderRadius: 2,
-                bgcolor: assigneeId === currentUserId ? "action.selected" : "action.hover",
-                border: "1px solid",
-                borderColor: "divider",
-              }}
-            >
-              <FormControlLabel
-                control={
-                  <Checkbox
-                    checked={assigneeId === currentUserId}
-                    onChange={handleToggleAssignment}
-                    icon={<PersonIcon />}
-                    checkedIcon={<PersonIcon />}
-                  />
-                }
-                label={
-                  <Stack direction="row" spacing={1} alignItems="center">
-                    <Typography variant="body2" fontWeight={600}>
-                      {assigneeId === currentUserId ? "Asignada a ti" : "Asignarme esta tarea"}
-                    </Typography>
-                    {assigneeId === currentUserId && (
-                      <Chip 
-                        label="Asignada" 
-                        size="small" 
-                        color="primary" 
-                        icon={<PersonIcon />}
-                      />
-                    )}
-                  </Stack>
-                }
-              />
-            </Box>
+<FormControl fullWidth>
+  <InputLabel>Asignado a</InputLabel>
+  <Select
+    value={assigneeId}
+    label="Asignado a"
+    onChange={(e) => setAssigneeId(e.target.value)}
+  >
+    <MenuItem value="">
+      <em>Sin asignar</em>
+    </MenuItem>
+    {projectMembers.map((member) => (
+      <MenuItem key={member.user_id} value={member.user_id}>
+        <Stack direction="row" spacing={1} alignItems="center">
+          <UserAvatar userId={member.user_id} size={24} />
+          <span>{member.user_profiles?.full_name || "Sin nombre"}</span>
+          {member.user_id === currentUserId && (
+            <Chip label="Tú" size="small" color="primary" />
+          )}
+        </Stack>
+      </MenuItem>
+    ))}
+  </Select>
+</FormControl>
 
             <Stack direction="row" spacing={2}>
               <FormControl fullWidth>
