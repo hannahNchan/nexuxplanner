@@ -157,6 +157,14 @@ export const createProject = async (
 
   if (projectError) throw projectError;
 
+  await supabase
+    .from("project_members")
+    .insert({
+      project_id: project.id,
+      user_id: userId,
+      role: "owner",
+    });
+
   if (data.tags && data.tags.length > 0) {
     const tagRecords = data.tags.map((tag) => ({
       project_id: project.id,
@@ -186,15 +194,9 @@ export const createProject = async (
 
     if (!error && columns && columns.length >= 4) {
       columnsExist = true;
-      console.log(`✅ Columnas verificadas en intento ${attempts}`);
     } else {
-      console.log(`⏳ Intento ${attempts}: Esperando columnas... (encontradas: ${columns?.length || 0})`);
       await new Promise(resolve => setTimeout(resolve, 200));
     }
-  }
-
-  if (!columnsExist) {
-    console.error("⚠️ Advertencia: No se pudieron verificar las columnas, pero continuando...");
   }
 
   return {
@@ -378,4 +380,73 @@ export const getProjectEpicsCount = async (projectId: string): Promise<number> =
 
   if (error) throw error;
   return count || 0;
+};
+
+export const addProjectMember = async (
+  projectId: string,
+  userId: string
+): Promise<void> => {
+  const { error } = await supabase
+    .from("project_members")
+    .insert({
+      project_id: projectId,
+      user_id: userId,
+    });
+
+  if (error) {
+    if (error.code === "23505") {
+      throw new Error("Este usuario ya es miembro del proyecto");
+    }
+    throw error;
+  }
+};
+
+export const fetchProjectMembers = async (projectId: string) => {
+  const { data, error } = await supabase
+    .from("project_members")
+    .select(`
+      id,
+      user_id,
+      role,
+      created_at
+    `)
+    .eq("project_id", projectId);
+
+  if (error) throw error;
+
+  const membersWithProfiles = await Promise.all(
+    (data || []).map(async (member) => {
+      const { data: profile } = await supabase
+        .from("user_profiles")
+        .select("full_name, avatar_url")
+        .eq("id", member.user_id)
+        .single();
+
+      return {
+        ...member,
+        user_profiles: profile || { full_name: null, avatar_url: null },
+      };
+    })
+  );
+
+  return membersWithProfiles;
+};
+
+export const removeProjectMember = async (memberId: string): Promise<void> => {
+  const { error } = await supabase
+    .from("project_members")
+    .delete()
+    .eq("id", memberId);
+
+  if (error) throw error;
+};
+
+export const fetchAllUsers = async () => {
+  const { data, error } = await supabase
+    .from("user_profiles")
+    .select("id, full_name, avatar_url")
+    .order("full_name", { ascending: true });
+
+  if (error) throw error;
+  return data || [];
 };

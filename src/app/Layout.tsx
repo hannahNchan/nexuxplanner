@@ -33,7 +33,6 @@ import { useThemeMode } from "./ThemeContext";
 import { useState, useEffect, useRef } from "react";
 import ProjectSelector from "../features/projects/components/ProjectSelector";
 import UserAvatar from "../shared/ui/UserAvatar";
-import { useBoardManager } from "../features/board/hooks/useBoardManager";
 
 const SIDEBAR_MIN_WIDTH = 60;
 const SIDEBAR_DEFAULT_WIDTH = 240;
@@ -51,7 +50,6 @@ const Layout = () => {
   const [isResizing, setIsResizing] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
   const open = Boolean(anchorEl);
-  const { currentProject } = useBoardManager(userId);
 
   useEffect(() => {
     const getUser = async () => {

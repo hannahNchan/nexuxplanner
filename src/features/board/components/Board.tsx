@@ -118,6 +118,7 @@ const Board = ({ userId, userEmail }: BoardProps) => {
         <BoardToolbar 
           tasks={board.data?.tasks || {}}
           onSearchChange={setSearchQuery}
+          projectId={board.currentProject?.id || ""}
         />
 
         <DragDropContext onDragEnd={board.onDragEnd}>
