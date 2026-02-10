@@ -11,7 +11,7 @@ type BoardToolbarProps = {
 
 const BoardToolbar = ({ tasks, onSearchChange }: BoardToolbarProps) => {
   const [searchQuery, setSearchQuery] = useState("");
-  const [changeInput, setChangeInput] = useState(200);
+  const [changeInput, setChangeInput] = useState(250);
 
   const uniqueUserIds = useMemo(() => {
     const userIds = Object.values(tasks)
@@ -45,7 +45,7 @@ const BoardToolbar = ({ tasks, onSearchChange }: BoardToolbarProps) => {
     >
       <TextField
         size="small"
-        placeholder="Buscar cualquier cosa ..."
+        placeholder="Buscar ..."
         value={searchQuery}
         onChange={(e) => handleSearchChange(e.target.value)}
         onFocus={() => setChangeInput(600)}

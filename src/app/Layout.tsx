@@ -133,7 +133,8 @@ const Layout = () => {
       <AppBar position="static" elevation={0}>
         <Toolbar>
           <Typography variant="h6" component="div" sx={{ flexGrow: 1, fontWeight: 700 }}>
-            {currentProject?.title}
+            {/* {currentProject?.title} */}
+            Nexus Planner
           </Typography>
 
           {/* Toggle Dark/Light Mode */}
