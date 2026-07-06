@@ -450,3 +450,61 @@ export const fetchAllUsers = async () => {
   if (error) throw error;
   return data || [];
 };
+
+export const uploadProjectBanner = async (projectId: string, file: File): Promise<string> => {
+  const fileExt = file.name.split(".").pop();
+  const fileName = `${projectId}/banner.${fileExt}`;
+  const filePath = `project-banners/${fileName}`;
+
+  const { error: uploadError } = await supabase.storage
+    .from("project-assets")
+    .upload(filePath, file, {
+      cacheControl: "3600",
+      upsert: true,
+    });
+
+  if (uploadError) {
+    throw uploadError;
+  }
+
+  const { data } = supabase.storage
+    .from("project-assets")
+    .getPublicUrl(filePath);
+
+  await supabase
+    .from("projects")
+    .update({ 
+      banner_url: data.publicUrl,
+      updated_at: new Date().toISOString()
+    })
+    .eq("id", projectId);
+
+  return data.publicUrl;
+};
+
+export const removeProjectBanner = async (projectId: string): Promise<void> => {
+  const { data: project } = await supabase
+    .from("projects")
+    .select("banner_url")
+    .eq("id", projectId)
+    .single();
+
+  if (project?.banner_url) {
+    const url = new URL(project.banner_url);
+    const pathParts = url.pathname.split('/');
+    const bucket = pathParts[1];
+    const filePath = pathParts.slice(2).join('/');
+
+    await supabase.storage
+      .from(bucket)
+      .remove([filePath]);
+  }
+
+  await supabase
+    .from("projects")
+    .update({ 
+      banner_url: null,
+      updated_at: new Date().toISOString()
+    })
+    .eq("id", projectId);
+};

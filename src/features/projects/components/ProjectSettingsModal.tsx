@@ -17,17 +17,22 @@ import {
   CircularProgress,
   FormControlLabel,
   Switch,
+  Avatar,
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteIcon from "@mui/icons-material/Delete";
 import DragIndicatorIcon from "@mui/icons-material/DragIndicator";
-import { useState, useEffect } from "react";
+import UploadFileIcon from "@mui/icons-material/UploadFile";
+import ClearIcon from "@mui/icons-material/Clear";
+import CloudUploadIcon from "@mui/icons-material/CloudUpload";
+import { useState, useEffect, useRef } from "react";
 import { alpha, useTheme } from "@mui/material/styles";
 import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd";
 import { useProjectCatalogs } from "../hooks/useProjectCatalogs";
 import IconPicker from "../../../shared/ui/IconPicker";
 import ColorPicker from "../../../shared/ui/ColorPicker";
+import { uploadProjectBanner, removeProjectBanner, fetchProjectById } from "../../../features/api/projectService";
 import type { IssueType, Priority, EpicPhase } from "../../../features/api/catalogService";
 
 type ProjectSettingsModalProps = {
@@ -39,7 +44,7 @@ type ProjectSettingsModalProps = {
   onUpdateAllowBoardTaskCreation: (projectId: string, value: boolean) => Promise<void>;
 };
 
-type Section = "tasks" | "epics";
+type Section = "general" | "tasks" | "epics";
 
 const ProjectSettingsModal = ({ 
   open, 
@@ -50,8 +55,14 @@ const ProjectSettingsModal = ({
   onUpdateAllowBoardTaskCreation,
 }: ProjectSettingsModalProps) => {
   const theme = useTheme();
-  const [selectedSection, setSelectedSection] = useState<Section>("tasks");
+  const [selectedSection, setSelectedSection] = useState<Section>("general");
   const catalogs = useProjectCatalogs();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploadingBanner, setUploadingBanner] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string>("");
+  const [currentBannerUrl, setCurrentBannerUrl] = useState<string>("");
+  const [projectData, setProjectData] = useState<any>(null);
 
   const [editingIssueTypes, setEditingIssueTypes] = useState<Record<string, Partial<IssueType>>>({});
   const [editingPriorities, setEditingPriorities] = useState<Record<string, Partial<Priority>>>({});
@@ -63,23 +74,216 @@ const ProjectSettingsModal = ({
     if (open) {
       setAllowBoardTaskCreation(initialAllowBoardTaskCreation);
       void catalogs.refetch();
+      void loadProjectData();
     }
   }, [open, initialAllowBoardTaskCreation]);
 
+  const loadProjectData = async () => {
+    try {
+      const project = await fetchProjectById(projectId);
+      if (project) {
+        setProjectData(project);
+        setCurrentBannerUrl(project.banner_url || "");
+        setPreviewUrl("");
+        setSelectedFile(null);
+      }
+    } catch (error) {
+      console.error("Error cargando datos del proyecto:", error);
+    }
+  };
+
   const handleToggleBoardTaskCreation = async (checked: boolean) => {
-    console.log("🎯 Toggle checkbox:", checked);
-    console.log("🎯 Project ID:", projectId);
-    
     setAllowBoardTaskCreation(checked);
     try {
-      console.log("🎯 Llamando onUpdateAllowBoardTaskCreation...");
       await onUpdateAllowBoardTaskCreation(projectId, checked);
-      console.log("🎯 ✅ Actualización exitosa");
     } catch (error) {
-      console.error("🎯 ❌ Error actualizando configuración:", error);
+      console.error("Error actualizando configuración:", error);
       setAllowBoardTaskCreation(!checked);
     }
   };
+
+  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 5 * 1024 * 1024) {
+      console.error("El archivo es demasiado grande. Máximo 5MB");
+      return;
+    }
+
+    if (!file.type.startsWith("image/")) {
+      console.error("El archivo debe ser una imagen");
+      return;
+    }
+
+    setSelectedFile(file);
+    const url = URL.createObjectURL(file);
+    setPreviewUrl(url);
+  };
+
+  const handleUploadBanner = async () => {
+    if (!selectedFile) return;
+
+    setUploadingBanner(true);
+    try {
+      const bannerUrl = await uploadProjectBanner(projectId, selectedFile);
+      setCurrentBannerUrl(bannerUrl);
+      setPreviewUrl("");
+      setSelectedFile(null);
+      console.log("Banner subido exitosamente:", bannerUrl);
+    } catch (error) {
+      console.error("Error subiendo el banner:", error);
+    } finally {
+      setUploadingBanner(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    }
+  };
+
+  const handleClearSelection = () => {
+    setSelectedFile(null);
+    setPreviewUrl("");
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
+  const handleRemoveBanner = async () => {
+    if (!currentBannerUrl) return;
+
+    setUploadingBanner(true);
+    try {
+      await removeProjectBanner(projectId);
+      setCurrentBannerUrl("");
+      console.log("Banner eliminado exitosamente");
+    } catch (error) {
+      console.error("Error eliminando el banner:", error);
+    } finally {
+      setUploadingBanner(false);
+    }
+  };
+
+  const renderGeneralSettings = () => (
+    <Stack spacing={4}>
+      <Box>
+        <Typography variant="h6" fontWeight={600} gutterBottom>
+          Banner del Proyecto
+        </Typography>
+        <Typography variant="body2" color="text.secondary" paragraph>
+          Personaliza tu proyecto con una imagen de banner
+        </Typography>
+
+        <Box sx={{ mt: 3 }}>
+          {(currentBannerUrl || previewUrl) ? (
+            <Box sx={{ position: "relative" }}>
+              <Box
+                component="img"
+                src={previewUrl || currentBannerUrl}
+                alt="Banner del proyecto"
+                sx={{
+                  width: "100%",
+                  height: 200,
+                  objectFit: "cover",
+                  borderRadius: 2,
+                  border: `1px solid ${theme.palette.divider}`,
+                }}
+              />
+              {currentBannerUrl && !previewUrl && (
+                <IconButton
+                  size="small"
+                  color="error"
+                  onClick={handleRemoveBanner}
+                  disabled={uploadingBanner}
+                  sx={{
+                    position: "absolute",
+                    top: 8,
+                    right: 8,
+                    bgcolor: "background.paper",
+                    "&:hover": {
+                      bgcolor: "error.light",
+                      color: "error.contrastText",
+                    },
+                  }}
+                >
+                  <ClearIcon />
+                </IconButton>
+              )}
+            </Box>
+          ) : (
+            <Box
+              sx={{
+                width: "100%",
+                height: 200,
+                border: `2px dashed ${theme.palette.divider}`,
+                borderRadius: 2,
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: "pointer",
+                bgcolor: alpha(theme.palette.primary.main, 0.02),
+                transition: "all 0.2s ease",
+                "&:hover": {
+                  borderColor: theme.palette.primary.main,
+                  bgcolor: alpha(theme.palette.primary.main, 0.04),
+                },
+              }}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <UploadFileIcon sx={{ fontSize: 48, color: "text.secondary", mb: 2 }} />
+              <Typography variant="body1" fontWeight={600} gutterBottom>
+                Haz clic para subir banner
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                Formatos: JPG, PNG, GIF. Máximo 5MB
+              </Typography>
+            </Box>
+          )}
+
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            onChange={handleFileSelect}
+            style={{ display: "none" }}
+          />
+
+          {selectedFile && (
+            <Stack direction="row" spacing={2} sx={{ mt: 3 }}>
+              <Button
+                variant="outlined"
+                onClick={handleClearSelection}
+                disabled={uploadingBanner}
+                startIcon={<ClearIcon />}
+              >
+                Limpiar
+              </Button>
+              <Button
+                variant="contained"
+                onClick={handleUploadBanner}
+                disabled={uploadingBanner}
+                startIcon={uploadingBanner ? <CircularProgress size={20} /> : <CloudUploadIcon />}
+              >
+                {uploadingBanner ? "Subiendo..." : "Subir imagen"}
+              </Button>
+            </Stack>
+          )}
+
+          {!selectedFile && !currentBannerUrl && (
+            <Button
+              variant="outlined"
+              onClick={() => fileInputRef.current?.click()}
+              sx={{ mt: 3 }}
+              startIcon={<UploadFileIcon />}
+            >
+              Examinar
+            </Button>
+          )}
+        </Box>
+      </Box>
+    </Stack>
+  );
 
   const handleIssueTypeChange = (id: string, field: keyof IssueType, value: string) => {
     setEditingIssueTypes((prev) => ({
@@ -186,7 +390,6 @@ const ProjectSettingsModal = ({
 
   const renderTasksSettings = () => (
     <Stack spacing={4}>
-      {/* Creación de Tareas */}
       <Box>
         <Typography variant="h6" fontWeight={600} gutterBottom>
           Creación de Tareas
@@ -230,7 +433,6 @@ const ProjectSettingsModal = ({
 
       <Divider />
 
-      {/* Tipos de Issue */}
       <Box>
         <Typography variant="h6" fontWeight={600} gutterBottom>
           Tipos de Issue
@@ -318,7 +520,6 @@ const ProjectSettingsModal = ({
 
       <Divider />
 
-      {/* Prioridades */}
       <Box>
         <Typography variant="h6" fontWeight={600} gutterBottom>
           Prioridades
@@ -396,7 +597,6 @@ const ProjectSettingsModal = ({
 
       <Divider />
 
-      {/* Story Points */}
       <Box>
         <Typography variant="h6" fontWeight={600} gutterBottom>
           Story Points
@@ -580,6 +780,25 @@ const ProjectSettingsModal = ({
         >
           <List disablePadding>
             <ListItemButton
+              selected={selectedSection === "general"}
+              onClick={() => setSelectedSection("general")}
+              sx={{
+                py: 2,
+                "&.Mui-selected": {
+                  bgcolor: alpha(theme.palette.primary.main, 0.1),
+                  borderRight: `3px solid ${theme.palette.primary.main}`,
+                },
+              }}
+            >
+              <ListItemText
+                primary="General"
+                primaryTypographyProps={{
+                  fontWeight: selectedSection === "general" ? 600 : 400,
+                }}
+              />
+            </ListItemButton>
+
+            <ListItemButton
               selected={selectedSection === "tasks"}
               onClick={() => setSelectedSection("tasks")}
               sx={{
@@ -632,6 +851,7 @@ const ProjectSettingsModal = ({
             </Stack>
           ) : (
             <>
+              {selectedSection === "general" && renderGeneralSettings()}
               {selectedSection === "tasks" && renderTasksSettings()}
               {selectedSection === "epics" && renderEpicsSettings()}
             </>
