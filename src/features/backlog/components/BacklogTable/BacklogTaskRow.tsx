@@ -61,7 +61,7 @@ const BacklogTaskRow = ({ row, isDragging, dragHandleProps, onDelete }: BacklogT
             size="small"
             sx={{
               bgcolor: row.priority_color,
-              color: "#fff",
+              color: theme.palette.getContrastText(row.priority_color as string),
               fontWeight: 600,
             }}
           />

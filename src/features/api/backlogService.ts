@@ -15,6 +15,8 @@ export type BacklogTask = {
   issue_type_id: string | null;
   task_id_display: string | null;
   github_link: string | null;
+  planned_start_date: string | null;
+  planned_end_date: string | null;
   position: number;
   created_at: string;
   updated_at: string;

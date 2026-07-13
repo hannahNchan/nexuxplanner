@@ -22,6 +22,7 @@ const TaskCard = ({
   // const isAssignedToMe = task.assignee_id === currentUserId;
   const displayUserId = task.assignee_id || currentUserId;
   const displayUserEmail = task.assignee_id ? "" : currentUserEmail;
+  const epicColor = task.epic_color || theme.palette.secondary.main;
 
   return (
     <Paper
@@ -83,12 +84,11 @@ const TaskCard = ({
                 borderRadius: 0.8,
                 fontSize: "0.7rem",
                 fontWeight: 600,
-                bgcolor:
-                  task.epic_color || alpha(theme.palette.secondary.main, 0.1),
-                color: "#fff",
-                border: `1px solid ${alpha(task.epic_color || theme.palette.secondary.main, 0.3)}`,
+                bgcolor: alpha(epicColor, theme.palette.mode === "dark" ? 0.28 : 0.16),
+                color: task.epic_color ? theme.palette.getContrastText(task.epic_color) : "secondary.main",
+                border: `1px solid ${alpha(epicColor, 0.35)}`,
                 "& .MuiChip-icon": {
-                  color: "#fff !important",
+                  color: "inherit",
                 },
                 "& .MuiChip-label": {
                   px: 0,

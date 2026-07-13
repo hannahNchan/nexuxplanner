@@ -1,4 +1,9 @@
 import { supabase } from "../../lib/supabase";
+import type { Session, User } from "@supabase/supabase-js";
+
+export type UserPreferences = Record<string, unknown> & {
+  themeMode?: "light" | "dark" | "solarized";
+};
 
 export type UserProfile = {
   id: string;
@@ -7,6 +12,7 @@ export type UserProfile = {
   skills: string[];
   organization: string | null;
   avatar_url: string | null;
+  preferences: UserPreferences;
   created_at: string;
   updated_at: string;
 };
@@ -67,4 +73,50 @@ export const uploadAvatar = async (
     .getPublicUrl(fileName);
 
   return data.publicUrl;
+};
+
+export const ensureUserProfile = async (user: User): Promise<UserProfile | null> => {
+  const metadata = user.user_metadata ?? {};
+  const fullName =
+    typeof metadata.full_name === "string"
+      ? metadata.full_name
+      : typeof metadata.name === "string"
+        ? metadata.name
+        : null;
+  const avatarUrl =
+    typeof metadata.avatar_url === "string"
+      ? metadata.avatar_url
+      : typeof metadata.picture === "string"
+        ? metadata.picture
+        : null;
+  const profile: Partial<UserProfile> & { id: string; updated_at: string } = {
+    id: user.id,
+    updated_at: new Date().toISOString(),
+  };
+
+  if (fullName) {
+    profile.full_name = fullName;
+  }
+
+  if (avatarUrl) {
+    profile.avatar_url = avatarUrl;
+  }
+
+  const { data, error } = await supabase
+    .from("user_profiles")
+    .upsert(profile, { onConflict: "id" })
+    .select()
+    .single();
+
+  if (error) {
+    console.error("Error ensuring profile:", error);
+    return null;
+  }
+
+  return data;
+};
+
+export const ensureSessionProfile = async (session: Session | null): Promise<void> => {
+  if (!session?.user) return;
+  await ensureUserProfile(session.user);
 };

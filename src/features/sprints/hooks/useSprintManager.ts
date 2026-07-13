@@ -64,7 +64,7 @@ export const useSprintManager = (projectId: string | null) => {
     name: string;
     goal: string;
     start_date: string;
-    end_date: string;
+    end_date: string | null;
   }) => {
     if (!projectId) {
       throw new Error("No hay proyecto seleccionado");

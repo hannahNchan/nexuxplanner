@@ -24,6 +24,9 @@ import { useSprintManager } from "../../sprints/hooks/useSprintManager";
 type SortColumn = "title" | "assignee" | "priority" | "story_points" | "epic" | "task_id" | "created_at";
 type SortOrder = "asc" | "desc";
 
+const isEpicIssueTypeName = (name?: string | null) =>
+  name?.trim().toLowerCase() === "epic";
+
 export const useBacklogTable = (userId: string) => {
   const { currentProject } = useProject();
   const sprintManager = useSprintManager(currentProject?.id || null);
@@ -80,6 +83,7 @@ export const useBacklogTable = (userId: string) => {
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
   const [selectedBacklogTask, setSelectedBacklogTask] = useState<{
     id: string;
+    project_id?: string | null;
     title: string;
     subtitle?: string | null;
     description?: string;
@@ -187,6 +191,7 @@ export const useBacklogTable = (userId: string) => {
     
     setSelectedBacklogTask({
       id: newTask.id,
+      project_id: newTask.project_id,
       title: newTask.title,
       subtitle: newTask.subtitle ?? undefined,
       description: newTask.description ?? undefined,
@@ -359,7 +364,7 @@ export const useBacklogTable = (userId: string) => {
     name: string;
     goal: string;
     start_date: string;
-    end_date: string;
+    end_date: string | null;
   }) => {
     await sprintManager.createSprint(data);
     setIsSprintModalOpen(false);
@@ -376,6 +381,13 @@ export const useBacklogTable = (userId: string) => {
     if (destination.droppableId.startsWith("sprint-")) {
       const sprintId = destination.droppableId.replace("sprint-", "");
       const taskId = draggableId;
+      const backlogTask = tasks.find((task) => task.id === taskId);
+      const issueType = issueTypes.find((type) => type.id === backlogTask?.issue_type_id);
+
+      if (isEpicIssueTypeName(issueType?.name)) {
+        alert("Las épicas no se asignan directamente a un sprint. Crea o asigna tareas dentro de la épica.");
+        return;
+      }
 
       if (!firstColumnId) {
         alert("No se encontró una columna TO DO en el proyecto");

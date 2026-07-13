@@ -10,6 +10,7 @@ import {
   searchTasks,
   type EpicWithDetails,
   type EpicPhase,
+  type TaskSearchOption,
 } from "../../api/epicService";
 import {
   fetchDefaultPointSystem,
@@ -71,8 +72,9 @@ export const useEpicsTable = (userId: string) => {
 
   // Estado de tareas
   const [taskSearchOpen, setTaskSearchOpen] = useState<string | null>(null);
-  const [taskOptions, setTaskOptions] = useState<Array<{ id: string; title: string }>>([]);
+  const [taskOptions, setTaskOptions] = useState<TaskSearchOption[]>([]);
   const [taskSearchText, setTaskSearchText] = useState("");
+  const [isTaskSearchLoading, setIsTaskSearchLoading] = useState(false);
 
   // Estado de eliminación
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -194,6 +196,8 @@ export const useEpicsTable = (userId: string) => {
         connectedTasks: epic.connected_tasks || [],
         estimatedEffort: epic.estimated_effort || "",
         epicId: epic.epic_id_display || "-",
+        startDate: epic.start_date,
+        endDate: epic.end_date,
       };
     });
 
@@ -201,9 +205,36 @@ export const useEpicsTable = (userId: string) => {
   }, [epics, projects, hiddenEpics, searchText, filters, sortColumn, sortOrder]);
 
   useEffect(() => {
-    if (taskSearchOpen !== null) {
-      searchTasks(currentProject?.id ?? null, taskSearchText).then(setTaskOptions);
+    let isActive = true;
+
+    if (taskSearchOpen === null) {
+      setTaskOptions([]);
+      setIsTaskSearchLoading(false);
+      return;
     }
+
+    setIsTaskSearchLoading(true);
+    searchTasks(currentProject?.id ?? null, taskSearchText)
+      .then((tasks) => {
+        if (isActive) {
+          setTaskOptions(tasks);
+        }
+      })
+      .catch((error) => {
+        console.error("Error buscando tareas:", error);
+        if (isActive) {
+          setTaskOptions([]);
+        }
+      })
+      .finally(() => {
+        if (isActive) {
+          setIsTaskSearchLoading(false);
+        }
+      });
+
+    return () => {
+      isActive = false;
+    };
   }, [taskSearchText, taskSearchOpen, userId, currentProject]);
 
   const handleAddEpic = async () => {
@@ -294,6 +325,29 @@ export const useEpicsTable = (userId: string) => {
     }
   };
 
+  const handleEpicDateChange = async (
+    epicId: string,
+    field: "start_date" | "end_date",
+    value: string | null
+  ) => {
+    try {
+      await updateEpic(epicId, { [field]: value });
+
+      setEpics((prev) =>
+        prev.map((epic) =>
+          epic.id === epicId
+            ? {
+                ...epic,
+                [field]: value,
+              }
+            : epic
+        )
+      );
+    } catch (error) {
+      console.error("Error actualizando fecha de épica:", error);
+    }
+  };
+
   const handleProjectChange = async (epicId: string, projectId: string) => {
     try {
       await linkEpicToProject(epicId, projectId || null);
@@ -319,7 +373,26 @@ export const useEpicsTable = (userId: string) => {
             epic.id === epicId
               ? {
                   ...epic,
-                  connected_tasks: [...(epic.connected_tasks || []), task],
+                  connected_tasks: [
+                    ...(epic.connected_tasks || []),
+                    {
+                      ...task,
+                      project_id: currentProject?.id ?? null,
+                      column_id: null,
+                      column_name: null,
+                      sprint_id: null,
+                      sprint_name: null,
+                      sprint_start_date: null,
+                      sprint_end_date: null,
+                      task_id_display: null,
+                      issue_type_id: null,
+                      priority_id: null,
+                      story_points: null,
+                      assignee_id: null,
+                      planned_start_date: null,
+                      planned_end_date: null,
+                    },
+                  ],
                 }
               : epic
           )
@@ -398,6 +471,7 @@ export const useEpicsTable = (userId: string) => {
     taskSearchOpen,
     taskOptions,
     taskSearchText,
+    isTaskSearchLoading,
     deleteDialogOpen,
     epicToDelete,
     editingColor,
@@ -436,6 +510,7 @@ export const useEpicsTable = (userId: string) => {
     handleNameChange,
     handlePhaseChange,
     handleEffortChange,
+    handleEpicDateChange,
     handleProjectChange,
     handleConnectTask,
     handleDisconnectTask,

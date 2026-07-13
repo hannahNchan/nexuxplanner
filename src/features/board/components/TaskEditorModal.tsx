@@ -26,7 +26,7 @@ import DashboardIcon from "@mui/icons-material/Dashboard";
 import ImageIcon from "@mui/icons-material/Image";
 import Quill from "quill";
 import "quill/dist/quill.snow.css";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { alpha, useTheme } from "@mui/material/styles";
 import type { IssueType, Priority, PointValue } from "../../api/catalogService";
 import IconRenderer from "../../../shared/ui/IconRenderer";
@@ -39,6 +39,7 @@ type TaskEditorModalProps = {
   open: boolean;
   task: {
     id: string;
+    project_id?: string | null;
     title: string;
     subtitle?: string; // ✅ NUEVO
     description?: string;
@@ -69,6 +70,9 @@ type TaskEditorModalProps = {
   }) => Promise<void>;
   onDelete: (taskId: string) => Promise<void>;
 };
+
+const isEpicIssueType = (type?: IssueType | null) =>
+  type?.name.trim().toLowerCase() === "epic";
 
 const TaskEditorModal = ({
   open,
@@ -104,6 +108,14 @@ const TaskEditorModal = ({
   const [projectMembers, setProjectMembers] = useState<Array<{ user_id: string; user_profiles: { full_name: string | null; avatar_url: string | null } }>>([]);
   const [, setProjectId] = useState<string>("");
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const taskIssueTypes = useMemo(
+    () => issueTypes.filter((type) => !isEpicIssueType(type)),
+    [issueTypes]
+  );
+  const editorBorder = theme.palette.divider;
+  const editorToolbarBg = theme.palette.action.selected;
+  const editorText = theme.palette.text.primary;
+  const editorMuted = theme.palette.text.secondary;
 
   useEffect(() => {
     if (!open || !task) {
@@ -171,16 +183,25 @@ const TaskEditorModal = ({
     const loadProjectMembers = async () => {
       if (!open || !task) return;
 
-      const { data: column } = await supabase
-        .from("columns")
-        .select("project_id")
-        .eq("id", task.column_id || columns[0]?.id)
-        .single();
+      let projectId = task.project_id || null;
+      const columnId = task.column_id || columns[0]?.id;
 
-      if (column) {
-        setProjectId(column.project_id);
-        const members = await fetchProjectMembers(column.project_id);
+      if (!projectId && columnId) {
+        const { data: column } = await supabase
+          .from("columns")
+          .select("project_id")
+          .eq("id", columnId)
+          .maybeSingle();
+
+        projectId = column?.project_id || null;
+      }
+
+      if (projectId) {
+        setProjectId(projectId);
+        const members = await fetchProjectMembers(projectId);
         setProjectMembers(members);
+      } else {
+        setProjectMembers([]);
       }
     };
 
@@ -262,11 +283,12 @@ const TaskEditorModal = ({
       setColumnId(columns[0]?.id || "");
     }
     
-    setIssueTypeId(task.issue_type_id || "");
+    const currentIssueType = issueTypes.find((type) => type.id === task.issue_type_id);
+    setIssueTypeId(isEpicIssueType(currentIssueType) ? "" : task.issue_type_id || "");
     setPriorityId(task.priority_id || "");
     setStoryPoints(task.story_points || "");
     setAssigneeId(task.assignee_id || "");
-  }, [task, columns]);
+  }, [task, columns, issueTypes]);
 
   useEffect(() => {
     if (!open) {
@@ -535,7 +557,7 @@ const TaskEditorModal = ({
                   <MenuItem value="">
                     <em>Sin asignar</em>
                   </MenuItem>
-                  {issueTypes.map((type) => (
+                  {taskIssueTypes.map((type) => (
                     <MenuItem key={type.id} value={type.id}>
                       <Stack direction="row" spacing={1} alignItems="center">
                         <IconRenderer icon={type.icon} />
@@ -563,7 +585,7 @@ const TaskEditorModal = ({
                             width: 12,
                             height: 12,
                             borderRadius: "50%",
-                            backgroundColor: priority.color || "#ccc",
+                            backgroundColor: priority.color || theme.palette.action.disabledBackground,
                           }}
                         />
                         <span>{priority.name}</span>
@@ -636,25 +658,36 @@ const TaskEditorModal = ({
                     overflowY: "auto",
                     fontSize: 16,
                     fontFamily: "'Inter', 'Roboto', sans-serif",
+                    color: editorText,
+                    backgroundColor: theme.palette.background.paper,
+                    "&.ql-blank::before": {
+                      color: editorMuted,
+                      opacity: 0.8,
+                    },
                   },
                   ".ql-container": {
                     borderBottomLeftRadius: 8,
                     borderBottomRightRadius: 8,
-                    borderColor: "#e2e8f0",
+                    borderColor: editorBorder,
+                    backgroundColor: theme.palette.background.paper,
                   },
                   ".ql-toolbar": {
                     borderTopLeftRadius: 8,
                     borderTopRightRadius: 8,
-                    backgroundColor: "#f8fafc",
-                    borderColor: "#e2e8f0",
+                    backgroundColor: editorToolbarBg,
+                    borderColor: editorBorder,
                   },
-                  ".ql-stroke": { stroke: "#475569" },
-                  ".ql-fill": { fill: "#475569" },
-                  ".ql-picker-label": { color: "#475569" },
-                  ".ql-toolbar button:hover .ql-stroke": { stroke: "#4f46e5" },
-                  ".ql-toolbar button:hover .ql-fill": { fill: "#4f46e5" },
-                  ".ql-toolbar button.ql-active .ql-stroke": { stroke: "#4f46e5" },
-                  ".ql-toolbar button.ql-active .ql-fill": { fill: "#4f46e5" },
+                  ".ql-stroke": { stroke: editorMuted },
+                  ".ql-fill": { fill: editorMuted },
+                  ".ql-picker-label": { color: editorMuted },
+                  ".ql-picker-options": {
+                    backgroundColor: theme.palette.background.paper,
+                    borderColor: editorBorder,
+                  },
+                  ".ql-toolbar button:hover .ql-stroke": { stroke: theme.palette.primary.main },
+                  ".ql-toolbar button:hover .ql-fill": { fill: theme.palette.primary.main },
+                  ".ql-toolbar button.ql-active .ql-stroke": { stroke: theme.palette.primary.main },
+                  ".ql-toolbar button.ql-active .ql-fill": { fill: theme.palette.primary.main },
                 }}
               />
             </Box>
@@ -682,8 +715,8 @@ const TaskEditorModal = ({
             <Paper
               sx={{
                 p: 2,
-                backgroundColor: "#fef2f2",
-                borderLeft: "4px solid #ef4444",
+                backgroundColor: alpha(theme.palette.error.main, 0.1),
+                borderLeft: `4px solid ${theme.palette.error.main}`,
               }}
             >
               <Typography variant="body2" color="error.dark">

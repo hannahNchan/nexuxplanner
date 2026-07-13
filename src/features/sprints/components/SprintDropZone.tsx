@@ -118,17 +118,25 @@ const SprintDropZone = ({ sprint, tasks, onStartSprint }: SprintDropZoneProps) =
               <Stack direction="row" spacing={1} flexWrap="wrap">
                 <Chip
                   icon={<EventIcon />}
-                  label={`Inicia: ${format(new Date(sprint.start_date!), "dd MMM yyyy", {
-                    locale: es,
-                  })}`}
+                  label={
+                    sprint.start_date
+                      ? `Inicia: ${format(new Date(sprint.start_date), "dd MMM yyyy", {
+                          locale: es,
+                        })}`
+                      : "Sin inicio"
+                  }
                   size="small"
                   variant="outlined"
                 />
                 <Chip
                   icon={<FlagIcon />}
-                  label={`Termina: ${format(new Date(sprint.end_date!), "dd MMM yyyy", {
-                    locale: es,
-                  })}`}
+                  label={
+                    sprint.end_date
+                      ? `Termina: ${format(new Date(sprint.end_date), "dd MMM yyyy", {
+                          locale: es,
+                        })}`
+                      : "Sprint abierto"
+                  }
                   size="small"
                   variant="outlined"
                 />

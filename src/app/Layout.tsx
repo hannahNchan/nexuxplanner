@@ -17,6 +17,7 @@ import {
   Drawer,
   List,
 } from "@mui/material";
+import CheckIcon from "@mui/icons-material/Check";
 import DashboardIcon from "@mui/icons-material/Dashboard";
 import FlagIcon from "@mui/icons-material/Flag";
 import ListAltIcon from "@mui/icons-material/ListAlt"; // ✨ NUEVO - Icono para Backlog
@@ -29,7 +30,7 @@ import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import TimelineIcon from "@mui/icons-material/Timeline";
 import SettingsIcon from "@mui/icons-material/Settings";
 import { supabase } from "../lib/supabase";
-import { useThemeMode } from "./ThemeContext";
+import { THEME_LABELS, useThemeMode, type ThemeMode } from "./ThemeContext";
 import { useState, useEffect, useRef } from "react";
 import ProjectSelector from "../features/projects/components/ProjectSelector";
 import UserAvatar from "../shared/ui/UserAvatar";
@@ -41,8 +42,9 @@ const SIDEBAR_MAX_WIDTH = 400;
 const Layout = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const { mode, toggleTheme } = useThemeMode();
+  const { mode, setThemeMode } = useThemeMode();
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
+  const [themeAnchorEl, setThemeAnchorEl] = useState<null | HTMLElement>(null);
   const [userEmail, setUserEmail] = useState<string>("");
   const [userId, setUserId] = useState<string>("");
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -109,6 +111,19 @@ const Layout = () => {
     setAnchorEl(null);
   };
 
+  const handleThemeMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
+    setThemeAnchorEl(event.currentTarget);
+  };
+
+  const handleThemeMenuClose = () => {
+    setThemeAnchorEl(null);
+  };
+
+  const handleThemeSelect = (themeMode: ThemeMode) => {
+    setThemeMode(themeMode);
+    handleThemeMenuClose();
+  };
+
   const handleLogout = async () => {
     handleMenuClose();
     await supabase.auth.signOut();
@@ -126,7 +141,7 @@ const Layout = () => {
   const currentWidth = sidebarOpen ? sidebarWidth : SIDEBAR_MIN_WIDTH;
 
   return (
-    <Box sx={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>
+    <Box sx={{ display: "flex", flexDirection: "column", minHeight: "100vh", maxWidth: "100vw", overflowX: "hidden" }}>
       {/* Header */}
       <AppBar position="static" elevation={0}>
         <Toolbar>
@@ -135,12 +150,40 @@ const Layout = () => {
             Nexus Planner
           </Typography>
 
-          {/* Toggle Dark/Light Mode */}
-          <Tooltip title={mode === "dark" ? "Modo claro" : "Modo oscuro"}>
-            <IconButton onClick={toggleTheme} color="inherit" sx={{ mr: 2 }}>
+          {/* Theme menu */}
+          <Tooltip title="Elegir tema">
+            <IconButton
+              onClick={handleThemeMenuOpen}
+              color="inherit"
+              sx={{ mr: 2 }}
+              aria-controls={themeAnchorEl ? "theme-menu" : undefined}
+              aria-haspopup="true"
+              aria-expanded={themeAnchorEl ? "true" : undefined}
+            >
               {mode === "dark" ? <Brightness7Icon /> : <Brightness4Icon />}
             </IconButton>
           </Tooltip>
+          <Menu
+            anchorEl={themeAnchorEl}
+            id="theme-menu"
+            open={Boolean(themeAnchorEl)}
+            onClose={handleThemeMenuClose}
+            transformOrigin={{ horizontal: "right", vertical: "top" }}
+            anchorOrigin={{ horizontal: "right", vertical: "bottom" }}
+            PaperProps={{
+              elevation: 3,
+              sx: { mt: 1, minWidth: 190 },
+            }}
+          >
+            {(["light", "dark", "solarized"] as ThemeMode[]).map((themeMode) => (
+              <MenuItem key={themeMode} selected={mode === themeMode} onClick={() => handleThemeSelect(themeMode)}>
+                <ListItemIcon>
+                  {mode === themeMode ? <CheckIcon fontSize="small" /> : null}
+                </ListItemIcon>
+                <ListItemText>{THEME_LABELS[themeMode]}</ListItemText>
+              </MenuItem>
+            ))}
+          </Menu>
 
           {/* Avatar con menú */}
           <Tooltip title="Cuenta">
@@ -217,7 +260,7 @@ const Layout = () => {
       </AppBar>
 
       {/* Main content area with sidebar */}
-      <Box sx={{ display: "flex", flexGrow: 1 }}>
+      <Box sx={{ display: "flex", flexGrow: 1, minWidth: 0, maxWidth: "100vw", overflowX: "hidden" }}>
         {/* Sidebar */}
         <Drawer
           ref={sidebarRef}
@@ -280,7 +323,17 @@ const Layout = () => {
         </Drawer>
 
         {/* Main content */}
-        <Box sx={{ flexGrow: 1, display: "flex", flexDirection: "column" }}>
+        <Box
+          sx={{
+            flexGrow: 1,
+            minWidth: 0,
+            width: 0,
+            maxWidth: `calc(100vw - ${currentWidth}px)`,
+            display: "flex",
+            flexDirection: "column",
+            overflowX: "hidden",
+          }}
+        >
           {/* Navegación con Tabs */}
           <Box sx={{ borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
             <Container maxWidth={false}>
@@ -324,7 +377,7 @@ const Layout = () => {
           </Box>
 
           {/* Contenido de la página */}
-          <Box sx={{ flexGrow: 1, bgcolor: "background.default", py: 4 }}>
+          <Box sx={{ flexGrow: 1, minWidth: 0, maxWidth: "100%", overflowX: "hidden", bgcolor: "background.default", py: 4 }}>
             <Outlet />
           </Box>
 

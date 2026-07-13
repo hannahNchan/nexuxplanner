@@ -3,6 +3,7 @@ import type { Session } from "@supabase/supabase-js";
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { supabase } from "../../lib/supabase";
+import { ensureSessionProfile } from "../api/userService";
 import AuthForm from "./AuthForm";
 
 type AuthGateProps = {
@@ -14,22 +15,34 @@ const AuthGate = ({ children }: AuthGateProps) => {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
+    let isMounted = true;
+
+    const applySession = async (next: Session | null) => {
+      await ensureSessionProfile(next);
+      if (isMounted) {
+        setSession(next);
+      }
+    };
+
     const loadSession = async () => {
       const { data, error } = await supabase.auth.getSession();
       if (error) {
         console.error(error);
       }
-      setSession(data.session ?? null);
-      setIsLoading(false);
+      await applySession(data.session ?? null);
+      if (isMounted) {
+        setIsLoading(false);
+      }
     };
 
     const { data: subscription } = supabase.auth.onAuthStateChange((_event, next) => {
-      setSession(next);
+      void applySession(next);
     });
 
     void loadSession();
 
     return () => {
+      isMounted = false;
       subscription.subscription.unsubscribe();
     };
   }, []);

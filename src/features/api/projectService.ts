@@ -9,6 +9,7 @@ export type Project = {
   task_sequence: number;
   epic_sequence: number;
   allow_board_task_creation: boolean;
+  banner_url: string | null;
   created_at: string;
   updated_at: string;
 };

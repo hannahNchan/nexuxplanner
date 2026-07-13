@@ -23,5 +23,5 @@ export type CreateSprintData = {
   name: string;
   goal?: string;
   start_date: string;
-  end_date: string;
+  end_date: string | null;
 };

@@ -66,6 +66,7 @@ const EpicsTable = ({ userId }: EpicsTableProps) => {
     setTaskSearchOpen: epic.setTaskSearchOpen,
     setTaskSearchText: epic.setTaskSearchText,
     handleNameChange: epic.handleNameChange,
+    handleEpicDateChange: epic.handleEpicDateChange,
     handleDisconnectTask: epic.handleDisconnectTask,
     handleDeleteEpic: epic.handleDeleteEpic,
   });
@@ -360,6 +361,8 @@ const EpicsTable = ({ userId }: EpicsTableProps) => {
           open={epic.taskSearchOpen !== null}
           taskSearchText={epic.taskSearchText}
           taskOptions={epic.taskOptions}
+          isLoading={epic.isTaskSearchLoading}
+          currentEpicId={epic.taskSearchOpen}
           connectedTaskIds={
             epic.rows.find((r) => r.id === epic.taskSearchOpen)?.connectedTasks?.map((t: any) => t.id) ||
             []

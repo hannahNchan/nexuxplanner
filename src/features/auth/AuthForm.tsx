@@ -2,6 +2,7 @@ import {
   Alert,
   Box,
   Button,
+  Divider,
   Paper,
   Stack,
   TextField,
@@ -10,43 +11,59 @@ import {
 import { useState } from "react";
 import { supabase } from "../../lib/supabase";
 
-type AuthMode = "sign-in" | "sign-up";
+type AuthMode = "google" | "email";
 
 type AuthFormProps = {
   onSuccess: () => void;
 };
 
 const AuthForm = ({ onSuccess }: AuthFormProps) => {
-  const [mode, setMode] = useState<AuthMode>("sign-in");
+  const [mode, setMode] = useState<AuthMode>("google");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const handleSubmit = async () => {
+  const handleGoogleSignIn = async () => {
     setIsSubmitting(true);
     setErrorMessage(null);
 
     try {
-      if (mode === "sign-in") {
-        const { error } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        });
-        if (error) {
-          throw error;
-        }
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: window.location.origin,
+        },
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      onSuccess();
+    } catch (error) {
+      if (error instanceof Error) {
+        setErrorMessage(error.message);
       } else {
-        const { error } = await supabase.auth.signUp({
-          email,
-          password,
-            options: {
-            emailRedirectTo: undefined,
-          }
-        });
-        if (error) {
-          throw error;
-        }
+        setErrorMessage("No se pudo autenticar.");
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleEmailSignIn = async () => {
+    setIsSubmitting(true);
+    setErrorMessage(null);
+
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (error) {
+        throw error;
       }
 
       onSuccess();
@@ -62,56 +79,92 @@ const AuthForm = ({ onSuccess }: AuthFormProps) => {
   };
 
   return (
-    <Paper elevation={1} sx={{ p: 4, borderRadius: 3, maxWidth: 420 }}>
+    <Paper elevation={1} sx={{ p: 4, borderRadius: 3, width: "100%", maxWidth: 420 }}>
       <Stack spacing={3}>
         <Stack spacing={1}>
           <Typography variant="h5" fontWeight={700}>
-            {mode === "sign-in" ? "Iniciar sesión" : "Crear cuenta"}
+            Entrar a Nexus Planner
           </Typography>
           <Typography color="text.secondary">
-            Usa tu correo para entrar a tu tablero.
+            Usa tu cuenta de Google para continuar.
           </Typography>
         </Stack>
 
-        <Stack spacing={2}>
-          <TextField
-            label="Correo"
-            type="email"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            fullWidth
-          />
-          <TextField
-            label="Contraseña"
-            type="password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            fullWidth
-          />
-        </Stack>
+        <Button
+          variant="contained"
+          size="large"
+          onClick={handleGoogleSignIn}
+          disabled={isSubmitting}
+          sx={{
+            justifyContent: "center",
+            gap: 1.5,
+            textTransform: "none",
+            py: 1.25,
+          }}
+        >
+          <Box
+            component="span"
+            sx={{
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: 22,
+              height: 22,
+              borderRadius: "50%",
+              bgcolor: "background.paper",
+              color: "text.primary",
+              fontWeight: 700,
+              fontSize: 14,
+            }}
+          >
+            G
+          </Box>
+          Continuar con Google
+        </Button>
+
+        <Divider />
+
+        {mode === "email" && (
+          <Stack spacing={2}>
+            <TextField
+              label="Correo"
+              type="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              fullWidth
+            />
+            <TextField
+              label="Contraseña"
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              fullWidth
+            />
+          </Stack>
+        )}
 
         {errorMessage && <Alert severity="error">{errorMessage}</Alert>}
 
         <Stack spacing={1}>
-          <Button
-            variant="contained"
-            onClick={handleSubmit}
-            disabled={isSubmitting || !email || !password}
-          >
-            {mode === "sign-in" ? "Entrar" : "Registrarme"}
-          </Button>
+          {mode === "email" && (
+            <Button
+              variant="outlined"
+              onClick={handleEmailSignIn}
+              disabled={isSubmitting || !email || !password}
+            >
+              Entrar con correo
+            </Button>
+          )}
           <Box textAlign="center">
             <Button
               variant="text"
               size="small"
               onClick={() =>
-                setMode((current) => (current === "sign-in" ? "sign-up" : "sign-in"))
+                setMode((current) => (current === "google" ? "email" : "google"))
               }
               disabled={isSubmitting}
             >
-              {mode === "sign-in"
-                ? "¿No tienes cuenta? Regístrate"
-                : "¿Ya tienes cuenta? Inicia sesión"}
+              {mode === "google" ? "Entrar con correo" : "Volver a Google"}
             </Button>
           </Box>
         </Stack>

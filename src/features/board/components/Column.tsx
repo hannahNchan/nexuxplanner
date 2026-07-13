@@ -62,9 +62,9 @@ const Column = ({
             sx={{
               borderRadius: 1,
               background: `linear-gradient(135deg, 
-                ${alpha(theme.palette.primary.main, 0.08)} 0%, 
-                ${alpha(theme.palette.secondary.main, 0.05)} 100%)`,
-              border: `1px solid ${alpha(theme.palette.primary.main, 0.1)}`,
+                ${alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.16 : 0.08)} 0%, 
+                ${alpha(theme.palette.secondary.main, theme.palette.mode === "dark" ? 0.12 : 0.05)} 100%)`,
+              border: `1px solid ${alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.22 : 0.12)}`,
               backdropFilter: "blur(10px)",
               width: "100%",
               height: maxHeight ? `${maxHeight}px` : "auto",
@@ -154,8 +154,8 @@ const Column = ({
                             alignItems: "center",
                             justifyContent: "center",
                             background: `linear-gradient(135deg, 
-                              ${alpha(theme.palette.primary.main, 0.1)} 0%, 
-                              ${alpha(theme.palette.secondary.main, 0.05)} 100%)`,
+                              ${alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.2 : 0.1)} 0%, 
+                              ${alpha(theme.palette.secondary.main, theme.palette.mode === "dark" ? 0.16 : 0.05)} 100%)`,
                             animation: dropSnapshot.isDraggingOver 
                               ? "none" 
                               : "pulse 2s ease-in-out infinite",

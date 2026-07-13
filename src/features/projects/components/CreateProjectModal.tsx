@@ -447,14 +447,15 @@ const CreateProjectModal = ({
                           size="small"
                           sx={{
                             bgcolor: tag.color,
-                            color: "#fff",
+                            color: theme.palette.getContrastText(tag.color),
                             fontWeight: 600,
                             border: `2px solid ${tag.color}`,
                             "& .MuiChip-deleteIcon": {
-                              color: "#fff",
+                              color: "inherit",
                               fontSize: "1rem",
+                              opacity: 0.85,
                               "&:hover": {
-                                color: "rgba(255, 255, 255, 0.8)",
+                                opacity: 1,
                               },
                             },
                           }}

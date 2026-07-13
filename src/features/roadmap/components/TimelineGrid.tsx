@@ -1,193 +1,965 @@
-import { Box, Typography, Dialog, DialogTitle, DialogContent, DialogActions, Button, FormControl, InputLabel, Select, MenuItem } from "@mui/material";
-import { useState } from "react";
-import { startOfYear, endOfYear, addMonths, startOfMonth, endOfMonth } from "date-fns";
-import Xarrow from "react-xarrows";
-import EpicBar from "./EpicBar";
-import type { EpicWithDetails } from "../../../features/api/epicService";
+import {
+  Alert,
+  Box,
+  Chip,
+  IconButton,
+  Snackbar,
+  Stack,
+  TextField,
+  Typography,
+} from "@mui/material";
+import { alpha, useTheme } from "@mui/material/styles";
+import AddIcon from "@mui/icons-material/Add";
+import CheckBoxIcon from "@mui/icons-material/CheckBox";
+import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
+import KeyboardArrowRightIcon from "@mui/icons-material/KeyboardArrowRight";
+import PersonIcon from "@mui/icons-material/Person";
+import {
+  addDays,
+  addMonths,
+  addWeeks,
+  differenceInDays,
+  endOfMonth,
+  endOfWeek,
+  format,
+  startOfMonth,
+  startOfWeek,
+} from "date-fns";
+import { es } from "date-fns/locale";
+import { useEffect, useMemo, useRef, useState } from "react";
+import UserAvatar from "../../../shared/ui/UserAvatar";
 import type { EpicDependency } from "../../../features/api/dependencyService";
+import type { EpicWithDetails, RoadmapTask } from "../../../features/api/epicService";
+import EpicBar from "./EpicBar";
+import RoadmapDependencyLayer from "./RoadmapDependencyLayer";
+import TimelineBar from "./TimelineBar";
 
 type TimelineGridProps = {
   epics: EpicWithDetails[];
   dependencies: EpicDependency[];
+  timelineMode: "weeks" | "months";
+  scrollRequest: { direction: "left" | "right"; nonce: number } | null;
+  onOverflowChange: (hasOverflow: boolean) => void;
   onUpdateEpicDates: (epicId: string, startDate: string, endDate: string) => void;
-  onCreateDependency: (fromEpicId: string, toEpicId: string, dependencyType: string) => void;
+  onUpdateTaskDates: (taskId: string, startDate: string, endDate: string) => void;
+  onMoveTaskToEpic: (taskId: string, epicId: string) => void;
+  onCreateTask: (epicId: string, title: string) => Promise<void>;
+  onCreateDependency: (fromEpicId: string, toEpicId: string, dependencyType: string) => Promise<void> | void;
+  onDeleteDependency: (dependencyId: string) => void;
+  showChildLevelIssues: boolean;
 };
 
-const TimelineGrid = ({ epics, dependencies, onUpdateEpicDates, onCreateDependency }: TimelineGridProps) => {
+const LEFT_PANEL_WIDTH = 520;
+const MONTH_DAY_WIDTH = 18;
+const DAY_WIDTH = 72;
+const ROADMAP_TASK_DRAG_TYPE = "application/x-roadmap-task";
+const TIMELINE_MONTHS = 3;
+const TIMELINE_WEEKS = 6;
+const LEFT_PANEL_SHADOW = "8px 0 12px rgba(15, 23, 42, 0.08)";
+
+type ConnectionEndpoint = {
+  id: string;
+  anchor: "start" | "end";
+};
+
+type RoadmapBarTarget = {
+  id: string;
+  type?: string;
+};
+
+const getDragPreviewPath = (
+  source: { x: number; y: number },
+  target: { x: number; y: number }
+) => {
+  const distance = Math.abs(target.x - source.x);
+  const bend = Math.max(56, Math.min(220, distance * 0.45));
+  const sourceControlX = target.x >= source.x ? source.x + bend : source.x - bend;
+  const targetControlX = target.x >= source.x ? target.x - bend : target.x + bend;
+
+  return `M ${source.x},${source.y} C ${sourceControlX},${source.y} ${targetControlX},${target.y} ${target.x},${target.y}`;
+};
+
+const getDefaultTaskDates = (
+  taskIndex: number,
+  timelineStart: Date,
+  timelineEnd: Date,
+  epicIndex: number
+) => {
+  const totalDays = Math.max(1, differenceInDays(timelineEnd, timelineStart));
+  const laneOffset = Math.min(Math.max(0, totalDays - 14), epicIndex * 14 + taskIndex * 7);
+  const taskStart = addDays(timelineStart, laneOffset);
+  const taskEnd = addDays(taskStart, 14);
+
+  return {
+    planned_start_date: format(taskStart, "yyyy-MM-dd"),
+    planned_end_date: format(taskEnd, "yyyy-MM-dd"),
+  };
+};
+
+const TimelineGrid = ({
+  epics,
+  dependencies: _dependencies,
+  timelineMode,
+  scrollRequest,
+  onOverflowChange,
+  onUpdateEpicDates,
+  onUpdateTaskDates,
+  onMoveTaskToEpic,
+  onCreateTask,
+  onCreateDependency,
+  onDeleteDependency,
+  showChildLevelIssues,
+}: TimelineGridProps) => {
+  const theme = useTheme();
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const today = new Date();
-  const yearStart = startOfYear(today);
-  const yearEnd = endOfYear(today);
+  const timelineStart = startOfWeek(today, { weekStartsOn: 1 });
+  const timelineEnd =
+    timelineMode === "weeks"
+      ? endOfWeek(addWeeks(timelineStart, TIMELINE_WEEKS - 1), { weekStartsOn: 1 })
+      : endOfMonth(addMonths(startOfMonth(timelineStart), TIMELINE_MONTHS - 1));
 
   const [isDraggingConnection, setIsDraggingConnection] = useState(false);
-  const [draggingFromEpic, setDraggingFromEpic] = useState<string | null>(null);
-  const [pendingConnection, setPendingConnection] = useState<{ from: string; to: string } | null>(null);
-  const [dependencyType, setDependencyType] = useState("finish-to-start");
+  const [connectionStart, setConnectionStart] = useState<ConnectionEndpoint | null>(null);
+  const [connectionSourcePoint, setConnectionSourcePoint] = useState({ x: 0, y: 0 });
+  const [connectionCursor, setConnectionCursor] = useState({ x: 0, y: 0 });
+  const [hoveredConnectionTarget, setHoveredConnectionTarget] = useState<RoadmapBarTarget | null>(null);
+  const [dragOverEpicId, setDragOverEpicId] = useState<string | null>(null);
+  const [collapsedEpicIds, setCollapsedEpicIds] = useState<Set<string>>(new Set());
+  const [creatingInputEpicId, setCreatingInputEpicId] = useState<string | null>(null);
+  const [draftTaskTitles, setDraftTaskTitles] = useState<Record<string, string>>({});
+  const [creatingTaskEpicIds, setCreatingTaskEpicIds] = useState<Set<string>>(new Set());
+  const [connectionWarning, setConnectionWarning] = useState("");
+  const epicColorsById = useMemo(
+    () =>
+      Object.fromEntries(
+        epics.map((epic) => [
+          epic.id,
+          epic.color || epic.phase_color || theme.palette.primary.main,
+        ])
+      ),
+    [epics, theme.palette.primary.main]
+  );
+  const activeConnectionColor = connectionStart
+    ? epicColorsById[connectionStart.id] ?? theme.palette.warning.main
+    : theme.palette.warning.main;
 
-  const quarters = [
-    { label: "ENE - MAR", start: startOfMonth(yearStart), end: endOfMonth(addMonths(yearStart, 2)) },
-    { label: "ABR - JUN", start: startOfMonth(addMonths(yearStart, 3)), end: endOfMonth(addMonths(yearStart, 5)) },
-    { label: "JUL - SEP", start: startOfMonth(addMonths(yearStart, 6)), end: endOfMonth(addMonths(yearStart, 8)) },
-    { label: "OCT - DIC", start: startOfMonth(addMonths(yearStart, 9)), end: endOfMonth(addMonths(yearStart, 11)) },
-  ];
+  const timelineMonths = Array.from({ length: TIMELINE_MONTHS }, (_, index) => {
+    const monthStart = startOfMonth(addMonths(timelineStart, index));
+    const visibleStart = monthStart < timelineStart ? timelineStart : monthStart;
+    const monthEnd = endOfMonth(monthStart);
+    const visibleEnd = monthEnd > timelineEnd ? timelineEnd : monthEnd;
+    const visibleDays = differenceInDays(visibleEnd, visibleStart) + 1;
 
-  const epicsWithDates = epics.filter(epic => epic.start_date && epic.end_date);
+    return {
+      type: "month" as const,
+      label: format(monthStart, "MMM yyyy", { locale: es }).toUpperCase(),
+      start: monthStart,
+      end: monthEnd,
+      width: visibleDays * MONTH_DAY_WIDTH,
+    };
+  });
 
-  const handleStartConnection = (epicId: string) => {
-    setIsDraggingConnection(true);
-    setDraggingFromEpic(epicId);
+  const timelineDays = Array.from({ length: TIMELINE_WEEKS * 7 }, (_, index) => {
+    const day = addDays(timelineStart, index);
+    return {
+      type: "day" as const,
+      label: format(day, "EEEEE", { locale: es }).toUpperCase(),
+      dayNumber: format(day, "d"),
+      monthLabel: format(day, "MMM", { locale: es }).toUpperCase(),
+      start: day,
+      end: day,
+      width: DAY_WIDTH,
+      weekIndex: Math.floor(index / 7),
+      isWeekStart: index % 7 === 0,
+    };
+  });
+
+  const timelineUnits = timelineMode === "weeks" ? timelineDays : timelineMonths;
+  const timelineWidth = timelineUnits.reduce((sum, unit) => sum + unit.width, 0);
+  const timelineAreaSx = {
+    width: timelineWidth,
+    minWidth: timelineWidth,
+    flex: "0 0 auto",
+    position: "relative",
+    display: "flex",
+  } as const;
+  const timelineTotalDays = differenceInDays(timelineEnd, timelineStart) + 1;
+  const todayOffsetPercent = (differenceInDays(today, timelineStart) / timelineTotalDays) * 100;
+
+  const scrollTimeline = (direction: "left" | "right") => {
+    const scrollContainer = scrollContainerRef.current;
+    if (!scrollContainer) return;
+
+    scrollContainer.scrollBy({
+      left: (timelineMode === "weeks" ? DAY_WIDTH * 7 : timelineWidth / TIMELINE_MONTHS) * (direction === "left" ? -1 : 1),
+      behavior: "smooth",
+    });
   };
 
-  const handleEndConnection = (toEpicId: string) => {
-    if (draggingFromEpic && draggingFromEpic !== toEpicId) {
-      setPendingConnection({ from: draggingFromEpic, to: toEpicId });
+  useEffect(() => {
+    if (!scrollRequest) return;
+    scrollTimeline(scrollRequest.direction);
+  }, [scrollRequest]);
+
+  useEffect(() => {
+    const scrollContainer = scrollContainerRef.current;
+    if (!scrollContainer) return;
+
+    const updateOverflow = () => {
+      onOverflowChange(scrollContainer.scrollWidth > scrollContainer.clientWidth + 1);
+    };
+
+    updateOverflow();
+
+    const resizeObserver = new ResizeObserver(updateOverflow);
+    resizeObserver.observe(scrollContainer);
+    window.addEventListener("resize", updateOverflow);
+
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener("resize", updateOverflow);
+    };
+  }, [collapsedEpicIds, epics, onOverflowChange, timelineMode, timelineWidth]);
+
+  const getRoadmapBarFromPoint = (clientX: number, clientY: number): RoadmapBarTarget | null => {
+    const element = document.elementFromPoint(clientX, clientY);
+    const bar = element?.closest<HTMLElement>("[data-roadmap-bar]");
+    const id = bar?.dataset.roadmapBar;
+    if (!id) return null;
+
+    return {
+      id,
+      type: bar.dataset.roadmapBarType,
+    };
+  };
+
+  useEffect(() => {
+    if (!isDraggingConnection || !connectionStart) return;
+
+    const finishConnection = (target: RoadmapBarTarget | null) => {
+      const finalTarget = target ?? hoveredConnectionTarget;
+
+      if (finalTarget?.type === "epic" && finalTarget.id !== connectionStart.id) {
+        void Promise.resolve(onCreateDependency(finalTarget.id, connectionStart.id, "finish-to-start")).finally(() => {
+          window.requestAnimationFrame(() => {
+            window.dispatchEvent(new Event("roadmap-bars-change"));
+          });
+        });
+      }
+      setIsDraggingConnection(false);
+      setConnectionStart(null);
+      setHoveredConnectionTarget(null);
+    };
+    
+    const handleMouseMove = (event: MouseEvent) => {
+      setConnectionCursor({ x: event.clientX, y: event.clientY });
+      const target = getRoadmapBarFromPoint(event.clientX, event.clientY);
+      setHoveredConnectionTarget(target && target.id !== connectionStart.id ? target : null);
+    };
+
+    const handleMouseUp = (event: MouseEvent) => {
+      finishConnection(getRoadmapBarFromPoint(event.clientX, event.clientY));
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsDraggingConnection(false);
+        setConnectionStart(null);
+        setHoveredConnectionTarget(null);
+      }
+    };
+
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [connectionStart, hoveredConnectionTarget, isDraggingConnection, onCreateDependency]);
+
+  const epicsWithTimelineData = epics;
+
+  const handleStartConnection = (
+    epicId: string,
+    anchor: "start" | "end",
+    _connectorId: string,
+    cursor: { x: number; y: number }
+  ) => {
+    if (anchor === "start") {
+      setIsDraggingConnection(false);
+      setConnectionStart(null);
+      setHoveredConnectionTarget(null);
+      setConnectionWarning("Por ahora solo puedes crear dependencias desde el fin de una épica hacia el inicio de otra.");
+      return;
+    }
+
+    setIsDraggingConnection(true);
+    setConnectionStart({ id: epicId, anchor });
+    setConnectionSourcePoint(cursor);
+    setConnectionCursor(cursor);
+    setHoveredConnectionTarget(null);
+  };
+
+  const handleEndConnection = (
+    toEpicId: string,
+    _anchor: "start" | "end",
+    _connectorId: string
+  ) => {
+    if (connectionStart && connectionStart.id !== toEpicId) {
+      void onCreateDependency(toEpicId, connectionStart.id, "finish-to-start");
     }
     setIsDraggingConnection(false);
-    setDraggingFromEpic(null);
+    setConnectionStart(null);
   };
 
-  const handleConfirmConnection = async () => {
-    if (pendingConnection) {
-      try {
-        await onCreateDependency(pendingConnection.from, pendingConnection.to, dependencyType);
-      } catch (error) {
-        console.error("Error creating dependency:", error);
+  const toggleEpicCollapsed = (epicId: string) => {
+    setCollapsedEpicIds((current) => {
+      const next = new Set(current);
+      if (next.has(epicId)) {
+        next.delete(epicId);
+      } else {
+        next.add(epicId);
       }
-    }
-    setPendingConnection(null);
-    setDependencyType("finish-to-start");
+      return next;
+    });
   };
 
-  const handleCancelModal = () => {
-    setPendingConnection(null);
-    setDependencyType("finish-to-start");
+  const handleEpicDragOver = (event: React.DragEvent, epicId: string) => {
+    if (!showChildLevelIssues) return;
+    if (!Array.from(event.dataTransfer.types).includes(ROADMAP_TASK_DRAG_TYPE)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    setDragOverEpicId(epicId);
+  };
+
+  const handleEpicDrop = (event: React.DragEvent, epicId: string) => {
+    if (!showChildLevelIssues) return;
+    const taskId = event.dataTransfer.getData(ROADMAP_TASK_DRAG_TYPE);
+    setDragOverEpicId(null);
+
+    if (!taskId) return;
+    event.preventDefault();
+    onMoveTaskToEpic(taskId, epicId);
+  };
+
+  const handleCreateTask = async (epicId: string) => {
+    const title = draftTaskTitles[epicId]?.trim();
+    if (!title || creatingTaskEpicIds.has(epicId)) return;
+
+    setCreatingTaskEpicIds((current) => new Set(current).add(epicId));
+    try {
+      await onCreateTask(epicId, title);
+      setDraftTaskTitles((current) => ({ ...current, [epicId]: "" }));
+      setCreatingInputEpicId(null);
+      setCollapsedEpicIds((current) => {
+        const next = new Set(current);
+        next.delete(epicId);
+        return next;
+      });
+    } finally {
+      setCreatingTaskEpicIds((current) => {
+        const next = new Set(current);
+        next.delete(epicId);
+        return next;
+      });
+    }
+  };
+
+  const renderLeftHeader = () => (
+    <Box
+      sx={{
+        width: LEFT_PANEL_WIDTH,
+        flexShrink: 0,
+        position: "sticky",
+        left: 0,
+        zIndex: 60,
+        display: "flex",
+        alignItems: "center",
+        bgcolor: theme.palette.background.paper,
+        overflow: "hidden",
+        px: 1.5,
+        py: 1.25,
+        borderRight: 1,
+        borderColor: "divider",
+        boxShadow: LEFT_PANEL_SHADOW,
+      }}
+    >
+      <Typography variant="caption" color="text.secondary" fontWeight={800}>
+        ÉPICA
+      </Typography>
+    </Box>
+  );
+
+  const renderTimelineColumns = () =>
+    timelineUnits.map((unit, unitIndex) => (
+      <Box
+        key={unitIndex}
+        sx={{
+          width: unit.width,
+          flexShrink: 0,
+          borderRight: 1,
+          borderLeft: timelineMode === "weeks" && unit.type === "day" && unit.isWeekStart ? 2 : 0,
+          borderColor: "divider",
+          position: "relative",
+          bgcolor:
+            timelineMode === "weeks" && unit.type === "day" && unit.weekIndex % 2 === 1
+              ? alpha(theme.palette.text.primary, 0.035)
+              : "transparent",
+        }}
+      />
+    ));
+
+  const renderTimelineHeader = () =>
+    timelineUnits.map((unit, index) => (
+      <Box
+        key={index}
+        sx={{
+          width: unit.width,
+          flexShrink: 0,
+          px: timelineMode === "weeks" ? 0.5 : 2,
+          py: timelineMode === "weeks" ? 0.75 : 2,
+          borderRight: 1,
+          borderLeft: timelineMode === "weeks" && unit.type === "day" && unit.isWeekStart ? 2 : 0,
+          borderColor: "divider",
+          textAlign: "center",
+          bgcolor:
+            timelineMode === "weeks" && unit.type === "day" && unit.weekIndex % 2 === 1
+              ? alpha(theme.palette.text.primary, 0.035)
+              : "transparent",
+        }}
+      >
+        {unit.type === "day" ? (
+          <Stack spacing={0.25} alignItems="center">
+            <Typography variant="caption" color="text.disabled" fontWeight={700} sx={{ lineHeight: 1 }}>
+              {unit.monthLabel}
+            </Typography>
+            <Typography
+              variant="caption"
+              color={format(unit.start, "yyyy-MM-dd") === format(today, "yyyy-MM-dd") ? "primary" : "text.secondary"}
+              fontWeight={800}
+              sx={{ lineHeight: 1.1 }}
+            >
+              {unit.label}
+            </Typography>
+            <Typography
+              variant="body2"
+              color={format(unit.start, "yyyy-MM-dd") === format(today, "yyyy-MM-dd") ? "primary" : "text.primary"}
+              fontWeight={format(unit.start, "yyyy-MM-dd") === format(today, "yyyy-MM-dd") ? 800 : 600}
+              sx={{ lineHeight: 1.1 }}
+            >
+              {unit.dayNumber}
+            </Typography>
+          </Stack>
+        ) : (
+          <Typography variant="subtitle2" fontWeight={700}>
+            {unit.label}
+          </Typography>
+        )}
+      </Box>
+    ));
+
+  const renderTodayMarker = () => (
+    <Box
+      sx={{
+        position: "absolute",
+        left: `${todayOffsetPercent}%`,
+        top: 0,
+        bottom: 0,
+        width: 2,
+        bgcolor: "warning.main",
+        zIndex: 1,
+        pointerEvents: "none",
+      }}
+    />
+  );
+
+  const renderTaskRow = (task: RoadmapTask, taskIndex: number, epicIndex: number) => {
+    const fallbackDates = getDefaultTaskDates(taskIndex, timelineStart, timelineEnd, epicIndex);
+    const taskStart = task.planned_start_date ?? task.sprint_start_date ?? fallbackDates.planned_start_date;
+    const taskEnd = task.planned_end_date ?? task.sprint_end_date ?? fallbackDates.planned_end_date;
+
+    return (
+      <Box
+        key={task.id}
+        sx={{
+          display: "flex",
+          minHeight: 46,
+          bgcolor: alpha(theme.palette.background.paper, 0.62),
+          borderTop: 1,
+          borderColor: "divider",
+          "&:hover": {
+            bgcolor: "action.hover",
+          },
+        }}
+      >
+        <Box
+          sx={{
+            width: LEFT_PANEL_WIDTH,
+            flexShrink: 0,
+            position: "sticky",
+            left: 0,
+            zIndex: 45,
+            pl: 6,
+            pr: 1.5,
+            py: 1,
+            borderRight: 1,
+            borderColor: "divider",
+            display: "flex",
+            alignItems: "center",
+            gap: 1.25,
+            minWidth: 0,
+            bgcolor: theme.palette.background.paper,
+            overflow: "hidden",
+            boxShadow: LEFT_PANEL_SHADOW,
+          }}
+        >
+          <CheckBoxIcon sx={{ color: "primary.main", fontSize: 18, flexShrink: 0 }} />
+
+          <Typography variant="body2" fontWeight={700} color="primary" noWrap sx={{ minWidth: 74 }}>
+            {task.task_id_display || "TASK"}
+          </Typography>
+
+          <Typography variant="body2" noWrap sx={{ flex: 1, minWidth: 0 }}>
+            {task.title}
+          </Typography>
+
+          <Chip
+            label={task.column_name || "Por hacer"}
+            size="small"
+            sx={{
+              height: 22,
+              maxWidth: 94,
+              fontWeight: 700,
+              bgcolor: alpha(theme.palette.text.primary, 0.08),
+              "& .MuiChip-label": {
+                px: 0.75,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              },
+            }}
+          />
+
+          <Box sx={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
+            {task.assignee_id ? (
+              <UserAvatar userId={task.assignee_id} size={24} showTooltip={false} />
+            ) : (
+              <Box
+                sx={{
+                  width: 24,
+                  height: 24,
+                  borderRadius: "50%",
+                  display: "grid",
+                  placeItems: "center",
+                  bgcolor: "action.hover",
+                  color: "text.disabled",
+                }}
+              >
+                <PersonIcon sx={{ fontSize: 16 }} />
+              </Box>
+            )}
+          </Box>
+        </Box>
+
+        <Box sx={timelineAreaSx}>
+          {renderTimelineColumns()}
+          {renderTodayMarker()}
+
+          <TimelineBar
+            id={task.id}
+            label={task.task_id_display ? `${task.task_id_display} ${task.title}` : task.title}
+            color={theme.palette.primary.main}
+            startDate={taskStart}
+            endDate={taskEnd}
+            timelineStart={timelineStart}
+            timelineEnd={timelineEnd}
+            height={30}
+            barType="task"
+            onUpdateDates={onUpdateTaskDates}
+            connectionVisual={{
+              active: isDraggingConnection,
+              sourceId: connectionStart?.id ?? null,
+              targetId: hoveredConnectionTarget?.id ?? null,
+            }}
+            onConnectionTargetChange={setHoveredConnectionTarget}
+            verticalDrag={{
+              dataType: ROADMAP_TASK_DRAG_TYPE,
+              data: task.id,
+              label: "Mover tarea entre épicas",
+            }}
+          />
+        </Box>
+      </Box>
+    );
+  };
+
+  const renderCreateTaskRow = (epic: EpicWithDetails) => {
+    if (creatingInputEpicId !== epic.id) return null;
+
+    const value = draftTaskTitles[epic.id] ?? "";
+    const isCreating = creatingTaskEpicIds.has(epic.id);
+
+    return (
+      <Box
+        key={`${epic.id}-create-task`}
+        sx={{
+          display: "flex",
+          minHeight: 46,
+          bgcolor: alpha(theme.palette.background.paper, 0.82),
+          borderTop: 1,
+          borderColor: "divider",
+        }}
+      >
+        <Box
+          sx={{
+            width: LEFT_PANEL_WIDTH,
+            flexShrink: 0,
+            position: "sticky",
+            left: 0,
+            zIndex: 45,
+            pl: 6,
+            pr: 1.5,
+            py: 0.75,
+            borderRight: 1,
+            borderColor: "divider",
+            display: "flex",
+            alignItems: "center",
+            gap: 1,
+            bgcolor: theme.palette.background.paper,
+            overflow: "hidden",
+            boxShadow: LEFT_PANEL_SHADOW,
+          }}
+        >
+          <IconButton
+            size="small"
+            disabled={!value.trim() || isCreating}
+            onClick={() => void handleCreateTask(epic.id)}
+            aria-label="Crear tarea en épica"
+            sx={{
+              width: 28,
+              height: 28,
+              color: "primary.main",
+            }}
+          >
+            <AddIcon sx={{ fontSize: 18 }} />
+          </IconButton>
+          <TextField
+            size="small"
+            fullWidth
+            value={value}
+            disabled={isCreating}
+            placeholder="¿Qué hay que hacer?"
+            onChange={(event) =>
+              setDraftTaskTitles((current) => ({
+                ...current,
+                [epic.id]: event.target.value,
+              }))
+            }
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                void handleCreateTask(epic.id);
+              } else if (event.key === "Escape") {
+                setCreatingInputEpicId(null);
+              }
+            }}
+            sx={{
+              "& .MuiOutlinedInput-root": {
+                height: 34,
+                borderRadius: 1,
+                bgcolor: "background.paper",
+              },
+            }}
+          />
+        </Box>
+
+        <Box sx={timelineAreaSx}>
+          {renderTimelineColumns()}
+          {renderTodayMarker()}
+        </Box>
+      </Box>
+    );
   };
 
   return (
-    <Box sx={{ overflow: "auto", height: "100%", position: "relative" }}>
-      <Box sx={{ display: "flex", borderBottom: 2, borderColor: "divider", position: "sticky", top: 0, bgcolor: "background.paper", zIndex: 10 }}>
-        <Box sx={{ width: 200, flexShrink: 0, p: 2, borderRight: 1, borderColor: "divider" }}>
-          <Typography variant="subtitle2" fontWeight={700}>
-            Épicas
-          </Typography>
-        </Box>
+    <Box sx={{ position: "relative", width: "100%", maxWidth: "100%", minWidth: 0, height: "100%" }}>
+      <Box
+        ref={scrollContainerRef}
+        sx={{
+          overflow: "auto",
+          height: "100%",
+          width: "100%",
+          maxWidth: "100%",
+          minWidth: 0,
+          position: "relative",
+          border: 1,
+          borderColor: "divider",
+          borderRadius: 2,
+        }}
+      >
+      <RoadmapDependencyLayer
+        dependencies={_dependencies}
+        scrollContainerRef={scrollContainerRef}
+        refreshKey={`${timelineMode}:${timelineWidth}:${epicsWithTimelineData.length}:${collapsedEpicIds.size}:${showChildLevelIssues}`}
+        color={theme.palette.error.main}
+        previewColor={theme.palette.warning.main}
+        epicColorsById={epicColorsById}
+        onDeleteDependency={onDeleteDependency}
+      />
+      <Box
+        sx={{
+          display: "flex",
+          borderBottom: 2,
+          borderColor: "divider",
+          position: "sticky",
+          top: 0,
+          bgcolor: "background.paper",
+          zIndex: 50,
+        }}
+      >
+        {renderLeftHeader()}
 
-        {quarters.map((quarter, index) => (
-          <Box
-            key={index}
-            sx={{
-              flex: 1,
-              minWidth: 200,
-              p: 2,
-              borderRight: 1,
-              borderColor: "divider",
-              textAlign: "center",
-            }}
-          >
-            <Typography variant="subtitle2" fontWeight={700}>
-              {quarter.label}
-            </Typography>
-          </Box>
-        ))}
+        {renderTimelineHeader()}
       </Box>
 
       <Box sx={{ position: "relative" }}>
-        {epicsWithDates.map((epic, index) => (
-          <Box
-            key={epic.id}
-            sx={{
-              display: "flex",
-              borderBottom: 1,
-              borderColor: "divider",
-              minHeight: 60,
-              bgcolor: index % 2 === 0 ? "background.paper" : "action.hover",
-              "&:hover": {
-                bgcolor: "action.selected",
-              },
-            }}
-          >
+        {epicsWithTimelineData.map((epic, epicIndex) => {
+          const tasks = epic.connected_tasks ?? [];
+          const isDragOver = dragOverEpicId === epic.id;
+          const isExpanded = !collapsedEpicIds.has(epic.id);
+
+          return (
             <Box
+              key={epic.id}
+              onDragOver={(event) => handleEpicDragOver(event, epic.id)}
+              onDragLeave={(event) => {
+                if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                  setDragOverEpicId((current) => (current === epic.id ? null : current));
+                }
+              }}
+              onDrop={(event) => handleEpicDrop(event, epic.id)}
               sx={{
-                width: 200,
-                flexShrink: 0,
-                p: 2,
-                borderRight: 1,
-                borderColor: "divider",
-                display: "flex",
-                alignItems: "center",
+                borderBottom: 1,
+                borderColor: isDragOver ? "primary.main" : "divider",
+                bgcolor: isDragOver ? alpha(theme.palette.primary.main, 0.08) : "transparent",
               }}
             >
-              <Typography variant="body2" fontWeight={600} noWrap>
-                {epic.epic_id_display || epic.name}
-              </Typography>
-            </Box>
-
-            <Box sx={{ flex: 1, position: "relative", display: "flex" }}>
-              {quarters.map((_quarter, qIndex) => (
+              <Box
+                sx={{
+                  display: "flex",
+                  minHeight: 58,
+                  bgcolor: isExpanded
+                    ? alpha(theme.palette.primary.main, 0.07)
+                    : epicIndex % 2 === 0
+                      ? "background.paper"
+                      : "action.hover",
+                  "&:hover": {
+                    bgcolor: "action.selected",
+                  },
+                }}
+              >
                 <Box
-                  key={qIndex}
                   sx={{
-                    flex: 1,
-                    minWidth: 200,
+                    width: LEFT_PANEL_WIDTH,
+                    flexShrink: 0,
+                    position: "sticky",
+                    left: 0,
+                    zIndex: 45,
+                    px: 1.5,
+                    py: 1.25,
                     borderRight: 1,
                     borderColor: "divider",
-                    position: "relative",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 1.25,
+                    minWidth: 0,
+                    bgcolor: isExpanded
+                      ? theme.palette.mode === "dark"
+                        ? theme.palette.primary.dark
+                        : theme.palette.primary.light
+                      : epicIndex % 2 === 0
+                        ? theme.palette.background.paper
+                        : theme.palette.action.hover,
+                    overflow: "hidden",
+                    boxShadow: LEFT_PANEL_SHADOW,
                   }}
-                />
-              ))}
-              
-              <EpicBar
-                epic={epic}
-                monthStart={yearStart}
-                monthEnd={yearEnd}
-                onUpdateDates={onUpdateEpicDates}
-                isDraggingConnection={isDraggingConnection}
-                onStartConnection={handleStartConnection}
-                onEndConnection={handleEndConnection}
-                draggingFromEpic={draggingFromEpic}
-              />
+                >
+                  {showChildLevelIssues ? (
+                    <IconButton
+                      size="small"
+                      onClick={() => toggleEpicCollapsed(epic.id)}
+                      aria-label={isExpanded ? "Contraer épica" : "Expandir épica"}
+                      sx={{
+                        width: 28,
+                        height: 28,
+                        color: "text.secondary",
+                      }}
+                    >
+                      {isExpanded ? (
+                        <KeyboardArrowDownIcon sx={{ fontSize: 20 }} />
+                      ) : (
+                        <KeyboardArrowRightIcon sx={{ fontSize: 20 }} />
+                      )}
+                    </IconButton>
+                  ) : (
+                    <Box sx={{ width: 28, height: 28, flexShrink: 0 }} />
+                  )}
+                  <Chip
+                    label={epic.epic_id_display || "ÉPICA"}
+                    size="small"
+                    sx={{
+                      bgcolor: alpha(epic.color || theme.palette.primary.main, 0.16),
+                      color: "text.primary",
+                      fontWeight: 700,
+                      height: 22,
+                      flexShrink: 0,
+                    }}
+                  />
+                  <Stack minWidth={0} flex={1}>
+                    <Typography variant="body2" fontWeight={700} noWrap>
+                      {epic.name}
+                    </Typography>
+                    {showChildLevelIssues && (
+                      <Typography variant="caption" color="text.secondary">
+                        {tasks.length} tarea{tasks.length === 1 ? "" : "s"}
+                      </Typography>
+                    )}
+                  </Stack>
+                  {showChildLevelIssues && (
+                    <IconButton
+                      size="small"
+                      onClick={() => {
+                        setCreatingInputEpicId((current) => (current === epic.id ? null : epic.id));
+                        setCollapsedEpicIds((current) => {
+                          const next = new Set(current);
+                          next.delete(epic.id);
+                          return next;
+                        });
+                      }}
+                      aria-label="Agregar tarea a épica"
+                      sx={{
+                        width: 30,
+                        height: 30,
+                        color: "text.secondary",
+                        bgcolor: alpha(theme.palette.text.primary, 0.06),
+                        flexShrink: 0,
+                        "&:hover": {
+                          color: "primary.main",
+                          bgcolor: alpha(theme.palette.primary.main, 0.12),
+                        },
+                      }}
+                    >
+                      <AddIcon sx={{ fontSize: 20 }} />
+                    </IconButton>
+                  )}
+                </Box>
+
+                <Box sx={timelineAreaSx}>
+                  {renderTimelineColumns()}
+                  {renderTodayMarker()}
+                  <EpicBar
+                    epic={epic}
+                    monthStart={timelineStart}
+                    monthEnd={timelineEnd}
+                    onUpdateDates={onUpdateEpicDates}
+                    isDraggingConnection={isDraggingConnection}
+                    hoveredConnectionTargetId={hoveredConnectionTarget?.id ?? null}
+                    onConnectionTargetChange={setHoveredConnectionTarget}
+                    onStartConnection={handleStartConnection}
+                    onEndConnection={handleEndConnection}
+                    draggingFromEpic={connectionStart?.id ?? null}
+                  />
+                </Box>
+              </Box>
+
+              {showChildLevelIssues && isExpanded ? (
+                <>
+                  {tasks.map((task, taskIndex) => renderTaskRow(task, taskIndex, epicIndex))}
+                  {renderCreateTaskRow(epic)}
+                </>
+              ) : null}
+            </Box>
+          );
+        })}
+
+        {epicsWithTimelineData.length === 0 && (
+          <Box sx={{ display: "flex", minHeight: 120 }}>
+            <Box
+              sx={{
+                width: LEFT_PANEL_WIDTH,
+                flexShrink: 0,
+                position: "sticky",
+                left: 0,
+                zIndex: 45,
+                borderRight: 1,
+                borderColor: "divider",
+                bgcolor: theme.palette.background.paper,
+                overflow: "hidden",
+                boxShadow: LEFT_PANEL_SHADOW,
+              }}
+            />
+            <Box sx={{ flex: 1, position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <Typography variant="body2" color="text.secondary">
+                Crea épicas o asigna tareas para comenzar el roadmap.
+              </Typography>
             </Box>
           </Box>
-        ))}
+        )}
       </Box>
 
-      {dependencies.map((dep) => (
-        <Xarrow
-          key={dep.id}
-          start={`${dep.depends_on_epic_id}-right`}
-          end={`${dep.epic_id}-left`}
-          color="#666"
-          strokeWidth={2}
-          headSize={6}
-          curveness={0.6}
-          showHead={true}
-          path="smooth"
-        />
-      ))}
+      </Box>
 
-      <Dialog open={pendingConnection !== null} onClose={handleCancelModal}>
-        <DialogTitle>Crear Dependencia</DialogTitle>
-        <DialogContent sx={{ minWidth: 300, pt: 2 }}>
-          <FormControl fullWidth>
-            <InputLabel>Tipo de dependencia</InputLabel>
-            <Select
-              value={dependencyType}
-              label="Tipo de dependencia"
-              onChange={(e) => setDependencyType(e.target.value)}
+      {isDraggingConnection && connectionStart ? (
+        <Box
+          component="svg"
+          sx={{
+            position: "fixed",
+            inset: 0,
+            width: "100vw",
+            height: "100vh",
+            pointerEvents: "none",
+            zIndex: theme.zIndex.modal + 1,
+          }}
+        >
+          <defs>
+            <marker
+              id="roadmap-preview-arrow"
+              markerWidth="12"
+              markerHeight="12"
+              refX="10"
+              refY="6"
+              orient="auto"
+              markerUnits="strokeWidth"
             >
-              <MenuItem value="finish-to-start">Fin a Inicio (FS)</MenuItem>
-              <MenuItem value="start-to-start">Inicio a Inicio (SS)</MenuItem>
-              <MenuItem value="finish-to-finish">Fin a Fin (FF)</MenuItem>
-              <MenuItem value="start-to-finish">Inicio a Fin (SF)</MenuItem>
-            </Select>
-          </FormControl>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleCancelModal}>Cancelar</Button>
-          <Button onClick={handleConfirmConnection} variant="contained">
-            Crear
-          </Button>
-        </DialogActions>
-      </Dialog>
+              <path d="M 0 0 L 12 6 L 0 12 z" fill={activeConnectionColor} />
+            </marker>
+          </defs>
+          <path
+            d={getDragPreviewPath(connectionSourcePoint, connectionCursor)}
+            fill="none"
+            stroke={activeConnectionColor}
+            strokeWidth={3}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeDasharray="8 6"
+            markerEnd="url(#roadmap-preview-arrow)"
+          />
+        </Box>
+      ) : null}
+
+      <Snackbar
+        open={Boolean(connectionWarning)}
+        autoHideDuration={4200}
+        onClose={() => setConnectionWarning("")}
+        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+      >
+        <Alert severity="warning" variant="filled" onClose={() => setConnectionWarning("")} sx={{ width: "100%" }}>
+          {connectionWarning}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 };

@@ -23,14 +23,36 @@ export type Epic = {
   updated_at: string;
 };
 
+export type RoadmapTask = {
+  id: string;
+  project_id: string | null;
+  column_id: string | null;
+  column_name?: string | null;
+  sprint_id: string | null;
+  sprint_name?: string | null;
+  sprint_start_date?: string | null;
+  sprint_end_date?: string | null;
+  title: string;
+  task_id_display: string | null;
+  issue_type_id: string | null;
+  priority_id: string | null;
+  story_points: string | null;
+  assignee_id: string | null;
+  planned_start_date: string | null;
+  planned_end_date: string | null;
+};
+
+export type TaskSearchOption = {
+  id: string;
+  title: string;
+  assigned_epic_id: string | null;
+};
+
 export type EpicWithDetails = Epic & {
   owner_name?: string;
   phase_name?: string;
   phase_color?: string;
-  connected_tasks?: Array<{
-    id: string;
-    title: string;
-  }>;
+  connected_tasks?: RoadmapTask[];
 };
 
 export const fetchEpicPhases = async (): Promise<EpicPhase[]> => {
@@ -68,21 +90,89 @@ export const fetchEpics = async (
 
   const epicsWithDetails: EpicWithDetails[] = await Promise.all(
     (data ?? []).map(async (epic: any) => {
-      const { data: epicTasks } = await supabase
+      const { data: linkedEpicTasks } = await supabase
         .from("epic_tasks")
         .select(`
           task_id,
           tasks!epic_tasks_task_id_fkey (
             id,
-            title
+            project_id,
+            column_id,
+            sprint_id,
+            title,
+            task_id_display,
+            issue_type_id,
+            priority_id,
+            story_points,
+            assignee_id,
+            planned_start_date,
+            planned_end_date
           )
         `)
         .eq("epic_id", epic.id);
 
-      const connected_tasks = (epicTasks ?? []).map((et: any) => ({
-        id: et.tasks.id,
-        title: et.tasks.title,
-      }));
+      const { data: directEpicTasks } = await supabase
+        .from("tasks")
+        .select(`
+          id,
+          project_id,
+          column_id,
+          sprint_id,
+          title,
+          task_id_display,
+          issue_type_id,
+          priority_id,
+          story_points,
+          assignee_id,
+          planned_start_date,
+          planned_end_date
+        `)
+        .eq("epic_id", epic.id);
+
+      const tasksById = new Map<string, RoadmapTask>();
+
+      (linkedEpicTasks ?? []).forEach((et: any) => {
+        if (et.tasks?.id) {
+          tasksById.set(et.tasks.id, et.tasks);
+        }
+      });
+
+      (directEpicTasks ?? []).forEach((task: any) => {
+        if (task?.id) {
+          tasksById.set(task.id, task);
+        }
+      });
+
+      const connected_tasks = Array.from(tasksById.values());
+      const columnIds = [...new Set(connected_tasks.map((task) => task.column_id).filter(Boolean))] as string[];
+      const sprintIds = [...new Set(connected_tasks.map((task) => task.sprint_id).filter(Boolean))] as string[];
+
+      if (columnIds.length > 0) {
+        const { data: columns } = await supabase
+          .from("columns")
+          .select("id, name")
+          .in("id", columnIds);
+
+        const columnNameById = new Map((columns ?? []).map((column) => [column.id, column.name]));
+        connected_tasks.forEach((task) => {
+          task.column_name = task.column_id ? columnNameById.get(task.column_id) ?? null : null;
+        });
+      }
+
+      if (sprintIds.length > 0) {
+        const { data: sprints } = await supabase
+          .from("sprints")
+          .select("id, name, start_date, end_date")
+          .in("id", sprintIds);
+
+        const sprintById = new Map((sprints ?? []).map((sprint) => [sprint.id, sprint]));
+        connected_tasks.forEach((task) => {
+          const sprint = task.sprint_id ? sprintById.get(task.sprint_id) : null;
+          task.sprint_name = sprint?.name ?? null;
+          task.sprint_start_date = sprint?.start_date ?? null;
+          task.sprint_end_date = sprint?.end_date ?? null;
+        });
+      }
 
       return {
         ...epic,
@@ -184,7 +274,7 @@ export const disconnectTaskFromEpic = async (
 export const searchTasks = async (
   projectId: string | null,
   query: string = ""
-): Promise<Array<{ id: string; title: string }>> => {
+): Promise<TaskSearchOption[]> => {
 
   if (!projectId) {
     return [];
@@ -207,7 +297,7 @@ export const searchTasks = async (
 
   let queryBuilder = supabase
     .from("tasks")
-    .select("id, title")
+    .select("id, title, epic_id")
     .in("column_id", columnIds)
     .order("title", { ascending: true });
 
@@ -223,5 +313,150 @@ export const searchTasks = async (
     throw error;
   }
 
-  return data ?? [];
+  const taskIds = (data ?? []).map((task) => task.id);
+  const linkedEpicByTaskId = new Map<string, string>();
+
+  if (taskIds.length > 0) {
+    const { data: linkedTasks, error: linkedTasksError } = await supabase
+      .from("epic_tasks")
+      .select("task_id, epic_id")
+      .in("task_id", taskIds);
+
+    if (linkedTasksError) {
+      throw linkedTasksError;
+    }
+
+    (linkedTasks ?? []).forEach((linkedTask) => {
+      if (linkedTask.task_id && linkedTask.epic_id && !linkedEpicByTaskId.has(linkedTask.task_id)) {
+        linkedEpicByTaskId.set(linkedTask.task_id, linkedTask.epic_id);
+      }
+    });
+  }
+
+  return (data ?? []).map((task) => ({
+    id: task.id,
+    title: task.title,
+    assigned_epic_id: task.epic_id ?? linkedEpicByTaskId.get(task.id) ?? null,
+  }));
+};
+
+export const updateTaskPlannedDates = async (
+  taskId: string,
+  startDate: string,
+  endDate: string
+): Promise<void> => {
+  const { error } = await supabase
+    .from("tasks")
+    .update({
+      planned_start_date: startDate,
+      planned_end_date: endDate,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", taskId);
+
+  if (error) throw error;
+};
+
+export const createRoadmapTaskForEpic = async (
+  projectId: string,
+  epicId: string,
+  title: string
+): Promise<RoadmapTask> => {
+  const { data: todoColumn, error: todoColumnError } = await supabase
+    .from("columns")
+    .select("id, name")
+    .eq("project_id", projectId)
+    .ilike("name", "Por hacer")
+    .order("position", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (todoColumnError) throw todoColumnError;
+
+  const { data: fallbackColumn, error: fallbackColumnError } = todoColumn
+    ? { data: null, error: null }
+    : await supabase
+        .from("columns")
+        .select("id, name")
+        .eq("project_id", projectId)
+        .order("position", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+
+  if (fallbackColumnError) throw fallbackColumnError;
+
+  const column = todoColumn ?? fallbackColumn;
+
+  if (!column) {
+    throw new Error("No hay columnas disponibles para crear la tarea.");
+  }
+
+  const { count, error: countError } = await supabase
+    .from("tasks")
+    .select("id", { count: "exact", head: true })
+    .eq("column_id", column.id);
+
+  if (countError) throw countError;
+
+  const { data: createdTask, error: createError } = await supabase
+    .from("tasks")
+    .insert({
+      project_id: projectId,
+      column_id: column.id,
+      epic_id: epicId,
+      title,
+      position: count ?? 0,
+      in_backlog: false,
+    })
+    .select(
+      "id, project_id, column_id, sprint_id, title, task_id_display, issue_type_id, priority_id, story_points, assignee_id, planned_start_date, planned_end_date"
+    )
+    .single();
+
+  if (createError) throw createError;
+
+  const { error: linkError } = await supabase
+    .from("epic_tasks")
+    .insert({
+      epic_id: epicId,
+      task_id: createdTask.id,
+    });
+
+  if (linkError) throw linkError;
+
+  return {
+    ...createdTask,
+    column_name: column.name,
+    sprint_name: null,
+    sprint_start_date: null,
+    sprint_end_date: null,
+  };
+};
+
+export const moveTaskToEpic = async (taskId: string, epicId: string): Promise<void> => {
+  const { error: taskError } = await supabase
+    .from("tasks")
+    .update({
+      epic_id: epicId,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", taskId);
+
+  if (taskError) throw taskError;
+
+  const { error: deleteError } = await supabase
+    .from("epic_tasks")
+    .delete()
+    .eq("task_id", taskId);
+
+  if (deleteError) throw deleteError;
+
+  const { error: insertError } = await supabase
+    .from("epic_tasks")
+    .insert({
+      epic_id: epicId,
+      task_id: taskId,
+    });
+
+  if (insertError) throw insertError;
 };

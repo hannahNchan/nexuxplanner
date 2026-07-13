@@ -75,7 +75,7 @@ const SprintTasksTable = ({ tasks }: SprintTasksTableProps) => {
                     size="small"
                     sx={{
                       bgcolor: task.priority.color,
-                      color: "#fff",
+                      color: theme.palette.getContrastText(task.priority.color),
                       fontWeight: 600,
                       fontSize: "0.7rem",
                       height: 20,

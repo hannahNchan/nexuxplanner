@@ -19,6 +19,7 @@ import RestoreIcon from "@mui/icons-material/Restore";
 import DeleteIcon from "@mui/icons-material/Delete";
 import Quill from "quill";
 import "quill/dist/quill.snow.css";
+import { alpha, useTheme } from "@mui/material/styles";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createBoard, fetchPrimaryBoard } from "../api/boardService";
 import {
@@ -36,6 +37,7 @@ type QuillEditorProps = {
 };
 
 const QuillEditor = ({ userId }: QuillEditorProps) => {
+  const theme = useTheme();
   const editorRef = useRef<HTMLDivElement | null>(null);
   const quillRef = useRef<Quill | null>(null);
   const [boardId, setBoardId] = useState<string | null>(null);
@@ -357,6 +359,10 @@ const QuillEditor = ({ userId }: QuillEditorProps) => {
     if (seconds < 86400) return `hace ${Math.floor(seconds / 3600)} h`;
     return formatHumanDate(date.toISOString()); // ✅ CORREGIDO
   };
+  const editorBorder = theme.palette.divider;
+  const editorToolbarBg = theme.palette.action.selected;
+  const editorText = theme.palette.text.primary;
+  const editorMuted = theme.palette.text.secondary;
 
   return (
     <Stack spacing={2}>
@@ -465,25 +471,36 @@ const QuillEditor = ({ userId }: QuillEditorProps) => {
                     overflowY: "auto",
                     fontSize: 16,
                     fontFamily: "'Inter', 'Roboto', sans-serif",
+                    color: editorText,
+                    backgroundColor: theme.palette.background.paper,
+                    "&.ql-blank::before": {
+                      color: editorMuted,
+                      opacity: 0.8,
+                    },
                   },
                   ".ql-container": {
                     borderBottomLeftRadius: 8,
                     borderBottomRightRadius: 8,
-                    borderColor: "#e2e8f0",
+                    borderColor: editorBorder,
+                    backgroundColor: theme.palette.background.paper,
                   },
                   ".ql-toolbar": {
                     borderTopLeftRadius: 8,
                     borderTopRightRadius: 8,
-                    backgroundColor: "#f8fafc",
-                    borderColor: "#e2e8f0",
+                    backgroundColor: editorToolbarBg,
+                    borderColor: editorBorder,
                   },
-                  ".ql-stroke": { stroke: "#475569" },
-                  ".ql-fill": { fill: "#475569" },
-                  ".ql-picker-label": { color: "#475569" },
-                  ".ql-toolbar button:hover .ql-stroke": { stroke: "#4f46e5" },
-                  ".ql-toolbar button:hover .ql-fill": { fill: "#4f46e5" },
-                  ".ql-toolbar button.ql-active .ql-stroke": { stroke: "#4f46e5" },
-                  ".ql-toolbar button.ql-active .ql-fill": { fill: "#4f46e5" },
+                  ".ql-stroke": { stroke: editorMuted },
+                  ".ql-fill": { fill: editorMuted },
+                  ".ql-picker-label": { color: editorMuted },
+                  ".ql-picker-options": {
+                    backgroundColor: theme.palette.background.paper,
+                    borderColor: editorBorder,
+                  },
+                  ".ql-toolbar button:hover .ql-stroke": { stroke: theme.palette.primary.main },
+                  ".ql-toolbar button:hover .ql-fill": { fill: theme.palette.primary.main },
+                  ".ql-toolbar button.ql-active .ql-stroke": { stroke: theme.palette.primary.main },
+                  ".ql-toolbar button.ql-active .ql-fill": { fill: theme.palette.primary.main },
                 }}
               />
             </>
@@ -526,13 +543,13 @@ const QuillEditor = ({ userId }: QuillEditorProps) => {
                   sx={{
                     p: 2,
                     border: "2px solid",
-                    borderColor: "#e2e8f0",
+                    borderColor: "divider",
                     borderRadius: 2,
                     cursor: "pointer",
                     transition: "all 0.2s",
                     "&:hover": {
-                      borderColor: "#4f46e5",
-                      backgroundColor: "#f8fafc",
+                      borderColor: "primary.main",
+                      backgroundColor: "action.hover",
                     },
                   }}
                 >
@@ -612,8 +629,8 @@ const QuillEditor = ({ userId }: QuillEditorProps) => {
             <Paper
               sx={{
                 p: 2,
-                backgroundColor: "#f8fafc",
-                borderLeft: "4px solid #4f46e5",
+                backgroundColor: alpha(theme.palette.primary.main, 0.1),
+                borderLeft: `4px solid ${theme.palette.primary.main}`,
               }}
             >
               <Typography variant="body2" color="text.secondary">
@@ -659,8 +676,8 @@ const QuillEditor = ({ userId }: QuillEditorProps) => {
             <Paper
               sx={{
                 p: 2,
-                backgroundColor: "#fef2f2",
-                borderLeft: "4px solid #ef4444",
+                backgroundColor: alpha(theme.palette.error.main, 0.1),
+                borderLeft: `4px solid ${theme.palette.error.main}`,
               }}
             >
               <Typography variant="body2" color="error.dark">

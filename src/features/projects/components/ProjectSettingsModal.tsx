@@ -17,7 +17,6 @@ import {
   CircularProgress,
   FormControlLabel,
   Switch,
-  Avatar,
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import AddIcon from "@mui/icons-material/Add";
@@ -62,7 +61,6 @@ const ProjectSettingsModal = ({
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string>("");
   const [currentBannerUrl, setCurrentBannerUrl] = useState<string>("");
-  const [projectData, setProjectData] = useState<any>(null);
 
   const [editingIssueTypes, setEditingIssueTypes] = useState<Record<string, Partial<IssueType>>>({});
   const [editingPriorities, setEditingPriorities] = useState<Record<string, Partial<Priority>>>({});
@@ -82,7 +80,6 @@ const ProjectSettingsModal = ({
     try {
       const project = await fetchProjectById(projectId);
       if (project) {
-        setProjectData(project);
         setCurrentBannerUrl(project.banner_url || "");
         setPreviewUrl("");
         setSelectedFile(null);

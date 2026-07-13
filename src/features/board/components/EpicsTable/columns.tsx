@@ -7,13 +7,23 @@ import {
 } from "@mui/material";
 import type { GridColDef } from "@mui/x-data-grid";
 import { GridActionsCellItem } from "@mui/x-data-grid";
+import { DatePicker } from "@mui/x-date-pickers/DatePicker";
+import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
+import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
 import { alpha } from "@mui/material/styles";
 import type { Theme } from "@mui/material/styles";
+import dayjs from "dayjs";
+import type { Dayjs } from "dayjs";
 import DeleteIcon from "@mui/icons-material/Delete";
 import EditIcon from "@mui/icons-material/Edit";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import FolderIcon from "@mui/icons-material/Folder";
 import TaskListCell from "./TaskListCell";
+
+const toDateString = (value: string | number | Date | Dayjs | null | undefined) => {
+  const parsed = dayjs(value);
+  return parsed.isValid() ? parsed.format("YYYY-MM-DD") : null;
+};
 
 type CreateColumnsParams = {
   theme: Theme;
@@ -34,6 +44,7 @@ type CreateColumnsParams = {
   setTaskSearchOpen: (id: string | null) => void;
   setTaskSearchText: (text: string) => void;
   handleNameChange: (epicId: string, newName: string) => void;
+  handleEpicDateChange: (epicId: string, field: "start_date" | "end_date", value: string | null) => void;
   handleDisconnectTask: (epicId: string, taskId: string) => void;
   handleDeleteEpic: (epicId: string) => void;
 };
@@ -54,9 +65,60 @@ export const createEpicsTableColumns = (params: CreateColumnsParams): GridColDef
     setTaskSearchOpen,
     setTaskSearchText,
     handleNameChange,
+    handleEpicDateChange,
     handleDisconnectTask,
     handleDeleteEpic,
   } = params;
+
+  const renderDateCell = (
+    cellParams: any,
+    field: "start_date" | "end_date",
+    label: string
+  ) => (
+    <Box
+      sx={{ width: "100%", display: "flex", alignItems: "center" }}
+      onClick={(event) => event.stopPropagation()}
+      onMouseDown={(event) => event.stopPropagation()}
+    >
+      <LocalizationProvider dateAdapter={AdapterDayjs}>
+        <DatePicker
+          value={cellParams.value ? dayjs(cellParams.value as string) : null}
+          onChange={(value) => {
+            handleEpicDateChange(
+              cellParams.row.id as string,
+              field,
+              value ? toDateString(value) : null
+            );
+          }}
+          slotProps={{
+            textField: {
+              size: "small",
+              placeholder: label,
+              variant: "outlined",
+              sx: {
+                width: "100%",
+                "& .MuiOutlinedInput-root": {
+                  height: 34,
+                  borderRadius: 2,
+                  bgcolor: alpha(theme.palette.primary.main, 0.04),
+                  "& fieldset": {
+                    borderColor: alpha(theme.palette.primary.main, 0.18),
+                  },
+                  "&:hover fieldset": {
+                    borderColor: alpha(theme.palette.primary.main, 0.45),
+                  },
+                },
+                "& input": {
+                  fontSize: 13,
+                  fontWeight: 600,
+                },
+              },
+            },
+          }}
+        />
+      </LocalizationProvider>
+    </Box>
+  );
 
   return [
     {
@@ -227,43 +289,44 @@ export const createEpicsTableColumns = (params: CreateColumnsParams): GridColDef
       field: "phase",
       headerName: "Fase",
       width: 180,
-      renderCell: (cellParams) => (
-        <Tooltip title="Click para cambiar fase" placement="top">
-          <Box
-            sx={{
-              cursor: "pointer",
-              width: "100%",
-              height: "100%",
-              display: "flex",
-              alignItems: "center",
-            }}
-            onClick={(e) => {
-              setEditingPhase(cellParams.row.id as string);
-              setPhaseMenuAnchor(e.currentTarget);
-            }}
-          >
-            <Chip
-              label={cellParams.value as string}
-              size="small"
+      renderCell: (cellParams) => {
+        const phaseColor = (cellParams.row.phaseColor as string) || theme.palette.grey[400];
+
+        return (
+          <Tooltip title="Click para cambiar fase" placement="top">
+            <Box
               sx={{
-                bgcolor: (cellParams.row.phaseColor as string) || theme.palette.grey[400],
-                color: "#fff",
-                fontWeight: 600,
                 cursor: "pointer",
-                transition: "all 0.2s ease",
-                "&:hover": {
-                  transform: "scale(1.05)",
-                  boxShadow: `0 4px 12px ${alpha(
-                    (cellParams.row.phaseColor as string) || theme.palette.grey[400],
-                    0.3
-                  )}`,
-                },
+                width: "100%",
+                height: "100%",
+                display: "flex",
+                alignItems: "center",
               }}
-              icon={<CheckCircleIcon sx={{ fontSize: 16, color: "#fff !important" }} />}
-            />
-          </Box>
-        </Tooltip>
-      ),
+              onClick={(e) => {
+                setEditingPhase(cellParams.row.id as string);
+                setPhaseMenuAnchor(e.currentTarget);
+              }}
+            >
+              <Chip
+                label={cellParams.value as string}
+                size="small"
+                sx={{
+                  bgcolor: phaseColor,
+                  color: theme.palette.getContrastText(phaseColor),
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  transition: "all 0.2s ease",
+                  "&:hover": {
+                    transform: "scale(1.05)",
+                    boxShadow: `0 4px 12px ${alpha(phaseColor, 0.3)}`,
+                  },
+                }}
+                icon={<CheckCircleIcon sx={{ fontSize: 16, color: "inherit !important" }} />}
+              />
+            </Box>
+          </Tooltip>
+        );
+      },
     },
     {
       field: "connectedTasks",
@@ -280,6 +343,18 @@ export const createEpicsTableColumns = (params: CreateColumnsParams): GridColDef
           onRemoveTask={handleDisconnectTask}
         />
       ),
+    },
+    {
+      field: "startDate",
+      headerName: "Inicio",
+      width: 170,
+      renderCell: (cellParams) => renderDateCell(cellParams, "start_date", "Sin inicio"),
+    },
+    {
+      field: "endDate",
+      headerName: "Fin",
+      width: 170,
+      renderCell: (cellParams) => renderDateCell(cellParams, "end_date", "Sin fin"),
     },
     {
       field: "estimatedEffort",

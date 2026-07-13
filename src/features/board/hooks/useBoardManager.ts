@@ -44,6 +44,7 @@ export const useBoardManager = (userId: string) => {
   const [isAddColumnModalOpen, setIsAddColumnModalOpen] = useState(false);
   const [selectedTask, setSelectedTask] = useState<{
     id: string;
+    project_id?: string | null;
     title: string;
     subtitle?: string;
     description?: string;
@@ -238,6 +239,7 @@ export const useBoardManager = (userId: string) => {
 
     setSelectedTask({
       id: task.id,
+      project_id: currentProject?.id ?? null,
       title: task.title,
       subtitle: task.subtitle,
       description: task.description,

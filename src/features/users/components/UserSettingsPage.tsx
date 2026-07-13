@@ -17,6 +17,7 @@ import { useUserProfile } from "../hooks/useUserProfile";
 import PhotoCameraIcon from "@mui/icons-material/PhotoCamera";
 import AddIcon from "@mui/icons-material/Add";
 import CloseIcon from "@mui/icons-material/Close";
+import { useTheme } from "@mui/material/styles";
 
 type UserSettingsPageProps = {
   userId: string;
@@ -24,6 +25,7 @@ type UserSettingsPageProps = {
 };
 
 const UserSettingsPage = ({ userId, userEmail }: UserSettingsPageProps) => {
+  const theme = useTheme();
   const { profile, loading, error, updateProfile, updateAvatar } = useUserProfile(userId);
   
   const [fullName, setFullName] = useState(profile?.full_name || "");
@@ -169,7 +171,7 @@ const UserSettingsPage = ({ userId, userEmail }: UserSettingsPageProps) => {
                     bgcolor="rgba(0,0,0,0.5)"
                     borderRadius="50%"
                   >
-                    <CircularProgress size={40} sx={{ color: "white" }} />
+                    <CircularProgress size={40} sx={{ color: theme.palette.common.white }} />
                   </Box>
                 )}
               </Box>
