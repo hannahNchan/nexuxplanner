@@ -8,7 +8,16 @@ import {
   type EpicWithDetails,
   type RoadmapTask,
 } from "../../../features/api/epicService";
-import { fetchDependencies, createDependency, deleteDependency, type EpicDependency } from "../../../features/api/dependencyService";
+import {
+  createDependency,
+  createTaskDependency,
+  deleteDependency,
+  deleteTaskDependency,
+  fetchDependencies,
+  fetchTaskDependencies,
+  type EpicDependency,
+  type TaskDependency,
+} from "../../../features/api/dependencyService";
 import {
   DEFAULT_ROADMAP_SETTINGS,
   fetchRoadmapSettings,
@@ -18,6 +27,7 @@ import {
 export const useRoadmap = (userId: string, projectId: string | null) => {
   const [epics, setEpics] = useState<EpicWithDetails[]>([]);
   const [dependencies, setDependencies] = useState<EpicDependency[]>([]);
+  const [taskDependencies, setTaskDependencies] = useState<TaskDependency[]>([]);
   const [settings, setSettings] = useState(DEFAULT_ROADMAP_SETTINGS);
   const [loading, setLoading] = useState(true);
 
@@ -33,11 +43,17 @@ export const useRoadmap = (userId: string, projectId: string | null) => {
       setSettings(roadmapSettings);
 
       const epicIds = epicsData.map(e => e.id);
-      const depsData = await fetchDependencies(epicIds);
+      const taskIds = epicsData.flatMap((epic) => epic.connected_tasks?.map((task) => task.id) ?? []);
+      const [depsData, taskDepsData] = await Promise.all([
+        fetchDependencies(epicIds),
+        fetchTaskDependencies(taskIds),
+      ]);
       setDependencies(depsData);
+      setTaskDependencies(taskDepsData);
     } catch (error) {
       setEpics([]);
       setDependencies([]);
+      setTaskDependencies([]);
       setSettings(DEFAULT_ROADMAP_SETTINGS);
     } finally {
       setLoading(false);
@@ -145,6 +161,34 @@ export const useRoadmap = (userId: string, projectId: string | null) => {
     setDependencies(prev => prev.filter(d => d.id !== dependencyId));
   };
 
+  const addTaskDependency = async (
+    taskId: string,
+    dependsOnTaskId: string,
+    dependencyType: string = "finish-to-start"
+  ) => {
+    const exists = taskDependencies.some(
+      (dependency) =>
+        dependency.task_id === taskId &&
+        dependency.depends_on_task_id === dependsOnTaskId
+    );
+
+    if (exists) {
+      return;
+    }
+
+    try {
+      const newDependency = await createTaskDependency(taskId, dependsOnTaskId, dependencyType);
+      setTaskDependencies((prev) => [...prev, newDependency]);
+    } catch (error) {
+      console.error("Error creating task dependency:", error);
+    }
+  };
+
+  const removeTaskDependency = async (dependencyId: string) => {
+    await deleteTaskDependency(dependencyId);
+    setTaskDependencies((prev) => prev.filter((dependency) => dependency.id !== dependencyId));
+  };
+
   const updateSettings = async (nextSettings: Partial<typeof DEFAULT_ROADMAP_SETTINGS>) => {
     const optimisticSettings = {
       ...settings,
@@ -167,6 +211,7 @@ export const useRoadmap = (userId: string, projectId: string | null) => {
   return {
     epics,
     dependencies,
+    taskDependencies,
     settings,
     loading,
     updateEpicDates,
@@ -175,6 +220,8 @@ export const useRoadmap = (userId: string, projectId: string | null) => {
     createTaskUnderEpic,
     addDependency,
     removeDependency,
+    addTaskDependency,
+    removeTaskDependency,
     updateSettings,
     refetch: loadData,
   };

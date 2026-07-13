@@ -28,15 +28,16 @@ import {
 import { es } from "date-fns/locale";
 import { useEffect, useMemo, useRef, useState } from "react";
 import UserAvatar from "../../../shared/ui/UserAvatar";
-import type { EpicDependency } from "../../../features/api/dependencyService";
+import type { EpicDependency, TaskDependency } from "../../../features/api/dependencyService";
 import type { EpicWithDetails, RoadmapTask } from "../../../features/api/epicService";
 import EpicBar from "./EpicBar";
-import RoadmapDependencyLayer from "./RoadmapDependencyLayer";
+import RoadmapDependencyLayer, { type RoadmapDependencyLine } from "./RoadmapDependencyLayer";
 import TimelineBar from "./TimelineBar";
 
 type TimelineGridProps = {
   epics: EpicWithDetails[];
   dependencies: EpicDependency[];
+  taskDependencies: TaskDependency[];
   timelineMode: "weeks" | "months";
   scrollRequest: { direction: "left" | "right"; nonce: number } | null;
   onOverflowChange: (hasOverflow: boolean) => void;
@@ -46,6 +47,8 @@ type TimelineGridProps = {
   onCreateTask: (epicId: string, title: string) => Promise<void>;
   onCreateDependency: (fromEpicId: string, toEpicId: string, dependencyType: string) => Promise<void> | void;
   onDeleteDependency: (dependencyId: string) => void;
+  onCreateTaskDependency: (fromTaskId: string, toTaskId: string, dependencyType: string) => Promise<void> | void;
+  onDeleteTaskDependency: (dependencyId: string) => void;
   showChildLevelIssues: boolean;
 };
 
@@ -60,11 +63,12 @@ const LEFT_PANEL_SHADOW = "8px 0 12px rgba(15, 23, 42, 0.08)";
 type ConnectionEndpoint = {
   id: string;
   anchor: "start" | "end";
+  type: "epic" | "task";
 };
 
 type RoadmapBarTarget = {
   id: string;
-  type?: string;
+  type?: "epic" | "task";
 };
 
 const getDragPreviewPath = (
@@ -99,6 +103,7 @@ const getDefaultTaskDates = (
 const TimelineGrid = ({
   epics,
   dependencies: _dependencies,
+  taskDependencies,
   timelineMode,
   scrollRequest,
   onOverflowChange,
@@ -108,6 +113,8 @@ const TimelineGrid = ({
   onCreateTask,
   onCreateDependency,
   onDeleteDependency,
+  onCreateTaskDependency,
+  onDeleteTaskDependency,
   showChildLevelIssues,
 }: TimelineGridProps) => {
   const theme = useTheme();
@@ -130,19 +137,41 @@ const TimelineGrid = ({
   const [draftTaskTitles, setDraftTaskTitles] = useState<Record<string, string>>({});
   const [creatingTaskEpicIds, setCreatingTaskEpicIds] = useState<Set<string>>(new Set());
   const [connectionWarning, setConnectionWarning] = useState("");
-  const epicColorsById = useMemo(
+  const colorsById = useMemo(
     () =>
       Object.fromEntries(
-        epics.map((epic) => [
-          epic.id,
-          epic.color || epic.phase_color || theme.palette.primary.main,
+        epics.flatMap((epic) => [
+          [
+            epic.id,
+            epic.color || epic.phase_color || theme.palette.primary.main,
+          ],
+          ...(epic.connected_tasks ?? []).map((task) => [task.id, theme.palette.primary.main]),
         ])
       ),
     [epics, theme.palette.primary.main]
   );
   const activeConnectionColor = connectionStart
-    ? epicColorsById[connectionStart.id] ?? theme.palette.warning.main
+    ? colorsById[connectionStart.id] ?? theme.palette.warning.main
     : theme.palette.warning.main;
+  const dependencyLines = useMemo<RoadmapDependencyLine[]>(
+    () => [
+      ..._dependencies.map((dependency) => ({
+        id: `epic:${dependency.id}`,
+        dependencyId: dependency.id,
+        kind: "epic" as const,
+        sourceId: dependency.depends_on_epic_id,
+        targetId: dependency.epic_id,
+      })),
+      ...taskDependencies.map((dependency) => ({
+        id: `task:${dependency.id}`,
+        dependencyId: dependency.id,
+        kind: "task" as const,
+        sourceId: dependency.depends_on_task_id,
+        targetId: dependency.task_id,
+      })),
+    ],
+    [_dependencies, taskDependencies]
+  );
 
   const timelineMonths = Array.from({ length: TIMELINE_MONTHS }, (_, index) => {
     const monthStart = startOfMonth(addMonths(timelineStart, index));
@@ -230,7 +259,7 @@ const TimelineGrid = ({
 
     return {
       id,
-      type: bar.dataset.roadmapBarType,
+      type: bar.dataset.roadmapBarType === "task" ? "task" : "epic",
     };
   };
 
@@ -240,7 +269,22 @@ const TimelineGrid = ({
     const finishConnection = (target: RoadmapBarTarget | null) => {
       const finalTarget = target ?? hoveredConnectionTarget;
 
-      if (finalTarget?.type === "epic" && finalTarget.id !== connectionStart.id) {
+      if (!finalTarget || finalTarget.id === connectionStart.id) {
+        setIsDraggingConnection(false);
+        setConnectionStart(null);
+        setHoveredConnectionTarget(null);
+        return;
+      }
+
+      if (finalTarget.type !== connectionStart.type) {
+        setConnectionWarning("Por ahora solo puedes conectar épica con épica o tarea con tarea.");
+      } else if (connectionStart.type === "task") {
+        void Promise.resolve(onCreateTaskDependency(finalTarget.id, connectionStart.id, "finish-to-start")).finally(() => {
+          window.requestAnimationFrame(() => {
+            window.dispatchEvent(new Event("roadmap-bars-change"));
+          });
+        });
+      } else {
         void Promise.resolve(onCreateDependency(finalTarget.id, connectionStart.id, "finish-to-start")).finally(() => {
           window.requestAnimationFrame(() => {
             window.dispatchEvent(new Event("roadmap-bars-change"));
@@ -255,7 +299,9 @@ const TimelineGrid = ({
     const handleMouseMove = (event: MouseEvent) => {
       setConnectionCursor({ x: event.clientX, y: event.clientY });
       const target = getRoadmapBarFromPoint(event.clientX, event.clientY);
-      setHoveredConnectionTarget(target && target.id !== connectionStart.id ? target : null);
+      setHoveredConnectionTarget(
+        target && target.id !== connectionStart.id && target.type === connectionStart.type ? target : null
+      );
     };
 
     const handleMouseUp = (event: MouseEvent) => {
@@ -279,26 +325,27 @@ const TimelineGrid = ({
       document.removeEventListener("mouseup", handleMouseUp);
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [connectionStart, hoveredConnectionTarget, isDraggingConnection, onCreateDependency]);
+  }, [connectionStart, hoveredConnectionTarget, isDraggingConnection, onCreateDependency, onCreateTaskDependency]);
 
   const epicsWithTimelineData = epics;
 
   const handleStartConnection = (
-    epicId: string,
+    barId: string,
     anchor: "start" | "end",
     _connectorId: string,
-    cursor: { x: number; y: number }
+    cursor: { x: number; y: number },
+    barType: "epic" | "task"
   ) => {
     if (anchor === "start") {
       setIsDraggingConnection(false);
       setConnectionStart(null);
       setHoveredConnectionTarget(null);
-      setConnectionWarning("Por ahora solo puedes crear dependencias desde el fin de una épica hacia el inicio de otra.");
+      setConnectionWarning("Las dependencias se crean desde el fin de una caja hacia el inicio de otra.");
       return;
     }
 
     setIsDraggingConnection(true);
-    setConnectionStart({ id: epicId, anchor });
+    setConnectionStart({ id: barId, anchor, type: barType });
     setConnectionSourcePoint(cursor);
     setConnectionCursor(cursor);
     setHoveredConnectionTarget(null);
@@ -579,6 +626,14 @@ const TimelineGrid = ({
             height={30}
             barType="task"
             onUpdateDates={onUpdateTaskDates}
+            connectors={{
+              enabled: true,
+              isDraggingConnection,
+              draggingFromId: connectionStart?.id ?? null,
+              hoveredTargetId: hoveredConnectionTarget?.id ?? null,
+              onStartConnection: handleStartConnection,
+              onEndConnection: handleEndConnection,
+            }}
             connectionVisual={{
               active: isDraggingConnection,
               sourceId: connectionStart?.id ?? null,
@@ -701,13 +756,19 @@ const TimelineGrid = ({
         }}
       >
       <RoadmapDependencyLayer
-        dependencies={_dependencies}
+        dependencies={dependencyLines}
         scrollContainerRef={scrollContainerRef}
         refreshKey={`${timelineMode}:${timelineWidth}:${epicsWithTimelineData.length}:${collapsedEpicIds.size}:${showChildLevelIssues}`}
         color={theme.palette.error.main}
         previewColor={theme.palette.warning.main}
-        epicColorsById={epicColorsById}
-        onDeleteDependency={onDeleteDependency}
+        colorsById={colorsById}
+        onDeleteDependency={(dependencyId, kind) => {
+          if (kind === "task") {
+            onDeleteTaskDependency(dependencyId);
+          } else {
+            onDeleteDependency(dependencyId);
+          }
+        }}
       />
       <Box
         sx={{

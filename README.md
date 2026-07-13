@@ -2,6 +2,13 @@
 
 Planeador tipo Monday / Trello / Jira construido con React, TypeScript y Vite.
 
+## Documentación para IA
+
+Este repositorio incluye documentación de contexto para trabajar con ChatGPT/Codex u otros agentes:
+
+- `AGENTS.md`: instrucciones cortas que Codex lee al entrar al repo.
+- `CHATGPT.md`: guía completa del producto, arquitectura, Supabase, roadmap, reglas de negocio y checklist de verificación.
+
 ## Stack
 
 - React 18 + Vite

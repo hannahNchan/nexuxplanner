@@ -23,7 +23,13 @@ type TimelineBarProps = {
     isDraggingConnection: boolean;
     draggingFromId: string | null;
     hoveredTargetId: string | null;
-    onStartConnection: (id: string, anchor: "start" | "end", connectorId: string, cursor: { x: number; y: number }) => void;
+    onStartConnection: (
+      id: string,
+      anchor: "start" | "end",
+      connectorId: string,
+      cursor: { x: number; y: number },
+      barType: "epic" | "task"
+    ) => void;
     onEndConnection: (id: string, anchor: "start" | "end", connectorId: string) => void;
   };
   connectionVisual?: {
@@ -251,7 +257,7 @@ const TimelineBar = ({
     if (!connectors?.enabled) return;
 
     if (!connectors.isDraggingConnection) {
-      connectors.onStartConnection(id, anchor, connectorId, { x: event.clientX, y: event.clientY });
+      connectors.onStartConnection(id, anchor, connectorId, { x: event.clientX, y: event.clientY }, resolvedBarType);
     }
   };
 

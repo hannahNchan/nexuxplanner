@@ -41,6 +41,7 @@ const Roadmap = ({ userId }: RoadmapProps) => {
   const {
     epics,
     dependencies,
+    taskDependencies,
     settings,
     loading,
     updateEpicDates,
@@ -49,6 +50,8 @@ const Roadmap = ({ userId }: RoadmapProps) => {
     createTaskUnderEpic,
     addDependency,
     removeDependency,
+    addTaskDependency,
+    removeTaskDependency,
     updateSettings,
   } = useRoadmap(userId, currentProject?.id || null);
 
@@ -67,6 +70,14 @@ const Roadmap = ({ userId }: RoadmapProps) => {
       await addDependency(fromEpicId, toEpicId, dependencyType);
     } catch (error) {
       console.error("Error creating dependency:", error);
+    }
+  };
+
+  const handleCreateTaskDependency = async (fromTaskId: string, toTaskId: string, dependencyType: string) => {
+    try {
+      await addTaskDependency(fromTaskId, toTaskId, dependencyType);
+    } catch (error) {
+      console.error("Error creating task dependency:", error);
     }
   };
 
@@ -256,6 +267,7 @@ const Roadmap = ({ userId }: RoadmapProps) => {
         <TimelineGrid 
           epics={epics} 
           dependencies={dependencies}
+          taskDependencies={taskDependencies}
           timelineMode={timelineMode}
           scrollRequest={timelineScrollRequest}
           onOverflowChange={setHasTimelineOverflow}
@@ -265,6 +277,8 @@ const Roadmap = ({ userId }: RoadmapProps) => {
           onCreateTask={createTaskUnderEpic}
           onCreateDependency={handleCreateDependency}
           onDeleteDependency={removeDependency}
+          onCreateTaskDependency={handleCreateTaskDependency}
+          onDeleteTaskDependency={removeTaskDependency}
           showChildLevelIssues={settings.child_level_issue_scheduling}
         />
       </Stack>

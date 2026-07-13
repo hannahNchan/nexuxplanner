@@ -11,7 +11,13 @@ type EpicBarProps = {
   isDraggingConnection: boolean;
   hoveredConnectionTargetId: string | null;
   onConnectionTargetChange: (target: { id: string; type: "epic" | "task" } | null) => void;
-  onStartConnection: (epicId: string, anchor: "start" | "end", connectorId: string, cursor: { x: number; y: number }) => void;
+  onStartConnection: (
+    epicId: string,
+    anchor: "start" | "end",
+    connectorId: string,
+    cursor: { x: number; y: number },
+    barType: "epic" | "task"
+  ) => void;
   onEndConnection: (epicId: string, anchor: "start" | "end", connectorId: string) => void;
   draggingFromEpic: string | null;
 };

@@ -13,16 +13,23 @@ import {
   type NodeProps,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import type { EpicDependency } from "../../../features/api/dependencyService";
+
+export type RoadmapDependencyLine = {
+  id: string;
+  dependencyId: string;
+  kind: "epic" | "task";
+  sourceId: string;
+  targetId: string;
+};
 
 type RoadmapDependencyLayerProps = {
-  dependencies: EpicDependency[];
+  dependencies: RoadmapDependencyLine[];
   scrollContainerRef: React.RefObject<HTMLDivElement>;
   refreshKey: string;
   color: string;
   previewColor: string;
-  epicColorsById: Record<string, string>;
-  onDeleteDependency: (dependencyId: string) => void;
+  colorsById: Record<string, string>;
+  onDeleteDependency: (dependencyId: string, kind: "epic" | "task") => void;
 };
 
 type BarNodeData = {
@@ -40,10 +47,12 @@ type RouteObstacle = {
 
 type RoadmapDependencyEdgeData = {
   showHead?: boolean;
+  dependencyId?: string;
+  dependencyKind?: "epic" | "task";
   sourceId?: string;
   targetId?: string;
   obstacles?: RouteObstacle[];
-  onDelete?: (dependencyId: string) => void;
+  onDelete?: (dependencyId: string, kind: "epic" | "task") => void;
 };
 
 const NODE_PADDING = 0;
@@ -243,7 +252,7 @@ const RoadmapDependencyEdge = ({
               aria-label="Eliminar dependencia"
               onClick={(event) => {
                 event.stopPropagation();
-                edgeData.onDelete?.(id);
+                edgeData.onDelete?.(edgeData.dependencyId ?? id, edgeData.dependencyKind ?? "epic");
               }}
               onMouseEnter={() => setIsHovered(true)}
               onMouseLeave={() => setIsHovered(false)}
@@ -288,7 +297,7 @@ const RoadmapDependencyLayer = ({
   refreshKey,
   color,
   previewColor: _previewColor,
-  epicColorsById,
+  colorsById,
   onDeleteDependency,
 }: RoadmapDependencyLayerProps) => {
   const [nodes, setNodes] = useState<Node<BarNodeData>[]>([]);
@@ -361,15 +370,15 @@ const RoadmapDependencyLayer = ({
   const edges: Edge[] = useMemo(() => {
     const barIds = new Set(nodes.map((node) => node.id));
     return dependencies
-      .filter((dependency) => barIds.has(dependency.depends_on_epic_id) && barIds.has(dependency.epic_id))
+      .filter((dependency) => barIds.has(dependency.sourceId) && barIds.has(dependency.targetId))
       .map<Edge>((dependency) => {
-        const dependencyColor = epicColorsById[dependency.depends_on_epic_id] ?? color;
+        const dependencyColor = colorsById[dependency.sourceId] ?? color;
 
         return {
           id: dependency.id,
           type: "roadmapDependency",
-          source: dependency.depends_on_epic_id,
-          target: dependency.epic_id,
+          source: dependency.sourceId,
+          target: dependency.targetId,
           sourceHandle: "end-source",
           targetHandle: "start-target",
           animated: false,
@@ -385,8 +394,10 @@ const RoadmapDependencyLayer = ({
             height: 16,
           },
           data: {
-            sourceId: dependency.depends_on_epic_id,
-            targetId: dependency.epic_id,
+            dependencyId: dependency.dependencyId,
+            dependencyKind: dependency.kind,
+            sourceId: dependency.sourceId,
+            targetId: dependency.targetId,
             obstacles: nodes
               .filter((node) => node.id !== "roadmap-preview-cursor")
               .map((node) => ({
@@ -400,7 +411,7 @@ const RoadmapDependencyLayer = ({
           },
         };
       });
-  }, [color, dependencies, epicColorsById, nodes, onDeleteDependency]);
+  }, [color, colorsById, dependencies, nodes, onDeleteDependency]);
 
   if (bounds.width === 0 || bounds.height === 0) return null;
 
