@@ -21,6 +21,7 @@ interface BoardInfoProps {
 const BoardInfo: React.FC<BoardInfoProps> = ({ userId }) => {
   const { displaySprint, errorMessage } = useBoardManager(userId);
   const theme = useTheme();
+  const canCompleteSprint = displaySprint?.status === "active";
 
   return (
     <Stack
@@ -70,6 +71,7 @@ const BoardInfo: React.FC<BoardInfoProps> = ({ userId }) => {
       <Button
         variant="contained"
         size="small"
+        disabled={!canCompleteSprint}
         sx={{
           textTransform: "none",
           fontWeight: 600,

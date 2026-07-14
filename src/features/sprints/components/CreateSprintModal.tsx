@@ -1,4 +1,5 @@
 import {
+  Alert,
   Button,
   Dialog,
   DialogActions,
@@ -62,6 +63,7 @@ const CreateSprintModal = ({
   const [startDate, setStartDate] = useState<Date>(new Date());
   const [endDate, setEndDate] = useState<Date>(calculateEndDate(new Date(), "2w"));
   const [isCreating, setIsCreating] = useState(false);
+  const [formError, setFormError] = useState("");
 
   // Auto-calcular endDate cuando cambia duration o startDate
   useEffect(() => {
@@ -77,6 +79,7 @@ const CreateSprintModal = ({
       setGoal("");
       setDuration("2w");
       setIsOpenSprint(false);
+      setFormError("");
       const now = new Date();
       setStartDate(now);
       setEndDate(calculateEndDate(now, "2w"));
@@ -85,15 +88,16 @@ const CreateSprintModal = ({
 
   const handleCreate = async () => {
     if (!name.trim()) {
-      alert("El nombre del sprint es obligatorio");
+      setFormError("El nombre del sprint es obligatorio");
       return;
     }
 
     if (!isOpenSprint && endDate <= startDate) {
-      alert("La fecha de fin debe ser posterior a la fecha de inicio");
+      setFormError("La fecha de fin debe ser posterior a la fecha de inicio");
       return;
     }
 
+    setFormError("");
     setIsCreating(true);
     try {
       await onCreateSprint({
@@ -105,7 +109,7 @@ const CreateSprintModal = ({
       onClose();
     } catch (error) {
       console.error("Error creando sprint:", error);
-      alert("Error al crear el sprint");
+      setFormError("No se pudo crear el sprint. Revisa las fechas e inténtalo de nuevo.");
     } finally {
       setIsCreating(false);
     }
@@ -115,16 +119,18 @@ const CreateSprintModal = ({
     <LocalizationProvider dateAdapter={AdapterDateFns} adapterLocale={es}>
       <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
         <DialogTitle>
-          <Typography variant="h6" fontWeight={700}>
+          <Typography component="div" variant="h6" fontWeight={700}>
             Crear Sprint
           </Typography>
-          <Typography variant="caption" color="text.secondary">
+          <Typography component="div" variant="caption" color="text.secondary">
             Proyecto: {projectName}
           </Typography>
         </DialogTitle>
 
         <DialogContent>
           <Stack spacing={3} pt={1}>
+            {formError ? <Alert severity="error">{formError}</Alert> : null}
+
             <TextField
               fullWidth
               label="Nombre del Sprint"

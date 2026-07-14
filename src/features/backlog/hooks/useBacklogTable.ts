@@ -101,6 +101,17 @@ export const useBacklogTable = (userId: string) => {
   // Sprint modal
   const [isSprintModalOpen, setIsSprintModalOpen] = useState(false);
   const [firstColumnId, setFirstColumnId] = useState<string | null>(null);
+  const [notification, setNotification] = useState<{
+    severity: "error" | "info" | "success" | "warning";
+    message: string;
+  } | null>(null);
+
+  const showNotification = (
+    severity: "error" | "info" | "success" | "warning",
+    message: string
+  ) => {
+    setNotification({ severity, message });
+  };
 
   // Load first column for sprint assignment
   useEffect(() => {
@@ -385,12 +396,15 @@ export const useBacklogTable = (userId: string) => {
       const issueType = issueTypes.find((type) => type.id === backlogTask?.issue_type_id);
 
       if (isEpicIssueTypeName(issueType?.name)) {
-        alert("Las épicas no se asignan directamente a un sprint. Crea o asigna tareas dentro de la épica.");
+        showNotification(
+          "warning",
+          "Las épicas no se asignan directamente a un sprint. Crea o asigna tareas dentro de la épica."
+        );
         return;
       }
 
       if (!firstColumnId) {
-        alert("No se encontró una columna TO DO en el proyecto");
+        showNotification("error", "No se encontró una columna TO DO en el proyecto.");
         return;
       }
 
@@ -413,7 +427,7 @@ export const useBacklogTable = (userId: string) => {
         console.log("✅ Tarea asignada al sprint y board refrescado");
       } catch (error) {
         console.error("Error asignando tarea al sprint:", error);
-        alert("Error al asignar la tarea al sprint");
+        showNotification("error", "No se pudo asignar la tarea al sprint.");
       }
     }
   };
@@ -548,6 +562,7 @@ export const useBacklogTable = (userId: string) => {
     issueTypes,
     catalogsLoaded,
     sprintManager,
+    notification,
     isSprintModalOpen,
     setSearchText,
     setSearchOpen,
@@ -572,6 +587,7 @@ export const useBacklogTable = (userId: string) => {
     setTaskToDelete,
     setIsTaskModalOpen,
     setSelectedBacklogTask,
+    setNotification,
     setIsSprintModalOpen,
     handleAddTask,
     handleTitleChange,

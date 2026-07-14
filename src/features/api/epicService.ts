@@ -69,7 +69,11 @@ export const fetchEpics = async (
   userId: string,
   projectId?: string | null
 ): Promise<EpicWithDetails[]> => {
-  let query = supabase
+  if (!projectId) {
+    return [];
+  }
+
+  const query = supabase
     .from("epics")
     .select(`
       *,
@@ -78,13 +82,10 @@ export const fetchEpics = async (
         color
       )
     `)
-    .eq("user_id", userId);
+    .eq("user_id", userId)
+    .eq("project_id", projectId);
 
-  if (projectId) {
-    query = query.eq("project_id", projectId);
-  }
-
-  const { data, error } = await query.order("created_at", { ascending: false });
+  const { data, error } = await query.order("created_at", { ascending: true });
 
   if (error) throw error;
 
@@ -127,18 +128,19 @@ export const fetchEpics = async (
           planned_start_date,
           planned_end_date
         `)
-        .eq("epic_id", epic.id);
+        .eq("epic_id", epic.id)
+        .eq("project_id", projectId);
 
       const tasksById = new Map<string, RoadmapTask>();
 
       (linkedEpicTasks ?? []).forEach((et: any) => {
-        if (et.tasks?.id) {
+        if (et.tasks?.id && et.tasks.project_id === projectId) {
           tasksById.set(et.tasks.id, et.tasks);
         }
       });
 
       (directEpicTasks ?? []).forEach((task: any) => {
-        if (task?.id) {
+        if (task?.id && task.project_id === projectId) {
           tasksById.set(task.id, task);
         }
       });
@@ -246,10 +248,26 @@ export const deleteEpic = async (epicId: string): Promise<boolean> => {
   return true;
 };
 
+const assertTaskBelongsToEpicProject = async (taskId: string, epicId: string): Promise<void> => {
+  const [{ data: epic, error: epicError }, { data: task, error: taskError }] = await Promise.all([
+    supabase.from("epics").select("project_id").eq("id", epicId).single(),
+    supabase.from("tasks").select("project_id").eq("id", taskId).single(),
+  ]);
+
+  if (epicError) throw epicError;
+  if (taskError) throw taskError;
+
+  if (!epic?.project_id || !task?.project_id || epic.project_id !== task.project_id) {
+    throw new Error("La tarea y la épica deben pertenecer al mismo proyecto.");
+  }
+};
+
 export const connectTaskToEpic = async (
   epicId: string,
   taskId: string
 ): Promise<void> => {
+  await assertTaskBelongsToEpicProject(taskId, epicId);
+
   const { error } = await supabase.from("epic_tasks").insert({
     epic_id: epicId,
     task_id: taskId,
@@ -362,39 +380,23 @@ export const createRoadmapTaskForEpic = async (
   epicId: string,
   title: string
 ): Promise<RoadmapTask> => {
-  const { data: todoColumn, error: todoColumnError } = await supabase
-    .from("columns")
-    .select("id, name")
-    .eq("project_id", projectId)
-    .ilike("name", "Por hacer")
-    .order("position", { ascending: true })
-    .limit(1)
-    .maybeSingle();
+  const { data: epic, error: epicError } = await supabase
+    .from("epics")
+    .select("project_id")
+    .eq("id", epicId)
+    .single();
 
-  if (todoColumnError) throw todoColumnError;
+  if (epicError) throw epicError;
 
-  const { data: fallbackColumn, error: fallbackColumnError } = todoColumn
-    ? { data: null, error: null }
-    : await supabase
-        .from("columns")
-        .select("id, name")
-        .eq("project_id", projectId)
-        .order("position", { ascending: true })
-        .limit(1)
-        .maybeSingle();
-
-  if (fallbackColumnError) throw fallbackColumnError;
-
-  const column = todoColumn ?? fallbackColumn;
-
-  if (!column) {
-    throw new Error("No hay columnas disponibles para crear la tarea.");
+  if (epic.project_id !== projectId) {
+    throw new Error("La tarea solo puede crearse bajo una épica del proyecto actual.");
   }
 
   const { count, error: countError } = await supabase
     .from("tasks")
     .select("id", { count: "exact", head: true })
-    .eq("column_id", column.id);
+    .eq("project_id", projectId)
+    .eq("in_backlog", true);
 
   if (countError) throw countError;
 
@@ -402,11 +404,11 @@ export const createRoadmapTaskForEpic = async (
     .from("tasks")
     .insert({
       project_id: projectId,
-      column_id: column.id,
+      column_id: null,
       epic_id: epicId,
       title,
       position: count ?? 0,
-      in_backlog: false,
+      in_backlog: true,
     })
     .select(
       "id, project_id, column_id, sprint_id, title, task_id_display, issue_type_id, priority_id, story_points, assignee_id, planned_start_date, planned_end_date"
@@ -426,7 +428,7 @@ export const createRoadmapTaskForEpic = async (
 
   return {
     ...createdTask,
-    column_name: column.name,
+    column_name: null,
     sprint_name: null,
     sprint_start_date: null,
     sprint_end_date: null,
@@ -434,6 +436,8 @@ export const createRoadmapTaskForEpic = async (
 };
 
 export const moveTaskToEpic = async (taskId: string, epicId: string): Promise<void> => {
+  await assertTaskBelongsToEpicProject(taskId, epicId);
+
   const { error: taskError } = await supabase
     .from("tasks")
     .update({

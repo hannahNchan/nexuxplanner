@@ -28,7 +28,7 @@ import WarningIcon from "@mui/icons-material/Warning";
 import { useState } from "react";
 import type { ProjectWithTags } from "../../api/projectService";
 import { getEmojiForTag, getColorForTag } from "../../../shared/utils/tagHelpers";
-import { getProjectEpicsCount, deleteProject } from "../../api/projectService";
+import { deleteProject } from "../../api/projectService";
 
 type ExploreProjectsModalProps = {
   open: boolean;
@@ -38,6 +38,7 @@ type ExploreProjectsModalProps = {
   onSelectProject: (project: ProjectWithTags) => void;
   onEditProject: (project: ProjectWithTags) => void;
   onRefresh: () => void;
+  onProjectDeleted?: (projectId: string) => void;
 };
 
 const ExploreProjectsModal = ({
@@ -48,6 +49,7 @@ const ExploreProjectsModal = ({
   onSelectProject,
   onEditProject,
   onRefresh,
+  onProjectDeleted,
 }: ExploreProjectsModalProps) => {
   const theme = useTheme();
   const [deletingProject, setDeletingProject] = useState<string | null>(null);
@@ -80,42 +82,18 @@ const ExploreProjectsModal = ({
   const handleDeleteClick = async (e: React.MouseEvent, project: ProjectWithTags) => {
     e.stopPropagation();
 
-    try {
-      setDeletingProject(project.id);
-      const epicsCount = await getProjectEpicsCount(project.id);
-
-      if (epicsCount > 0) {
-        // Mostrar error en modal
-        setDeleteError({
-          title: "No se puede eliminar el proyecto",
-          message: `El proyecto "${project.title}" contiene ${epicsCount} épica${
-            epicsCount > 1 ? "s" : ""
-          }. Debes eliminar o reasignar todas las épicas antes de eliminar el proyecto.`,
-        });
-        setDeletingProject(null);
-        return;
-      }
-
-      // Mostrar confirmación
-      setProjectToDelete(project);
-      setDeleteDialogOpen(true);
-      setDeletingProject(null);
-    } catch (error) {
-      console.error("Error verificando proyecto:", error);
-      setDeleteError({
-        title: "Error",
-        message: "Error al verificar el proyecto. Por favor intenta de nuevo.",
-      });
-      setDeletingProject(null);
-    }
+    setProjectToDelete(project);
+    setDeleteDialogOpen(true);
   };
 
   const confirmDelete = async () => {
     if (!projectToDelete) return;
 
     try {
+      setDeletingProject(projectToDelete.id);
       await deleteProject(projectToDelete.id);
       setDeleteDialogOpen(false);
+      onProjectDeleted?.(projectToDelete.id);
       setProjectToDelete(null);
       onRefresh();
     } catch (error) {
@@ -126,6 +104,8 @@ const ExploreProjectsModal = ({
       });
       setDeleteDialogOpen(false);
       setProjectToDelete(null);
+    } finally {
+      setDeletingProject(null);
     }
   };
 
@@ -279,7 +259,7 @@ const ExploreProjectsModal = ({
                             </IconButton>
                           </Tooltip>
 
-                          <Tooltip title="Eliminar proyecto (solo si está vacío)">
+                          <Tooltip title="Eliminar proyecto">
                             <span>
                               <IconButton
                                 size="small"
@@ -347,7 +327,7 @@ const ExploreProjectsModal = ({
               }}
             >
               <Typography variant="body2" color="error.dark" fontWeight={600}>
-                ⚠️ Esta acción no se puede deshacer
+                Esta acción eliminará también sus épicas, tareas, sprints, roadmap y notas. No se puede deshacer.
               </Typography>
             </Paper>
           </Stack>

@@ -1,6 +1,6 @@
 # Nexus Planner AI Context
 
-Last reviewed: 2026-07-13
+Last reviewed: 2026-07-14
 
 This document is the main onboarding file for ChatGPT/Codex or any other AI agent working on Nexus Planner. It is intentionally more detailed than a human-facing README because the project has product rules, Supabase schema behavior, and visual roadmap interactions that are easy to break without context.
 
@@ -236,6 +236,11 @@ Existing local migrations:
 
 - `20260713130000_create_roadmap_settings.sql`
 - `20260713230522_create_task_dependencies.sql`
+- `20260714002940_enforce_project_scoped_roadmap_relations.sql`
+- `20260714015509_allow_open_sprints_with_start_date.sql`
+- `20260714020248_cascade_project_epics_on_delete.sql`
+- `20260714020302_link_editor_notes_to_projects.sql`
+- `20260714020812_cascade_project_roadmap_settings_on_delete.sql`
 
 ### RLS Patterns
 
@@ -279,6 +284,8 @@ Creating a project also:
 
 The project key is important because ticket IDs are displayed as `<KEY>-<N>`, such as `ALGOR-2`.
 
+Deleting a project must delete its project-scoped data instead of leaving hidden leftovers. Current schema expects cascade cleanup for epics, tasks, sprints, project members/tags, roadmap settings, and project notes. The frontend delete path must also verify that the `projects` row was actually deleted, because Supabase can return success with zero affected rows when RLS blocks or no row matches.
+
 ### Tasks
 
 Table: `tasks`
@@ -310,6 +317,7 @@ Rules:
 - Roadmap task bars use `planned_start_date`/`planned_end_date` when present.
 - If roadmap child scheduling is enabled and a task has no planned dates, the UI may fall back to sprint dates or visual default dates.
 - Tasks can be connected to epics by `tasks.epic_id` and by the join table `epic_tasks`; current code reads both and de-duplicates by task id.
+- Tasks created from Roadmap under an epic are backlog tasks by default: `in_backlog = true`, `column_id = null`, and `epic_id` set. They should appear in Backlog and Roadmap until assigned to a sprint/board column.
 
 ### Epics
 
@@ -370,6 +378,14 @@ Fields:
 
 Current code also writes `tasks.epic_id`. Be careful when changing this. `fetchEpics` reads both direct `tasks.epic_id` and `epic_tasks`, then de-duplicates.
 
+Project isolation is mandatory:
+
+- An epic and its connected tasks must belong to the same `project_id`.
+- `fetchEpics` must return an empty list when no project is selected; do not fall back to all user epics.
+- `fetchEpics` must filter both direct `tasks.epic_id` tasks and `epic_tasks` join results by the selected project.
+- `connectTaskToEpic`, `moveTaskToEpic`, and roadmap task creation must reject cross-project assignments.
+- The database has triggers preventing cross-project `epic_tasks` rows and cross-project `tasks.epic_id` values.
+
 ### Dependencies
 
 There are two dependency tables by design.
@@ -416,11 +432,14 @@ Rules:
 
 - Only task -> task is supported.
 - Epic -> task and task -> epic are intentionally blocked.
+- Epic -> epic dependencies must stay within one project.
+- Task -> task dependencies must stay within one project.
 - Self-dependencies are blocked by DB check.
 - The DB unique constraint blocks duplicate exact pairs.
 - Multiple outgoing dependencies are allowed: A can connect to B and C.
 - Multiple incoming dependencies are allowed: B and C can both connect to A.
 - Reverse pairs are allowed by the current product decision: A -> C and C -> A can coexist. This may represent a cycle; the app does not yet run cycle validation.
+- The database has triggers preventing cross-project epic dependencies and cross-project task dependencies.
 
 ### Roadmap Settings
 
@@ -592,7 +611,7 @@ Responsibilities:
 Product rules:
 
 - Sprints can be fixed-range or open-ended.
-- If a sprint is open-ended, `end_date` can be null.
+- If a sprint is open-ended, `start_date` is set and `end_date` can be null.
 - If it is fixed-range, the UI should clearly show the end date.
 
 ### Roadmap
@@ -609,6 +628,8 @@ Files:
 - `src/features/api/roadmapSettingsService.ts`
 
 Roadmap is the most visually complex feature. Treat it carefully.
+
+Roadmap data is project-scoped. It must only render the currently selected project's epics, child tasks, and dependencies. A missing `currentProject` means no roadmap data should be loaded; this prevents stale "all projects" responses from appearing while the project selector is initializing or switching projects.
 
 #### Timeline Modes
 
@@ -688,6 +709,7 @@ When on:
 - show epic rows/bars and task rows/bars.
 - allow adding tasks below an epic through the `+` button on the epic row.
 - allow task bars to be moved between epic rows.
+- tasks created with the `+` button are created in Backlog, linked to the epic, and remain visible in Roadmap.
 
 #### Dependency Connectors
 
@@ -789,6 +811,9 @@ Responsibilities:
 
 - Rich text note editing with Quill 2.
 - Save/load notes from `editor_notes`.
+- Notes are scoped to the active project via `editor_notes.project_id`.
+- If no project is selected, the editor must not create or show a document.
+- If a project has no note yet, show a `Crear documento` action and create the first active note for that project.
 - Support snapshots/manual saves.
 - Image upload helpers are in `src/lib/imageUpload.ts`.
 
@@ -804,6 +829,7 @@ Files:
 Responsibilities:
 
 - User profile data.
+- Task assignment member lists should load from `project_members`. Missing rows in `user_profiles` must not break assignment; fall back to the authenticated user's email/name where possible.
 - Avatar upload through Supabase Storage.
 - Shared avatar component: `src/shared/ui/UserAvatar.tsx`.
 
@@ -879,6 +905,7 @@ The code relies on Supabase/database behavior to populate `task_id_display` and 
 - For roadmap bars, keep using `TimelineBar` as the single source of resize/drag behavior.
 - For task movement between epics in roadmap, keep the existing `dataTransfer` approach unless replacing the whole timeline interaction model.
 - When adding new modals, check light/dark/Solarized surfaces.
+- Do not use browser `alert()` dialogs. Use native MUI `Alert`, `Snackbar`, or confirmation dialogs for validation, errors, and feedback.
 
 ## Testing and Verification Checklist
 
@@ -965,4 +992,3 @@ If you need to work on:
 - Roadmap data loading: `src/features/roadmap/hooks/useRoadmap.ts`
 - Dependency persistence: `src/features/api/dependencyService.ts`
 - Supabase migrations: `supabase/migrations/*`
-

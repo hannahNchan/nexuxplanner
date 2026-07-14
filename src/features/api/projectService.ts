@@ -316,12 +316,17 @@ export const updateProject = async (
 };
 
 export const deleteProject = async (projectId: string): Promise<void> => {
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("projects")
     .delete()
-    .eq("id", projectId);
+    .eq("id", projectId)
+    .select("id");
 
   if (error) throw error;
+
+  if (!data || data.length === 0) {
+    throw new Error("No se pudo eliminar el proyecto. Verifica que exista y que tengas permisos.");
+  }
 };
 
 export const searchProjects = async (userId: string, query: string): Promise<ProjectWithTags[]> => {
@@ -415,17 +420,26 @@ export const fetchProjectMembers = async (projectId: string) => {
 
   if (error) throw error;
 
+  const { data: currentUser } = await supabase.auth.getUser();
+
   const membersWithProfiles = await Promise.all(
     (data || []).map(async (member) => {
-      const { data: profile } = await supabase
+      const { data: profile, error: profileError } = await supabase
         .from("user_profiles")
         .select("full_name, avatar_url")
         .eq("id", member.user_id)
-        .single();
+        .maybeSingle();
+
+      if (profileError) {
+        console.error("Error cargando perfil del miembro:", profileError);
+      }
+
+      const isCurrentUser = currentUser.user?.id === member.user_id;
+      const fallbackName = isCurrentUser ? currentUser.user?.email ?? "Tú" : "Usuario sin perfil";
 
       return {
         ...member,
-        user_profiles: profile || { full_name: null, avatar_url: null },
+        user_profiles: profile || { full_name: fallbackName, avatar_url: null },
       };
     })
   );

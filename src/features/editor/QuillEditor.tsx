@@ -10,9 +10,9 @@ import {
   IconButton,
   Paper,
   Stack,
-  TextField,
   Tooltip,
   Typography,
+  Alert,
 } from "@mui/material";
 import HistoryIcon from "@mui/icons-material/History";
 import RestoreIcon from "@mui/icons-material/Restore";
@@ -21,7 +21,7 @@ import Quill from "quill";
 import "quill/dist/quill.snow.css";
 import { alpha, useTheme } from "@mui/material/styles";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { createBoard, fetchPrimaryBoard } from "../api/boardService";
+import { useProject } from "../../shared/contexts/ProjectContext";
 import {
   autoSaveNote,
   createSnapshot,
@@ -36,14 +36,15 @@ type QuillEditorProps = {
   userId: string;
 };
 
-const QuillEditor = ({ userId }: QuillEditorProps) => {
+const QuillEditor = ({ userId: _userId }: QuillEditorProps) => {
   const theme = useTheme();
+  const { currentProject } = useProject();
   const editorRef = useRef<HTMLDivElement | null>(null);
   const quillRef = useRef<Quill | null>(null);
-  const [boardId, setBoardId] = useState<string | null>(null);
-  const [isLoadingBoard, setIsLoadingBoard] = useState(true);
-  const [isCreatingBoard, setIsCreatingBoard] = useState(false);
-  const [newBoardName, setNewBoardName] = useState("Mi Tablero");
+  const projectId = currentProject?.id ?? null;
+  const [hasDocument, setHasDocument] = useState(false);
+  const [isLoadingNote, setIsLoadingNote] = useState(true);
+  const [isCreatingDocument, setIsCreatingDocument] = useState(false);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
 
   // Auto-save estado
@@ -77,9 +78,9 @@ const QuillEditor = ({ userId }: QuillEditorProps) => {
     versionNumber: null,
   });
 
-  // Inicializar Quill cuando tengamos boardId
+  // Inicializar Quill cuando el proyecto tenga documento.
   useEffect(() => {
-    if (!editorRef.current || quillRef.current || !boardId) {
+    if (!editorRef.current || quillRef.current || !projectId || !hasDocument) {
       return;
     }
 
@@ -124,40 +125,49 @@ const QuillEditor = ({ userId }: QuillEditorProps) => {
       }
       quill.off("text-change");
     };
-  }, [boardId]);
+  }, [hasDocument, projectId]);
 
-  // Cargar tablero
-  const loadBoardAndNote = useCallback(async () => {
-    setIsLoadingBoard(true);
-    try {
-      const board = await fetchPrimaryBoard(userId);
-
-      if (!board) {
-        setBoardId(null);
-        return;
-      }
-
-      console.log("Board encontrado:", board.id);
-      setBoardId(board.id);
-    } catch (error) {
-      console.error("Error cargando tablero:", error);
-    } finally {
-      setIsLoadingBoard(false);
+  // Cargar nota del proyecto activo.
+  const loadProjectNote = useCallback(async () => {
+    if (!projectId) {
+      setHasDocument(false);
+      setSnapshots([]);
+      setLastSaved(null);
+      setIsLoadingNote(false);
+      return;
     }
-  }, [userId]);
+
+    setIsLoadingNote(true);
+    try {
+      const note = await fetchActiveNote(projectId);
+      setHasDocument(Boolean(note));
+      setLastSaved(note?.updated_at ? new Date(note.updated_at) : null);
+      const allSnapshots = await fetchSnapshots(projectId);
+      setSnapshots(allSnapshots);
+    } catch (error) {
+      console.error("Error cargando nota del proyecto:", error);
+      setHasDocument(false);
+    } finally {
+      setIsLoadingNote(false);
+    }
+  }, [projectId]);
 
   useEffect(() => {
-    void loadBoardAndNote();
-  }, [loadBoardAndNote]);
+    quillRef.current = null;
+    if (editorRef.current) {
+      editorRef.current.innerHTML = "";
+    }
+    void loadProjectNote();
+  }, [loadProjectNote]);
 
   // Cargar la nota activa
   const loadActiveNote = async () => {
-    if (!boardId || !quillRef.current) {
+    if (!projectId || !quillRef.current) {
       return;
     }
 
     try {
-      const note = await fetchActiveNote(boardId);
+      const note = await fetchActiveNote(projectId);
 
       if (note && note.content) {
         console.log("Nota activa encontrada");
@@ -173,12 +183,12 @@ const QuillEditor = ({ userId }: QuillEditorProps) => {
 
   // Cargar snapshots
   const loadSnapshots = async () => {
-    if (!boardId) {
+    if (!projectId) {
       return;
     }
 
     try {
-      const allSnapshots = await fetchSnapshots(boardId);
+      const allSnapshots = await fetchSnapshots(projectId);
       setSnapshots(allSnapshots);
     } catch (error) {
       console.error("Error cargando snapshots:", error);
@@ -187,14 +197,14 @@ const QuillEditor = ({ userId }: QuillEditorProps) => {
 
   // Auto-save (actualiza la nota activa)
   const handleAutoSave = async () => {
-    if (!boardId || !quillRef.current) {
+    if (!projectId || !quillRef.current) {
       return;
     }
 
     setIsSaving(true);
     try {
       const content = quillRef.current.getContents();
-      await autoSaveNote(boardId, content);
+      await autoSaveNote(projectId, content);
       setLastSaved(new Date());
       console.log("✅ Auto-guardado");
     } catch (error) {
@@ -206,14 +216,14 @@ const QuillEditor = ({ userId }: QuillEditorProps) => {
 
   // Crear snapshot manual
   const handleCreateSnapshot = async () => {
-    if (!boardId || !quillRef.current) {
+    if (!projectId || !quillRef.current) {
       return;
     }
 
     setIsCreatingSnapshot(true);
     try {
       const content = quillRef.current.getContents();
-      await createSnapshot(boardId, content);
+      await createSnapshot(projectId, content);
       await loadSnapshots();
       console.log("✅ Snapshot creado");
     } catch (error) {
@@ -236,17 +246,17 @@ const QuillEditor = ({ userId }: QuillEditorProps) => {
   const handleConfirmRestore = async () => {
     const { snapshotId } = confirmDialog;
     
-    if (!boardId || !quillRef.current || !snapshotId) {
+    if (!projectId || !quillRef.current || !snapshotId) {
       return;
     }
 
     try {
       // Auto-guardar contenido actual antes de cambiar
       const currentContent = quillRef.current.getContents();
-      await autoSaveNote(boardId, currentContent);
+      await autoSaveNote(projectId, currentContent);
       
       // Cargar la versión seleccionada
-      await restoreSnapshot(boardId, snapshotId);
+      await restoreSnapshot(projectId, snapshotId);
       await loadActiveNote();
       
       setConfirmDialog({ open: false, snapshotId: null, versionNumber: null });
@@ -287,23 +297,22 @@ const QuillEditor = ({ userId }: QuillEditorProps) => {
     }
   };
 
-  // Crear tablero
-  const handleCreateBoard = async () => {
-    if (!newBoardName.trim()) {
+  // Crear documento del proyecto.
+  const handleCreateDocument = async () => {
+    if (!projectId) {
       return;
     }
 
-    setIsCreatingBoard(true);
+    setIsCreatingDocument(true);
     try {
-      const result = await createBoard(userId, newBoardName);
-      if (result && result.board) {
-        setBoardId(result.board.id);
-        setIsLoadingBoard(false);
-      }
+      await autoSaveNote(projectId, { ops: [{ insert: "\n" }] });
+      setHasDocument(true);
+      setLastSaved(new Date());
+      await loadSnapshots();
     } catch (error) {
-      console.error("Error creando tablero:", error);
+      console.error("Error creando documento:", error);
     } finally {
-      setIsCreatingBoard(false);
+      setIsCreatingDocument(false);
     }
   };
 
@@ -366,59 +375,39 @@ const QuillEditor = ({ userId }: QuillEditorProps) => {
 
   return (
     <Stack spacing={2}>
-      <Stack spacing={0.5}>
-        <Typography variant="h5" fontWeight={700}>
-          Editor de notas
-        </Typography>
-        <Typography variant="body2" color="text.secondary">
-          Usa Quill para documentar tareas, acuerdos o descripciones.
-        </Typography>
-      </Stack>
 
       <Paper elevation={1} sx={{ p: 2, borderRadius: 3 }}>
         <Stack spacing={2}>
-          {isLoadingBoard && (
+          {!currentProject && (
+            <Alert severity="info">
+              Selecciona un proyecto desde el menú lateral para crear o editar sus notas.
+            </Alert>
+          )}
+
+          {currentProject && isLoadingNote && (
             <Box display="flex" justifyContent="center" py={4}>
               <CircularProgress />
             </Box>
           )}
 
-          {!boardId && !isLoadingBoard && (
-            <Stack spacing={2}>
+          {currentProject && !hasDocument && !isLoadingNote && (
+            <Stack spacing={2} alignItems="flex-start">
               <Typography color="text.secondary" variant="body2">
-                Necesitas vincular un tablero para usar el editor de notas.
+                Este proyecto todavía no tiene documento de notas.
               </Typography>
 
-              <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap">
-                <Button variant="outlined" size="small" onClick={loadBoardAndNote}>
-                  Buscar tablero existente
-                </Button>
-
-                <Typography variant="body2" color="text.secondary">
-                  o
-                </Typography>
-
-                <TextField
-                  size="small"
-                  label="Nombre del tablero"
-                  value={newBoardName}
-                  onChange={(e) => setNewBoardName(e.target.value)}
-                  sx={{ width: 200 }}
-                />
-
-                <Button
-                  variant="contained"
-                  size="small"
-                  onClick={handleCreateBoard}
-                  disabled={isCreatingBoard || !newBoardName.trim()}
-                >
-                  {isCreatingBoard ? "Creando..." : "Crear tablero"}
-                </Button>
-              </Stack>
+              <Button
+                variant="contained"
+                size="small"
+                onClick={handleCreateDocument}
+                disabled={isCreatingDocument}
+              >
+                {isCreatingDocument ? "Creando..." : "Crear documento"}
+              </Button>
             </Stack>
           )}
 
-          {boardId && (
+          {currentProject && hasDocument && (
             <>
               {/* Barra superior con estado y acciones */}
               <Stack

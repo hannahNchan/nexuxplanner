@@ -16,4 +16,5 @@ Core rules:
 - Use `apply_patch` for manual edits.
 - Run `npm run typecheck`, `npm run lint`, and `npm run build` after meaningful code changes.
 - For Supabase schema changes, create a local migration with `npx supabase migration new <name>` and apply/verify the remote change through the Supabase connector when available.
-
+- Update `CHATGPT.md` after critical behavior, schema, route, or workflow changes.
+- Do not use browser `alert()` dialogs; show validation/errors with native MUI components such as `Alert`, `Snackbar`, or dialogs.

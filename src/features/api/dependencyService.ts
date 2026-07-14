@@ -24,7 +24,8 @@ export const fetchDependencies = async (epicIds: string[]): Promise<EpicDependen
   const { data, error } = await supabase
     .from("epic_dependencies")
     .select("*")
-    .or(`epic_id.in.(${epicIds.join(",")}),depends_on_epic_id.in.(${epicIds.join(",")})`);
+    .in("epic_id", epicIds)
+    .in("depends_on_epic_id", epicIds);
 
   if (error) throw error;
   return data ?? [];
@@ -36,10 +37,43 @@ export const fetchTaskDependencies = async (taskIds: string[]): Promise<TaskDepe
   const { data, error } = await supabase
     .from("task_dependencies")
     .select("*")
-    .or(`task_id.in.(${taskIds.join(",")}),depends_on_task_id.in.(${taskIds.join(",")})`);
+    .in("task_id", taskIds)
+    .in("depends_on_task_id", taskIds);
 
   if (error) throw error;
   return data ?? [];
+};
+
+const assertEpicsShareProject = async (epicId: string, dependsOnEpicId: string): Promise<void> => {
+  const { data, error } = await supabase
+    .from("epics")
+    .select("id, project_id")
+    .in("id", [epicId, dependsOnEpicId]);
+
+  if (error) throw error;
+
+  const epicProjectId = data?.find((epic) => epic.id === epicId)?.project_id;
+  const dependsOnEpicProjectId = data?.find((epic) => epic.id === dependsOnEpicId)?.project_id;
+
+  if (!epicProjectId || !dependsOnEpicProjectId || epicProjectId !== dependsOnEpicProjectId) {
+    throw new Error("Las dependencias de épicas solo pueden crearse dentro del mismo proyecto.");
+  }
+};
+
+const assertTasksShareProject = async (taskId: string, dependsOnTaskId: string): Promise<void> => {
+  const { data, error } = await supabase
+    .from("tasks")
+    .select("id, project_id")
+    .in("id", [taskId, dependsOnTaskId]);
+
+  if (error) throw error;
+
+  const taskProjectId = data?.find((task) => task.id === taskId)?.project_id;
+  const dependsOnTaskProjectId = data?.find((task) => task.id === dependsOnTaskId)?.project_id;
+
+  if (!taskProjectId || !dependsOnTaskProjectId || taskProjectId !== dependsOnTaskProjectId) {
+    throw new Error("Las dependencias de tareas solo pueden crearse dentro del mismo proyecto.");
+  }
 };
 
 export const createDependency = async (
@@ -47,6 +81,8 @@ export const createDependency = async (
   dependsOnEpicId: string,
   dependencyType: string = "finish-to-start"
 ): Promise<EpicDependency> => {
+  await assertEpicsShareProject(epicId, dependsOnEpicId);
+
   const { data, error } = await supabase
     .from("epic_dependencies")
     .insert({
@@ -66,6 +102,8 @@ export const createTaskDependency = async (
   dependsOnTaskId: string,
   dependencyType: string = "finish-to-start"
 ): Promise<TaskDependency> => {
+  await assertTasksShareProject(taskId, dependsOnTaskId);
+
   const { data, error } = await supabase
     .from("task_dependencies")
     .insert({

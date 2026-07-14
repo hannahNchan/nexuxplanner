@@ -6,6 +6,7 @@ import {
   Fade,
   IconButton,
   Paper,
+  Snackbar,
   Stack,
   TextField,
   Typography,
@@ -463,6 +464,24 @@ const BacklogTable = ({ userId }: BacklogTableProps) => {
             onClose={() => backlog.setIsSprintModalOpen(false)}
             onCreateSprint={backlog.handleCreateSprint}
           />
+
+          <Snackbar
+            open={Boolean(backlog.notification)}
+            autoHideDuration={5000}
+            onClose={() => backlog.setNotification(null)}
+            anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+          >
+            {backlog.notification ? (
+              <Alert
+                severity={backlog.notification.severity}
+                variant="filled"
+                onClose={() => backlog.setNotification(null)}
+                sx={{ width: "100%" }}
+              >
+                {backlog.notification.message}
+              </Alert>
+            ) : undefined}
+          </Snackbar>
         </Stack>
       </Container>
     </DragDropContext>

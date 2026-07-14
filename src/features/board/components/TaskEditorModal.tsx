@@ -105,6 +105,7 @@ const TaskEditorModal = ({
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
   const [projectMembers, setProjectMembers] = useState<Array<{ user_id: string; user_profiles: { full_name: string | null; avatar_url: string | null } }>>([]);
   const [, setProjectId] = useState<string>("");
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -196,12 +197,35 @@ const TaskEditorModal = ({
         projectId = column?.project_id || null;
       }
 
-      if (projectId) {
-        setProjectId(projectId);
-        const members = await fetchProjectMembers(projectId);
-        setProjectMembers(members);
-      } else {
-        setProjectMembers([]);
+      try {
+        if (projectId) {
+          setProjectId(projectId);
+          const members = await fetchProjectMembers(projectId);
+          setProjectMembers(members);
+        } else {
+          const { data: currentUser } = await supabase.auth.getUser();
+          setProjectMembers([
+            {
+              user_id: currentUser.user?.id ?? currentUserId,
+              user_profiles: {
+                full_name: currentUser.user?.email ?? "Tú",
+                avatar_url: null,
+              },
+            },
+          ]);
+        }
+      } catch (error) {
+        console.error("Error cargando miembros:", error);
+        const { data: currentUser } = await supabase.auth.getUser();
+        setProjectMembers([
+          {
+            user_id: currentUser.user?.id ?? currentUserId,
+            user_profiles: {
+              full_name: currentUser.user?.email ?? "Tú",
+              avatar_url: null,
+            },
+          },
+        ]);
       }
     };
 
@@ -261,7 +285,7 @@ const TaskEditorModal = ({
       console.log("✅ Imagen subida:", imageUrl);
     } catch (error) {
       console.error("Error subiendo imagen:", error);
-      alert("Error al subir la imagen");
+      setErrorMessage("No se pudo subir la imagen.");
     } finally {
       setIsUploadingImage(false);
     }
@@ -300,6 +324,7 @@ const TaskEditorModal = ({
       setPriorityId("");
       setStoryPoints("");
       setAssigneeId("");
+      setErrorMessage("");
       if (quillRef.current) {
         quillRef.current = null;
       }
@@ -312,10 +337,11 @@ const TaskEditorModal = ({
     }
 
     if (destination === "scrum" && !columnId) {
-      alert("Selecciona una columna para el Tablero Scrum");
+      setErrorMessage("Selecciona una columna para el Tablero Scrum.");
       return;
     }
 
+    setErrorMessage("");
     let description = "";
     if (quillRef.current) {
       description = quillRef.current.root.innerHTML;
@@ -337,6 +363,7 @@ const TaskEditorModal = ({
       onClose();
     } catch (error) {
       console.error("Error guardando tarea:", error);
+      setErrorMessage("No se pudo guardar la tarea.");
     } finally {
       setIsSaving(false);
     }
@@ -442,6 +469,8 @@ const TaskEditorModal = ({
 
         <DialogContent sx={{ p: 3 }}>
           <Stack spacing={3}>
+            {errorMessage ? <Alert severity="error">{errorMessage}</Alert> : null}
+
             <TextField
               fullWidth
               variant="outlined"

@@ -346,6 +346,11 @@ const ProjectSelector = ({ userId, collapsed }: ProjectSelectorProps) => {
         onSelectProject={setCurrentProject}
         onEditProject={handleEditProject}
         onRefresh={refetch}
+        onProjectDeleted={(projectId) => {
+          if (currentProject?.id === projectId) {
+            setCurrentProject(null);
+          }
+        }}
       />
       
       <ProjectSettingsModal

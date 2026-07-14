@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   createRoadmapTaskForEpic,
   fetchEpics,
@@ -30,14 +30,29 @@ export const useRoadmap = (userId: string, projectId: string | null) => {
   const [taskDependencies, setTaskDependencies] = useState<TaskDependency[]>([]);
   const [settings, setSettings] = useState(DEFAULT_ROADMAP_SETTINGS);
   const [loading, setLoading] = useState(true);
+  const loadRequestRef = useRef(0);
 
   const loadData = async () => {
+    const requestId = loadRequestRef.current + 1;
+    loadRequestRef.current = requestId;
+
+    if (!projectId) {
+      setEpics([]);
+      setDependencies([]);
+      setTaskDependencies([]);
+      setSettings(DEFAULT_ROADMAP_SETTINGS);
+      setLoading(false);
+      return;
+    }
+
     try {
       setLoading(true);
       const [epicsData, roadmapSettings] = await Promise.all([
         fetchEpics(userId, projectId),
         fetchRoadmapSettings(userId, projectId),
       ]);
+
+      if (loadRequestRef.current !== requestId) return;
 
       setEpics(epicsData);
       setSettings(roadmapSettings);
@@ -48,15 +63,22 @@ export const useRoadmap = (userId: string, projectId: string | null) => {
         fetchDependencies(epicIds),
         fetchTaskDependencies(taskIds),
       ]);
+
+      if (loadRequestRef.current !== requestId) return;
+
       setDependencies(depsData);
       setTaskDependencies(taskDepsData);
     } catch (error) {
+      if (loadRequestRef.current !== requestId) return;
+
       setEpics([]);
       setDependencies([]);
       setTaskDependencies([]);
       setSettings(DEFAULT_ROADMAP_SETTINGS);
     } finally {
-      setLoading(false);
+      if (loadRequestRef.current === requestId) {
+        setLoading(false);
+      }
     }
   };
 

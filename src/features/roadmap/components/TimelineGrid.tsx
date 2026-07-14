@@ -215,6 +215,17 @@ const TimelineGrid = ({
   } as const;
   const timelineTotalDays = differenceInDays(timelineEnd, timelineStart) + 1;
   const todayOffsetPercent = (differenceInDays(today, timelineStart) / timelineTotalDays) * 100;
+  const roadmapLayoutKey = useMemo(
+    () =>
+      epics
+        .map((epic) => {
+          const taskIds = (epic.connected_tasks ?? []).map((task) => task.id).join(",");
+          const expandedState = collapsedEpicIds.has(epic.id) ? "collapsed" : "expanded";
+          return `${epic.id}:${expandedState}:${taskIds}`;
+        })
+        .join("|"),
+    [collapsedEpicIds, epics]
+  );
 
   const scrollTimeline = (direction: "left" | "right") => {
     const scrollContainer = scrollContainerRef.current;
@@ -250,6 +261,18 @@ const TimelineGrid = ({
       window.removeEventListener("resize", updateOverflow);
     };
   }, [collapsedEpicIds, epics, onOverflowChange, timelineMode, timelineWidth]);
+
+  useEffect(() => {
+    const firstFrame = window.requestAnimationFrame(() => {
+      window.dispatchEvent(new Event("roadmap-bars-change"));
+
+      window.requestAnimationFrame(() => {
+        window.dispatchEvent(new Event("roadmap-bars-change"));
+      });
+    });
+
+    return () => window.cancelAnimationFrame(firstFrame);
+  }, [creatingInputEpicId, roadmapLayoutKey, showChildLevelIssues, timelineMode, timelineWidth]);
 
   const getRoadmapBarFromPoint = (clientX: number, clientY: number): RoadmapBarTarget | null => {
     const element = document.elementFromPoint(clientX, clientY);
@@ -758,7 +781,7 @@ const TimelineGrid = ({
       <RoadmapDependencyLayer
         dependencies={dependencyLines}
         scrollContainerRef={scrollContainerRef}
-        refreshKey={`${timelineMode}:${timelineWidth}:${epicsWithTimelineData.length}:${collapsedEpicIds.size}:${showChildLevelIssues}`}
+        refreshKey={`${timelineMode}:${timelineWidth}:${roadmapLayoutKey}:${creatingInputEpicId ?? ""}:${showChildLevelIssues}`}
         color={theme.palette.error.main}
         previewColor={theme.palette.warning.main}
         colorsById={colorsById}
@@ -869,7 +892,7 @@ const TimelineGrid = ({
                     <Box sx={{ width: 28, height: 28, flexShrink: 0 }} />
                   )}
                   <Chip
-                    label={epic.epic_id_display || "ÉPICA"}
+                    label={epic.epic_id_display || "ÉPICAs"}
                     size="small"
                     sx={{
                       bgcolor: alpha(epic.color || theme.palette.primary.main, 0.16),
