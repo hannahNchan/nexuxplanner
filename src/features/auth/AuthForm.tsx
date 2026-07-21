@@ -10,6 +10,7 @@ import {
 } from "@mui/material";
 import { useState } from "react";
 import { supabase } from "../../lib/supabase";
+import { getAuthRedirectUrl } from "./authRedirect";
 
 type AuthMode = "google" | "email";
 
@@ -32,7 +33,7 @@ const AuthForm = ({ onSuccess }: AuthFormProps) => {
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
-          redirectTo: window.location.origin,
+          redirectTo: getAuthRedirectUrl(),
         },
       });
 

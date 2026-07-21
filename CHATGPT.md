@@ -96,6 +96,7 @@ The Supabase client supports either Vite or Next-style public variable names:
 ```bash
 VITE_SUPABASE_URL=
 VITE_SUPABASE_PUBLISHABLE_DEFAULT_KEY=
+VITE_AUTH_REDIRECT_URL=
 ```
 
 or:
@@ -106,6 +107,14 @@ NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=
 ```
 
 Client setup lives in `src/lib/supabase.ts`.
+
+OAuth redirect setup:
+
+- `VITE_AUTH_REDIRECT_URL` is the public browser URL used by Google/Supabase OAuth after sign-in.
+- Production Netlify builds use `.env.production` with `https://4nexusplanner.netlify.app`.
+- Local development can omit it; auth falls back to `window.location.origin`.
+- Supabase Auth URL Configuration must set Site URL to the production URL and include the same production URL in Redirect URLs. If Supabase falls back to `http://localhost:3000`, production login will redirect to localhost with tokens in the URL fragment.
+- Netlify uses `netlify.toml` to rewrite SPA routes to `index.html`.
 
 Never expose a Supabase service role key in frontend code.
 
@@ -617,8 +626,11 @@ Files:
 
 - `src/features/auth/AuthGate.tsx`
 - `src/features/auth/AuthForm.tsx`
+- `src/features/auth/authRedirect.ts`
 
 `AuthGate` controls whether app routes render. Routes receive `session.user.id` and `session.user.email`.
+
+`AuthForm` signs in with Google and passes `redirectTo: getAuthRedirectUrl()`. Keep this explicit; do not rely on Supabase's default Site URL for production redirects.
 
 ### Projects
 
