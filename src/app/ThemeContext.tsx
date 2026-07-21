@@ -1,8 +1,10 @@
 import { createContext, useContext, useMemo, useState, useEffect, type ReactNode } from "react";
-import { createTheme, ThemeProvider as MuiThemeProvider } from "@mui/material/styles";
+import { alpha, createTheme, ThemeProvider as MuiThemeProvider } from "@mui/material/styles";
 import CssBaseline from "@mui/material/CssBaseline";
 import type {} from "@mui/x-data-grid/themeAugmentation";
 import { supabase } from "../lib/supabase";
+import { logError } from "../shared/utils/errorHandling";
+import { createNexusVisualTokens } from "./visualTokens";
 
 export type ThemeMode = "light" | "dark" | "solarized";
 
@@ -81,7 +83,7 @@ export const ThemeProvider = ({ children }: ThemeProviderProps) => {
       if (!isMounted) return;
 
       if (error) {
-        console.error("Error cargando preferencias de tema:", error);
+        logError("theme.loadPreferences", error);
         setRemotePreferencesLoaded(true);
         return;
       }
@@ -138,7 +140,7 @@ export const ThemeProvider = ({ children }: ThemeProviderProps) => {
       .eq("id", userId)
       .then(({ error }) => {
         if (error) {
-          console.error("Error guardando preferencias de tema:", error);
+          logError("theme.savePreferences", error);
         }
       });
   }, [mode, remotePreferencesLoaded, userId]);
@@ -151,190 +153,118 @@ export const ThemeProvider = ({ children }: ThemeProviderProps) => {
   };
 
   const theme = useMemo(() => {
-    const isDark = mode === "dark";
-    const isSolarized = mode === "solarized";
-    const solarized = {
-      base03: "#002b36",
-      base02: "#073642",
-      base01: "#586e75",
-      base00: "#657b83",
-      base0: "#839496",
-      base1: "#93a1a1",
-      base2: "#eee8d5",
-      base3: "#fdf6e3",
-      yellow: "#b58900",
-      orange: "#cb4b16",
-      red: "#dc322f",
-      magenta: "#d33682",
-      violet: "#6c71c4",
-      blue: "#268bd2",
-      cyan: "#2aa198",
-      green: "#859900",
-    };
-    const muiMode = isDark ? "dark" : "light";
-    const surface = isDark ? "#172033" : isSolarized ? solarized.base2 : "#F8FAFC";
-    const elevated = isDark ? "#1E293B" : isSolarized ? solarized.base3 : "#FBFCFE";
-    const canvas = isDark ? "#0F172A" : isSolarized ? solarized.base3 : "#F3F6FA";
-    const border = isDark
-      ? "rgba(148, 163, 184, 0.22)"
-      : isSolarized
-        ? "rgba(101, 123, 131, 0.28)"
-        : "rgba(15, 23, 42, 0.12)";
-    const textPrimary = isDark ? "#E5E7EB" : isSolarized ? solarized.base01 : "#1F2937";
-    const textSecondary = isDark ? "#AAB7CC" : isSolarized ? solarized.base00 : "#5B6678";
-    const controlBackground = isDark
-      ? "rgba(15, 23, 42, 0.55)"
-      : isSolarized
-        ? solarized.base3
-        : "#FBFCFE";
-    const mutedBackground = isDark ? "#111827" : isSolarized ? solarized.base2 : "#EEF3F8";
+    const tokens = createNexusVisualTokens(mode);
+    const { colors, density, radii, shadows, state } = tokens;
+    const { semantic } = colors;
 
     return createTheme({
       palette: {
-        mode: muiMode,
+        mode: tokens.muiMode,
         primary: {
-          main: isDark ? "#60A5FA" : isSolarized ? solarized.blue : "#2563EB",
-          light: isDark ? "#93C5FD" : isSolarized ? "#57a4df" : "#60A5FA",
-          dark: isDark ? "#1D4ED8" : isSolarized ? "#1c6ea7" : "#1E40AF",
-          contrastText: "#F8FAFC",
+          main: semantic.primary.main,
+          light: semantic.primary.light,
+          dark: semantic.primary.dark,
+          contrastText: semantic.primary.contrast,
         },
         secondary: {
-          main: isDark ? "#A78BFA" : isSolarized ? solarized.violet : "#7C3AED",
-          light: isDark ? "#C4B5FD" : isSolarized ? "#8589d3" : "#A78BFA",
-          dark: isDark ? "#6D28D9" : isSolarized ? "#4f55ad" : "#5B21B6",
-          contrastText: "#F8FAFC",
+          main: semantic.secondary.main,
+          light: semantic.secondary.light,
+          dark: semantic.secondary.dark,
+          contrastText: semantic.secondary.contrast,
         },
         success: {
-          main: isDark ? "#4ADE80" : isSolarized ? solarized.green : "#16A34A",
-          dark: isDark ? "#22C55E" : isSolarized ? "#657400" : "#15803D",
-          contrastText: isDark ? "#052E16" : "#F8FAFC",
+          main: semantic.success.main,
+          dark: semantic.success.dark,
+          contrastText: semantic.success.contrast,
         },
         warning: {
-          main: isDark ? "#FBBF24" : isSolarized ? solarized.orange : "#D97706",
-          dark: isDark ? "#F59E0B" : isSolarized ? "#9E3B12" : "#92400E",
-          contrastText: isDark ? "#422006" : "#FFFBEB",
+          main: semantic.warning.main,
+          dark: semantic.warning.dark,
+          contrastText: semantic.warning.contrast,
         },
         error: {
-          main: isDark ? "#F87171" : isSolarized ? solarized.red : "#DC2626",
-          dark: isDark ? "#EF4444" : isSolarized ? "#A72624" : "#991B1B",
-          contrastText: "#FEF2F2",
+          main: semantic.danger.main,
+          dark: semantic.danger.dark,
+          contrastText: semantic.danger.contrast,
         },
         background: {
-          default: canvas,
-          paper: elevated,
+          default: colors.canvas,
+          paper: colors.elevated,
         },
         text: {
-          primary: textPrimary,
-          secondary: textSecondary,
-          disabled: isDark
-            ? "rgba(203, 213, 225, 0.45)"
-            : isSolarized
-              ? "rgba(88, 110, 117, 0.52)"
-              : "rgba(71, 85, 105, 0.5)",
+          primary: colors.text.primary,
+          secondary: colors.text.secondary,
+          disabled: colors.text.disabled,
         },
-        divider: border,
+        divider: colors.border,
         action: {
-          hover: isDark
-            ? "rgba(96, 165, 250, 0.12)"
-            : isSolarized
-              ? "rgba(38, 139, 210, 0.1)"
-              : "rgba(37, 99, 235, 0.08)",
-          selected: isDark
-            ? "rgba(96, 165, 250, 0.18)"
-            : isSolarized
-              ? "rgba(38, 139, 210, 0.16)"
-              : "rgba(37, 99, 235, 0.12)",
-          disabledBackground: isDark
-            ? "rgba(148, 163, 184, 0.12)"
-            : isSolarized
-              ? "rgba(101, 123, 131, 0.12)"
-              : "rgba(148, 163, 184, 0.18)",
+          active: colors.text.secondary,
+          hover: state.hover,
+          selected: state.selected,
+          focus: state.focus,
+          disabled: colors.text.disabled,
+          disabledBackground: state.disabledBackground,
         },
+      },
+      shape: {
+        borderRadius: radii.md,
       },
       typography: {
-        fontFamily: "Inter, sans-serif",
-      h1: {
-        fontWeight: 800,
-      },
-      h2: {
-        fontWeight: 700,
-      },
-      h3: {
-        fontWeight: 600,
-      },
-      h4: {
-        fontWeight: 600,
-      },
-      h5: {
-        fontWeight: 600,
-      },
-      h6: {
-        fontWeight: 600,
-      },
-      button: {
-        fontWeight: 500,
-      },
-      subtitle1: {
-        fontWeight: 500,
-      },
-      subtitle2: {
-        fontWeight: 400,
-      },
-      body1: {
-        fontWeight: 500,
-      },
-      body2: {
-        fontWeight: 400,
-      },
-      caption: {
-        fontWeight: 400,
-      },
-      overline: {
-        fontWeight: 200,
-      },
+        fontFamily: "'Inter', sans-serif",
+        h1: { fontWeight: 800, letterSpacing: 0 },
+        h2: { fontWeight: 760, letterSpacing: 0 },
+        h3: { fontWeight: 720, letterSpacing: 0 },
+        h4: { fontWeight: 700, letterSpacing: 0 },
+        h5: { fontWeight: 680, letterSpacing: 0 },
+        h6: { fontWeight: 650, letterSpacing: 0 },
+        subtitle1: { fontWeight: 600, letterSpacing: 0 },
+        subtitle2: { fontWeight: 500, letterSpacing: 0 },
+        body1: { fontWeight: 500, letterSpacing: 0 },
+        body2: { fontWeight: 400, letterSpacing: 0 },
+        button: { fontWeight: 650, letterSpacing: 0 },
+        caption: { fontWeight: 500, letterSpacing: 0 },
+        overline: { fontWeight: 600, letterSpacing: 0, textTransform: "uppercase" },
       },
       components: {
         MuiCssBaseline: {
           styleOverrides: {
             html: {
-              backgroundColor: canvas,
+              backgroundColor: colors.canvas,
+              colorScheme: tokens.muiMode,
             },
             body: {
-              backgroundColor: canvas,
-              color: textPrimary,
+              backgroundColor: colors.canvas,
+              color: colors.text.primary,
+              fontFeatureSettings: '"cv02", "cv03", "cv04", "cv11"',
             },
             "#root": {
               minHeight: "100vh",
-              backgroundColor: canvas,
+              backgroundColor: colors.canvas,
             },
             "::selection": {
-              backgroundColor: isDark
-                ? "rgba(96, 165, 250, 0.35)"
-                : isSolarized
-                  ? "rgba(38, 139, 210, 0.24)"
-                  : "rgba(37, 99, 235, 0.22)",
+              backgroundColor: state.selection,
             },
             ".ql-toolbar": {
-              backgroundColor: mutedBackground,
-              borderColor: border,
+              backgroundColor: colors.muted,
+              borderColor: colors.border,
             },
             ".ql-container, .ql-editor": {
-              backgroundColor: elevated,
-              borderColor: border,
-              color: textPrimary,
+              backgroundColor: colors.elevated,
+              borderColor: colors.border,
+              color: colors.text.primary,
             },
             ".ql-picker-options": {
-              backgroundColor: elevated,
-              borderColor: border,
+              backgroundColor: colors.elevated,
+              borderColor: colors.border,
             },
             ".ql-stroke": {
-              stroke: textSecondary,
+              stroke: colors.text.secondary,
             },
             ".ql-fill": {
-              fill: textSecondary,
+              fill: colors.text.secondary,
             },
             ".ql-picker-label": {
-              color: textSecondary,
+              color: colors.text.secondary,
             },
           },
         },
@@ -342,9 +272,10 @@ export const ThemeProvider = ({ children }: ThemeProviderProps) => {
           styleOverrides: {
             root: {
               backgroundImage: "none",
-              backgroundColor: isDark ? "#1D4ED8" : isSolarized ? solarized.base02 : "#2276D2",
-              color: "#F8FAFC",
-              borderBottom: `1px solid ${border}`,
+              backgroundColor: colors.topbar,
+              color: mode === "light" ? colors.text.primary : colors.text.inverse,
+              borderBottom: `1px solid ${colors.border}`,
+              boxShadow: "none",
             },
           },
         },
@@ -352,24 +283,88 @@ export const ThemeProvider = ({ children }: ThemeProviderProps) => {
           styleOverrides: {
             paper: {
               backgroundImage: "none",
-              backgroundColor: surface,
+              backgroundColor: colors.surface,
+              borderColor: colors.border,
             },
           },
         },
         MuiPaper: {
+          defaultProps: {
+            elevation: 0,
+          },
           styleOverrides: {
             root: {
               backgroundImage: "none",
-              backgroundColor: elevated,
-              borderColor: border,
+              backgroundColor: colors.elevated,
+              borderColor: colors.border,
+            },
+            elevation1: {
+              boxShadow: shadows.none,
+            },
+            elevation2: {
+              boxShadow: shadows.soft,
+            },
+            elevation3: {
+              boxShadow: shadows.soft,
+            },
+            rounded: {
+              borderRadius: radii.md,
             },
           },
         },
         MuiButton: {
+          defaultProps: {
+            disableElevation: true,
+          },
           styleOverrides: {
             root: {
               textTransform: "none",
-              borderRadius: 8,
+              borderRadius: radii.md,
+              fontWeight: 650,
+              lineHeight: 1.35,
+              paddingInline: 16,
+              boxShadow: "none",
+              "&:focus-visible": {
+                boxShadow: shadows.focusRing,
+              },
+            },
+            sizeSmall: {
+              paddingBlock: 5,
+              paddingInline: 10,
+            },
+            sizeMedium: {
+              paddingBlock: 7,
+            },
+            containedPrimary: {
+              backgroundColor: semantic.primary.main,
+              "&:hover": {
+                backgroundColor: semantic.primary.dark,
+                boxShadow: shadows.none,
+              },
+            },
+            outlined: {
+              borderColor: colors.border,
+              "&:hover": {
+                borderColor: alpha(semantic.primary.main, 0.5),
+                backgroundColor: state.hover,
+              },
+            },
+            text: {
+              "&:hover": {
+                backgroundColor: state.hover,
+              },
+            },
+            startIcon: {
+              marginRight: 6,
+              "& > *:first-of-type": {
+                fontSize: 18,
+              },
+            },
+            endIcon: {
+              marginLeft: 6,
+              "& > *:first-of-type": {
+                fontSize: 18,
+              },
             },
           },
         },
@@ -377,48 +372,61 @@ export const ThemeProvider = ({ children }: ThemeProviderProps) => {
           styleOverrides: {
             paper: {
               backgroundImage: "none",
-              backgroundColor: elevated,
+              backgroundColor: colors.elevated,
+              border: `1px solid ${colors.border}`,
+              borderRadius: radii.md,
+              boxShadow: shadows.dialog,
             },
           },
         },
         MuiDialogTitle: {
           styleOverrides: {
             root: {
-              backgroundColor: elevated,
-              color: textPrimary,
+              backgroundColor: colors.elevated,
+              color: colors.text.primary,
             },
           },
         },
         MuiDialogContent: {
           styleOverrides: {
             root: {
-              backgroundColor: elevated,
-              color: textPrimary,
+              backgroundColor: colors.elevated,
+              color: colors.text.primary,
             },
           },
         },
         MuiDialogActions: {
           styleOverrides: {
             root: {
-              backgroundColor: elevated,
-              color: textPrimary,
+              backgroundColor: colors.elevated,
+              color: colors.text.primary,
             },
           },
         },
         MuiTabs: {
           styleOverrides: {
+            root: {
+              minHeight: density.tabHeight,
+            },
             indicator: {
               height: 3,
-              borderRadius: 999,
+              borderRadius: radii.pill,
             },
           },
         },
         MuiTab: {
           styleOverrides: {
             root: {
-              color: textSecondary,
+              color: colors.text.secondary,
+              fontWeight: 650,
+              minHeight: density.tabHeight,
+              letterSpacing: 0,
+              "&:hover": {
+                color: semantic.primary.main,
+                backgroundColor: state.hover,
+              },
               "&.Mui-selected": {
-                color: isDark ? "#93C5FD" : isSolarized ? solarized.blue : "#2563EB",
+                color: semantic.primary.main,
               },
             },
           },
@@ -426,9 +434,9 @@ export const ThemeProvider = ({ children }: ThemeProviderProps) => {
         MuiInputLabel: {
           styleOverrides: {
             root: {
-              color: textSecondary,
+              color: colors.text.secondary,
               "&.Mui-focused": {
-                color: isDark ? "#93C5FD" : isSolarized ? solarized.blue : "#2563EB",
+                color: semantic.primary.main,
               },
             },
           },
@@ -436,52 +444,54 @@ export const ThemeProvider = ({ children }: ThemeProviderProps) => {
         MuiFormLabel: {
           styleOverrides: {
             root: {
-              color: textSecondary,
+              color: colors.text.secondary,
             },
           },
         },
         MuiFormHelperText: {
           styleOverrides: {
             root: {
-              color: textSecondary,
+              color: colors.text.secondary,
             },
           },
         },
         MuiOutlinedInput: {
           styleOverrides: {
             root: {
-              backgroundColor: controlBackground,
-              color: textPrimary,
+              backgroundColor: colors.control,
+              color: colors.text.primary,
+              borderRadius: radii.md,
+              transition: "box-shadow 160ms ease, background-color 160ms ease",
               "& fieldset": {
-                borderColor: border,
+                borderColor: colors.border,
               },
               "&:hover fieldset": {
-                borderColor: isDark
-                  ? "rgba(147, 197, 253, 0.75)"
-                  : isSolarized
-                    ? "rgba(38, 139, 210, 0.55)"
-                    : "rgba(37, 99, 235, 0.5)",
+                borderColor: alpha(semantic.primary.main, 0.55),
               },
-              "&.Mui-focused fieldset": {
-                borderColor: isDark ? "#93C5FD" : isSolarized ? solarized.blue : "#2563EB",
+              "&.Mui-focused": {
+                boxShadow: shadows.focusRing,
+                "& fieldset": {
+                  borderColor: semantic.primary.main,
+                  borderWidth: 1,
+                },
               },
             },
             input: {
-              color: textPrimary,
+              color: colors.text.primary,
             },
             notchedOutline: {
-              borderColor: border,
+              borderColor: colors.border,
             },
           },
         },
         MuiSelect: {
           styleOverrides: {
             select: {
-              backgroundColor: controlBackground,
-              color: textPrimary,
+              backgroundColor: colors.control,
+              color: colors.text.primary,
             },
             icon: {
-              color: textSecondary,
+              color: colors.text.secondary,
             },
           },
         },
@@ -489,8 +499,10 @@ export const ThemeProvider = ({ children }: ThemeProviderProps) => {
           styleOverrides: {
             paper: {
               backgroundImage: "none",
-              backgroundColor: elevated,
-              border: `1px solid ${border}`,
+              backgroundColor: colors.menu,
+              border: `1px solid ${colors.border}`,
+              boxShadow: shadows.soft,
+              borderRadius: radii.md,
             },
           },
         },
@@ -498,29 +510,28 @@ export const ThemeProvider = ({ children }: ThemeProviderProps) => {
           styleOverrides: {
             paper: {
               backgroundImage: "none",
-              backgroundColor: elevated,
-              color: textPrimary,
-              border: `1px solid ${border}`,
+              backgroundColor: colors.menu,
+              color: colors.text.primary,
+              border: `1px solid ${colors.border}`,
+              boxShadow: shadows.soft,
+              borderRadius: radii.md,
             },
           },
         },
         MuiMenuItem: {
           styleOverrides: {
             root: {
-              color: textPrimary,
+              color: colors.text.primary,
+              borderRadius: radii.sm,
+              marginInline: 4,
               "&:hover": {
-                backgroundColor: isDark
-                  ? "rgba(96, 165, 250, 0.12)"
-                  : isSolarized
-                    ? "rgba(38, 139, 210, 0.1)"
-                    : "rgba(37, 99, 235, 0.08)",
+                backgroundColor: state.hover,
               },
               "&.Mui-selected": {
-                backgroundColor: isDark
-                  ? "rgba(96, 165, 250, 0.18)"
-                  : isSolarized
-                    ? "rgba(38, 139, 210, 0.16)"
-                    : "rgba(37, 99, 235, 0.12)",
+                backgroundColor: state.selected,
+                "&:hover": {
+                  backgroundColor: state.hoverStrong,
+                },
               },
             },
           },
@@ -536,35 +547,103 @@ export const ThemeProvider = ({ children }: ThemeProviderProps) => {
           styleOverrides: {
             root: {
               fontWeight: 600,
+              borderRadius: radii.sm,
+            },
+            filled: {
+              backgroundColor: state.selected,
+              color: mode === "dark" ? semantic.primary.light : semantic.primary.dark,
+            },
+            outlined: {
+              borderColor: colors.border,
             },
           },
         },
         MuiDataGrid: {
+          defaultProps: {
+            disableRowSelectionOnClick: true,
+            disableColumnMenu: true,
+            columnHeaderHeight: density.tableHeaderHeight,
+          },
           styleOverrides: {
             root: {
-              backgroundColor: elevated,
-              color: textPrimary,
-              borderColor: border,
+              backgroundColor: colors.elevated,
+              color: colors.text.primary,
+              border: "none",
+              borderRadius: radii.md,
+              boxShadow: shadows.insetBorder,
+              "--DataGrid-rowBorderColor": colors.borderSubtle,
             },
             columnHeaders: {
-              backgroundColor: mutedBackground,
-              borderBottomColor: border,
+              backgroundColor: colors.muted,
+              borderBottomColor: colors.borderSubtle,
+              borderTopLeftRadius: radii.md,
+              borderTopRightRadius: radii.md,
+            },
+            columnHeader: {
+              "&:focus, &:focus-within": {
+                outline: "none",
+              },
+            },
+            columnHeaderTitle: {
+              fontWeight: 700,
+              color: colors.text.primary,
             },
             cell: {
-              borderBottomColor: border,
+              borderBottomColor: colors.borderSubtle,
+              color: colors.text.secondary,
+              "&:focus, &:focus-within": {
+                outline: "none",
+              },
             },
             row: {
               "&:hover": {
-                backgroundColor: isDark
-                  ? "rgba(96, 165, 250, 0.1)"
-                  : isSolarized
-                    ? "rgba(38, 139, 210, 0.08)"
-                    : "rgba(37, 99, 235, 0.06)",
+                backgroundColor: state.hover,
+              },
+              "&.Mui-selected": {
+                backgroundColor: state.selected,
+                "&:hover": {
+                  backgroundColor: state.selectedStrong,
+                },
               },
             },
             footerContainer: {
-              borderTopColor: border,
-              backgroundColor: mutedBackground,
+              borderTopColor: colors.borderSubtle,
+              backgroundColor: colors.muted,
+              borderBottomLeftRadius: radii.md,
+              borderBottomRightRadius: radii.md,
+            },
+            columnSeparator: {
+              display: "none",
+            },
+          },
+        },
+        MuiTooltip: {
+          styleOverrides: {
+            tooltip: {
+              backgroundColor: colors.tooltip,
+              color: colors.text.inverse,
+              borderRadius: radii.sm,
+              fontWeight: 600,
+            },
+            arrow: {
+              color: colors.tooltip,
+            },
+          },
+        },
+        MuiSwitch: {
+          styleOverrides: {
+            switchBase: {
+              "&.Mui-checked": {
+                color: colors.text.inverse,
+                "& + .MuiSwitch-track": {
+                  backgroundColor: semantic.primary.main,
+                  opacity: 1,
+                },
+              },
+            },
+            track: {
+              backgroundColor: colors.borderSubtle,
+              opacity: 1,
             },
           },
         },

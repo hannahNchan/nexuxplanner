@@ -23,8 +23,9 @@ import {
   fetchRoadmapSettings,
   upsertRoadmapSettings,
 } from "../../../features/api/roadmapSettingsService";
+import { logError } from "../../../shared/utils/errorHandling";
 
-export const useRoadmap = (userId: string, projectId: string | null) => {
+export const useRoadmap = (userId: string, projectId: string | null, canEditProject = true) => {
   const [epics, setEpics] = useState<EpicWithDetails[]>([]);
   const [dependencies, setDependencies] = useState<EpicDependency[]>([]);
   const [taskDependencies, setTaskDependencies] = useState<TaskDependency[]>([]);
@@ -87,6 +88,9 @@ export const useRoadmap = (userId: string, projectId: string | null) => {
   }, [userId, projectId]);
 
   const updateEpicDates = async (epicId: string, startDate: string, endDate: string) => {
+    if (!projectId) return;
+    if (!canEditProject) return;
+
     setEpics((prevEpics) =>
       prevEpics.map((epic) =>
         epic.id === epicId
@@ -95,10 +99,13 @@ export const useRoadmap = (userId: string, projectId: string | null) => {
       )
     );
 
-    await updateEpic(epicId, { start_date: startDate, end_date: endDate });
+    await updateEpic(projectId, epicId, { start_date: startDate, end_date: endDate });
   };
 
   const updateTaskDates = async (taskId: string, startDate: string, endDate: string) => {
+    if (!projectId) return;
+    if (!canEditProject) return;
+
     setEpics((prevEpics) =>
       prevEpics.map((epic) => ({
         ...epic,
@@ -110,10 +117,13 @@ export const useRoadmap = (userId: string, projectId: string | null) => {
       }))
     );
 
-    await updateTaskPlannedDates(taskId, startDate, endDate);
+    await updateTaskPlannedDates(projectId, taskId, startDate, endDate);
   };
 
   const moveTaskBetweenEpics = async (taskId: string, targetEpicId: string) => {
+    if (!projectId) return;
+    if (!canEditProject) return;
+
     let taskToMove: RoadmapTask | null = null;
 
     setEpics((prevEpics) => {
@@ -141,11 +151,12 @@ export const useRoadmap = (userId: string, projectId: string | null) => {
       );
     });
 
-    await moveTaskToEpic(taskId, targetEpicId);
+    await moveTaskToEpic(projectId, taskId, targetEpicId);
   };
 
   const createTaskUnderEpic = async (epicId: string, title: string) => {
     if (!projectId) return;
+    if (!canEditProject) return;
 
     const createdTask = await createRoadmapTaskForEpic(projectId, epicId, title);
 
@@ -162,6 +173,7 @@ export const useRoadmap = (userId: string, projectId: string | null) => {
   };
 
   const addDependency = async (epicId: string, dependsOnEpicId: string, dependencyType: string = "finish-to-start") => {
+    if (!canEditProject) return;
     const exists = dependencies.some(
       d => d.epic_id === epicId && d.depends_on_epic_id === dependsOnEpicId
     );
@@ -170,16 +182,15 @@ export const useRoadmap = (userId: string, projectId: string | null) => {
       return;
     }
 
-    try {
-      const newDep = await createDependency(epicId, dependsOnEpicId, dependencyType);
-      setDependencies(prev => [...prev, newDep]);
-    } catch (error) {
-      console.error("Error creating dependency:", error);
-    }
+    const newDep = await createDependency(epicId, dependsOnEpicId, dependencyType);
+    setDependencies(prev => [...prev, newDep]);
   };
 
   const removeDependency = async (dependencyId: string) => {
-    await deleteDependency(dependencyId);
+    if (!projectId) return;
+    if (!canEditProject) return;
+
+    await deleteDependency(projectId, dependencyId);
     setDependencies(prev => prev.filter(d => d.id !== dependencyId));
   };
 
@@ -188,6 +199,7 @@ export const useRoadmap = (userId: string, projectId: string | null) => {
     dependsOnTaskId: string,
     dependencyType: string = "finish-to-start"
   ) => {
+    if (!canEditProject) return;
     const exists = taskDependencies.some(
       (dependency) =>
         dependency.task_id === taskId &&
@@ -198,16 +210,15 @@ export const useRoadmap = (userId: string, projectId: string | null) => {
       return;
     }
 
-    try {
-      const newDependency = await createTaskDependency(taskId, dependsOnTaskId, dependencyType);
-      setTaskDependencies((prev) => [...prev, newDependency]);
-    } catch (error) {
-      console.error("Error creating task dependency:", error);
-    }
+    const newDependency = await createTaskDependency(taskId, dependsOnTaskId, dependencyType);
+    setTaskDependencies((prev) => [...prev, newDependency]);
   };
 
   const removeTaskDependency = async (dependencyId: string) => {
-    await deleteTaskDependency(dependencyId);
+    if (!projectId) return;
+    if (!canEditProject) return;
+
+    await deleteTaskDependency(projectId, dependencyId);
     setTaskDependencies((prev) => prev.filter((dependency) => dependency.id !== dependencyId));
   };
 
@@ -220,12 +231,16 @@ export const useRoadmap = (userId: string, projectId: string | null) => {
     setSettings(optimisticSettings);
 
     if (!projectId) return;
+    if (!canEditProject) {
+      setSettings(settings);
+      return;
+    }
 
     try {
       const savedSettings = await upsertRoadmapSettings(userId, projectId, optimisticSettings);
       setSettings(savedSettings);
     } catch (error) {
-      console.error("Error updating roadmap settings:", error);
+      logError("roadmap.updateSettings", error);
       setSettings(settings);
     }
   };

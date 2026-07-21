@@ -1,6 +1,6 @@
 # Nexus Planner AI Context
 
-Last reviewed: 2026-07-14
+Last reviewed: 2026-07-17
 
 This document is the main onboarding file for ChatGPT/Codex or any other AI agent working on Nexus Planner. It is intentionally more detailed than a human-facing README because the project has product rules, Supabase schema behavior, and visual roadmap interactions that are easy to break without context.
 
@@ -22,6 +22,8 @@ Useful references:
 Nexus Planner is a Jira/Notion/Trello-inspired planning app. It currently behaves as a mini Jira clone with:
 
 - Project selection and project settings.
+- Organization/company workspaces above projects.
+- Project invitations between registered users.
 - Scrum/Kanban board.
 - Backlog.
 - Epics.
@@ -67,6 +69,7 @@ Verification:
 npm run typecheck
 npm run lint
 npm run build
+npm run test:integration
 ```
 
 Combined check:
@@ -76,6 +79,15 @@ npm run check
 ```
 
 `npm run build` runs `tsc -b` and `vite build`. A Vite warning about large chunks may appear; that warning is not currently a failing error.
+
+`npm run test:integration` runs Vitest service-level integration tests. Tests that touch Supabase require either `NEXUS_TEST_USER_EMAIL`/`NEXUS_TEST_USER_PASSWORD` or OAuth session tokens through `NEXUS_TEST_ACCESS_TOKEN`/`NEXUS_TEST_REFRESH_TOKEN`; without credentials, the suite is skipped instead of mutating shared data anonymously.
+
+## Code Hygiene
+
+- Do not leave temporary `console.log` calls, debug emojis, or status-check comments in committed code.
+- Route recoverable errors through `src/shared/utils/errorHandling.ts` with a clear context key instead of scattering raw `console.error` calls.
+- Avoid `any` in services, hooks, modals, and tables. Prefer small local row/payload types when Supabase returns joined or partial records.
+- Product emoji data in tag/icon helpers is intentional and should not be treated as debug noise.
 
 ## Environment Variables
 
@@ -143,10 +155,20 @@ Current routes:
 
 `Layout.tsx` provides:
 
-- Header with app name, theme selector, avatar/account menu.
-- Persistent sidebar with project selector.
-- Main tabs for Tablero, Epicas, Backlog, Roadmap, Editor.
+- Sobria topbar with current section, theme selector, notifications, and avatar/account menu.
+- Persistent sidebar with product navigation and project selector.
+- Main navigation for Tablero, Epicas, Backlog, Roadmap, and Editor lives in the sidebar, not in horizontal MUI Tabs.
 - Resizable/collapsible sidebar.
+
+Layout scroll rule:
+
+- The app shell owns the full viewport height and does not let `body` scroll.
+- Header, sidebar, tabs, and footer remain fixed inside the shell.
+- Only the main route content area should scroll vertically.
+- Route content starts with shared top spacing below the tabs; avoid adding route-specific top hacks unless the screen has a fixed internal toolbar.
+- Sidebar content may scroll internally when it overflows.
+- The footer lives in the sidebar, not below the main content, so it never reduces the route workspace height.
+- Scrollbars should remain visually hidden while preserving wheel/trackpad scrolling.
 
 ## Core Contexts
 
@@ -189,15 +211,19 @@ cucqyupaaqnrzblkpsrz
 
 Important tables used by the app:
 
+- `organizations`
+- `organization_members`
+- `organization_invitations`
 - `projects`
 - `project_members`
+- `project_invitations`
+- `user_notifications`
 - `project_tags`
 - `boards`
 - `columns`
 - `column_order`
 - `tasks`
 - `epics`
-- `epic_tasks`
 - `sprints`
 - `epic_dependencies`
 - `task_dependencies`
@@ -241,6 +267,15 @@ Existing local migrations:
 - `20260714020248_cascade_project_epics_on_delete.sql`
 - `20260714020302_link_editor_notes_to_projects.sql`
 - `20260714020812_cascade_project_roadmap_settings_on_delete.sql`
+- `20260717025138_unify_task_epic_relation.sql`
+- `20260717030110_prevent_roadmap_dependency_cycles.sql`
+- `20260717041858_create_project_with_defaults_rpc.sql`
+- `20260717042200_fix_project_rpc_column_order_jsonb.sql`
+- `20260717051841_project_invitations_realtime.sql`
+- `20260717052115_allow_invitees_view_invited_projects.sql`
+- `20260717053123_fix_project_membership_rls_recursion.sql`
+- `20260717054718_task_assignment_notifications.sql`
+- `20260717055906_fix_task_assignment_realtime_notifications.sql`
 
 ### RLS Patterns
 
@@ -253,6 +288,29 @@ This is a client-side Supabase app, so RLS matters. Existing policies generally 
 
 When adding new tables, do not use `TO authenticated` alone. Add ownership predicates.
 
+### Project Isolation Rules
+
+Project-scoped product data must never be read or mutated by bare row id alone. Services and hooks that touch tasks, epics, sprints, dependencies, columns, roadmap settings, notes, members, or project assets should either:
+
+- receive the active `projectId` and include `.eq("project_id", projectId)` in the Supabase query, or
+- validate the related destination row belongs to the active project before writing, such as `column_id`, `epic_id`, or `sprint_id`.
+
+Allowed exceptions are global/catalog/auth queries, such as profiles, issue type catalogs, priority catalogs, point systems, and project listing. UI-side filtering is not enough; the service query must be project-scoped so Roadmap, Backlog, Board, and Epics cannot leak or cross-link records from another project.
+
+### Supabase Error Handling
+
+Use `src/shared/utils/errorHandling.ts` for Supabase-facing errors:
+
+- `getErrorMessage(error, fallback)` converts Supabase/PostgREST errors into user-facing messages.
+- `logError(context, error)` keeps technical context in the console without leaking raw objects to the UI.
+- UI code should show errors through MUI components such as `Snackbar`/`Alert`, not browser alerts.
+- If a UI change is optimistic, keep a previous-state snapshot and roll it back when the Supabase write fails.
+- Avoid `catch { console.error(...) }` as the only behavior for user-triggered actions.
+
+### Supabase Service Boundary
+
+Feature hooks and components should not call Supabase tables/storage directly. Put database-backed reads and writes in `src/features/api/*Service.ts`, then import those service functions from hooks/components. Auth-only surfaces such as `AuthGate`, `AuthForm`, and app shell account handling may use the auth client directly, but product data should stay behind services.
+
 ## Data Model Notes
 
 ### Projects
@@ -263,6 +321,8 @@ Important fields:
 
 - `id`
 - `user_id`
+- `organization_id`
+- `visibility`: `organization` or `private`
 - `title`
 - `description`
 - `project_key`
@@ -282,9 +342,55 @@ Creating a project also:
   - `Hecho`
 - persists column order in `column_order`
 
+Project creation must be all-or-nothing. The frontend service should call `create_project_with_defaults`, which creates the project, owner membership, tags, default columns, and `column_order` inside one Postgres transaction. If the RPC is not available in an environment, the fallback path must delete the partially created project when any setup step fails.
+
 The project key is important because ticket IDs are displayed as `<KEY>-<N>`, such as `ALGOR-2`.
 
+Projects belong to exactly one organization. Project lists should be scoped by the active organization when the UI is operating inside an organization workspace. Existing development data was backfilled under the organization `Lufthansa`.
+
+Project visibility:
+
+- `organization`: every organization member can see/open the project.
+- `private`: only explicit `project_members` can see/open the project.
+
+Visibility is not edit permission. A user can view an organization-visible project without being a project collaborator. To create, edit, delete, move, assign, plan, or otherwise mutate project work, the user must be in `project_members`. UI should show a read-only notice and disable mutation actions when `currentProject.can_edit` is false.
+
 Deleting a project must delete its project-scoped data instead of leaving hidden leftovers. Current schema expects cascade cleanup for epics, tasks, sprints, project members/tags, roadmap settings, and project notes. The frontend delete path must also verify that the `projects` row was actually deleted, because Supabase can return success with zero affected rows when RLS blocks or no row matches.
+
+### Organization Invitations And Project Access
+
+Invitations to a workspace are stored in `organization_invitations` and delivered through Supabase Realtime.
+
+Rules:
+
+- A new user starts with no organizations and can create an organization plus one or more projects.
+- A user can belong to many organizations.
+- Users cannot see organizations created by other users unless they are invited and accept.
+- Organization owner/admin can invite registered NexusPlanner users to the organization.
+- The user menu shows pending organization invitations in real time and lets the invited user accept or reject.
+- Accepting an organization invitation calls `accept_organization_invitation`, which atomically marks the invitation accepted and inserts the user into `organization_members` as `member`.
+- Once accepted, the user can see all `organization` visibility projects in that organization.
+- Seeing a project does not mean editing it. To mutate project data, the user must be added to `project_members`.
+- Adding a user to a project is not a new invitation flow; it is an owner action that adds an existing organization member to `project_members`.
+- Project members can be assigned to tickets.
+- Private projects (`projects.visibility = 'private'`) are visible only to explicit project members.
+- Membership RLS uses `is_project_member(project_id)`, `is_project_owner(project_id)`, `is_organization_member(organization_id)`, `is_organization_admin(organization_id)`, and `can_view_project(project_id)` helpers to avoid recursive policies and separate read access from edit access.
+- `project_invitations` may still exist for legacy compatibility, but the intended product flow is organization invitation first, project membership second.
+- Do not use browser alerts for invitation feedback; use MUI menu/alert surfaces.
+
+### User Notifications
+
+Task assignment notifications are stored in `user_notifications` and delivered through Supabase Realtime.
+
+Rules:
+
+- When `tasks.assignee_id` changes to a user different from the acting user, the database trigger creates a `task_assigned` notification.
+- Assigning a task to yourself should not notify yourself.
+- The header notification menu shows unread task assignment notifications and pending project invitations together.
+- Users can mark task assignment notifications as read.
+- `tasks` and `user_notifications` are in the `supabase_realtime` publication so board cards and the notification badge can update without a page refresh.
+- `tasks` and `user_notifications` use `REPLICA IDENTITY FULL` so update events have enough row data for Realtime clients.
+- The Board screen subscribes to project task changes and reloads the active sprint board state in the background.
 
 ### Tasks
 
@@ -316,7 +422,7 @@ Rules:
 - Board tasks have `in_backlog = false` and a `column_id`.
 - Roadmap task bars use `planned_start_date`/`planned_end_date` when present.
 - If roadmap child scheduling is enabled and a task has no planned dates, the UI may fall back to sprint dates or visual default dates.
-- Tasks can be connected to epics by `tasks.epic_id` and by the join table `epic_tasks`; current code reads both and de-duplicates by task id.
+- Tasks are connected to epics only by `tasks.epic_id`. Do not reintroduce a join table for task-epic assignment.
 - Tasks created from Roadmap under an epic are backlog tasks by default: `in_backlog = true`, `column_id = null`, and `epic_id` set. They should appear in Backlog and Roadmap until assigned to a sprint/board column.
 
 ### Epics
@@ -362,29 +468,22 @@ Important fields:
 Rules:
 
 - Backlog can create future sprints.
-- Board shows the active sprint if one exists, otherwise the first future sprint.
+- Board shows only the active sprint. Future sprints stay in Backlog/Sprint planning until they are started.
 - Tasks are assigned to a sprint through `tasks.sprint_id`.
 - Starting a sprint sets `status = active`.
 - Closing a sprint sets `status = closed`.
 
 ### Epic-Task Relationship
 
-Table: `epic_tasks`
-
-Fields:
-
-- `epic_id`
-- `task_id`
-
-Current code also writes `tasks.epic_id`. Be careful when changing this. `fetchEpics` reads both direct `tasks.epic_id` and `epic_tasks`, then de-duplicates.
+The canonical relationship is `tasks.epic_id`.
 
 Project isolation is mandatory:
 
 - An epic and its connected tasks must belong to the same `project_id`.
 - `fetchEpics` must return an empty list when no project is selected; do not fall back to all user epics.
-- `fetchEpics` must filter both direct `tasks.epic_id` tasks and `epic_tasks` join results by the selected project.
+- `fetchEpics` must filter `tasks.epic_id` tasks by the selected project.
 - `connectTaskToEpic`, `moveTaskToEpic`, and roadmap task creation must reject cross-project assignments.
-- The database has triggers preventing cross-project `epic_tasks` rows and cross-project `tasks.epic_id` values.
+- The database has a trigger preventing cross-project `tasks.epic_id` values.
 
 ### Dependencies
 
@@ -438,8 +537,10 @@ Rules:
 - The DB unique constraint blocks duplicate exact pairs.
 - Multiple outgoing dependencies are allowed: A can connect to B and C.
 - Multiple incoming dependencies are allowed: B and C can both connect to A.
-- Reverse pairs are allowed by the current product decision: A -> C and C -> A can coexist. This may represent a cycle; the app does not yet run cycle validation.
-- The database has triggers preventing cross-project epic dependencies and cross-project task dependencies.
+- Reverse pairs that create a dependency cycle are blocked.
+- A dependency cannot make an epic or task depend directly or indirectly on itself.
+- The service layer validates cycles before insert so the UI can show a friendly warning.
+- The database has triggers preventing cross-project epic/task dependencies and dependency cycles.
 
 ### Roadmap Settings
 
@@ -480,6 +581,33 @@ Important fields:
 ```
 
 Prefer adding future user preferences inside this JSON object unless a preference must be queried relationally.
+
+### Organizations
+
+Tables:
+
+- `organizations`
+- `organization_members`
+- `organization_invitations`
+
+Rules:
+
+- A user can belong to many organizations.
+- Users cannot see or switch to organizations where they are not members.
+- An organization can have many projects.
+- A project belongs to one and only one organization.
+- The active organization controls which projects appear in project selection.
+- Organization branding is shown in the sidebar as a square logo plus organization name.
+- The top app header keeps the product brand: `NexusPlanner` and `Planning Software`.
+- Organization logos are stored in the `project-assets` bucket under `organization-logos/{organizationId}/logo.ext`.
+- Users may upload any image for an organization logo. The UI opens a crop modal and generates a square logo file before upload; do not reject images only because their original dimensions are not square.
+- New users with no organization create one from the project creation modal or user settings.
+- Creating a project while an organization is active uses that organization and does not let the user switch organization inside the project modal.
+- Users with more than one organization can switch from the account menu.
+- Owner/admin can invite registered users to the organization from user settings.
+- Invited users receive a pending organization notification in the account menu; accepting adds them to the organization.
+- Organization members can view organization-visible projects by default, but they cannot change project data unless they are added as project members.
+- Project owners add organization members to a project from the Board collaborators control.
 
 ## Feature Map
 
@@ -534,19 +662,14 @@ Responsibilities:
 - Edit task details.
 - Drag columns and tasks using `@hello-pangea/dnd`.
 - Persist `column_order` and task `position`/`column_id`.
-- Use active sprint or future sprint to decide which sprint's tasks are shown.
+- Use only the active sprint to decide which sprint's tasks are shown.
 
 Important behavior:
 
 - If there is an active sprint, board loads tasks for that sprint.
-- If there is no active sprint, board may show the first future sprint.
-- If no sprint is provided, board service filters against the zero UUID sentinel:
-
-```text
-00000000-0000-0000-0000-000000000000
-```
-
-Be careful with this sentinel when changing sprint behavior.
+- If there is no active sprint, board shows an empty state and directs the user to Backlog to create or start a sprint.
+- If no sprint is provided to the board service, it filters board tasks with `sprint_id is null`. Do not use fake UUID sentinel values for missing sprints.
+- In the Board screen, the title/actions header and the board toolbar are fixed. Only the columns area scrolls vertically/horizontally.
 
 ### Backlog
 
@@ -891,7 +1014,13 @@ The code relies on Supabase/database behavior to populate `task_id_display` and 
 ## Styling Guidelines
 
 - Prefer Material UI components and theme tokens.
+- Nexus visual tokens live in `src/app/visualTokens.ts`; use them for radii, shadows, borders, spacing, density, semantic colors, and component states.
+- The active MUI redesign is inspired by ThemeWagon Aurora Free: light dashboard canvas, clean white/elevated surfaces, soft borders, restrained shadows, 8px radii, polished buttons/inputs/menus/tables, and less stock-MUI visual weight.
+- Aurora is a reference, not a dependency. Keep the implementation in the local MUI theme and adapt it to Nexus Planner's productivity UI.
 - Avoid raw white (`#fff`) unless a component specifically requires it.
+- Avoid new raw radii, shadows, border colors, or repeated layout heights unless there is a component-local reason.
+- Keep work surfaces closer to Jira/Linear/Notion: flatter panels, subtle borders, low radii, no generic promotional shadows or decorative gradient cards.
+- Reserve noticeable shadows for overlays such as menus/dialogs and rare drag states; normal cards and tables should mostly rely on borders and state color.
 - Use the central theme rather than page-local palettes.
 - Test all three themes for modal/background/input contrast.
 - Use `alpha(theme.palette.*)` for overlays and subtle backgrounds.
@@ -903,6 +1032,7 @@ The code relies on Supabase/database behavior to populate `task_id_display` and 
 - For DnD on the board, use `@hello-pangea/dnd`.
 - For roadmap dependency curves, use `@xyflow/react` and the existing `RoadmapDependencyLayer`.
 - For roadmap bars, keep using `TimelineBar` as the single source of resize/drag behavior.
+- `TimelineGrid.tsx` delegates repeated visual grid pieces to `TimelineGridParts.tsx`; keep dependency math, connector drag state, and `RoadmapDependencyLayer` integration inside the grid unless doing a dedicated connector refactor.
 - For task movement between epics in roadmap, keep the existing `dataTransfer` approach unless replacing the whole timeline interaction model.
 - When adding new modals, check light/dark/Solarized surfaces.
 - Do not use browser `alert()` dialogs. Use native MUI `Alert`, `Snackbar`, or confirmation dialogs for validation, errors, and feedback.
@@ -916,6 +1046,14 @@ npm run typecheck
 npm run lint
 npm run build
 ```
+
+For cross-feature data-flow changes, also run:
+
+```bash
+npm run test:integration
+```
+
+Current integration coverage creates isolated temporary data for project -> epic -> roadmap task -> backlog -> sprint, validates project isolation, moves the sprint task to `Hecho`, checks sprint stats, and deletes the temporary projects afterward. The suite requires password credentials or OAuth session tokens.
 
 Manual checks by feature:
 
@@ -941,9 +1079,9 @@ Manual checks by feature:
 ## Known Risks and Technical Debt
 
 - Some older files contain debug `console.log` calls and comments with emojis. Clean carefully in scoped refactors only.
-- Board sprint filtering uses a zero UUID sentinel when no sprint is selected. This is fragile and should be revisited if sprint logic changes.
-- `epic_tasks` and `tasks.epic_id` both represent epic assignment. Current code supports both; removing one requires a migration and service cleanup.
-- Dependency cycles are allowed. If the product later uses dependencies to block closing tasks, add cycle detection and validation.
+- Board sprint filtering uses `sprint_id is null` when no sprint is selected. Keep missing-sprint state represented as `null`, not as a fake UUID.
+- Task-epic assignment is intentionally single-source through `tasks.epic_id`.
+- Dependency cycles are blocked in the service layer and database triggers. Keep both layers in sync when changing dependency behavior.
 - Roadmap dependency routing is custom and visual. Test with multiple rows between source and target before changing route math.
 - `react-archer` remains in dependencies but roadmap now uses `@xyflow/react`.
 - Some UI labels are English in Roadmap settings while most app copy is Spanish.
@@ -980,6 +1118,7 @@ Manual checks by feature:
 If you need to work on:
 
 - Theme contrast: `src/app/ThemeContext.tsx`
+- Visual tokens: `src/app/visualTokens.ts`
 - App navigation: `src/app/Layout.tsx`, `src/app/App.tsx`
 - Project behavior: `src/features/projects/*`, `src/features/api/projectService.ts`
 - Board DnD: `src/features/board/hooks/useBoardManager.ts`, `src/features/board/components/Board.tsx`
@@ -988,7 +1127,9 @@ If you need to work on:
 - Epics table: `src/features/board/components/EpicsTable/*`, `src/features/api/epicService.ts`
 - Sprints: `src/features/sprints/*`, `src/features/api/sprintService.ts`
 - Roadmap bars: `src/features/roadmap/components/TimelineBar.tsx`, `TimelineGrid.tsx`
+- Roadmap grid visuals: `src/features/roadmap/components/TimelineGridParts.tsx`
 - Roadmap dependency lines: `src/features/roadmap/components/RoadmapDependencyLayer.tsx`
 - Roadmap data loading: `src/features/roadmap/hooks/useRoadmap.ts`
 - Dependency persistence: `src/features/api/dependencyService.ts`
+- Task editor internals: `src/features/board/components/TaskEditor/*`
 - Supabase migrations: `supabase/migrations/*`

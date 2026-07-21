@@ -31,10 +31,13 @@ import {
   restoreSnapshot,
   type EditorNote,
 } from "../api/editorService";
+import { logError } from "../../shared/utils/errorHandling";
 
 type QuillEditorProps = {
   userId: string;
 };
+
+type QuillContents = Parameters<Quill["setContents"]>[0];
 
 const QuillEditor = ({ userId: _userId }: QuillEditorProps) => {
   const theme = useTheme();
@@ -84,8 +87,6 @@ const QuillEditor = ({ userId: _userId }: QuillEditorProps) => {
       return;
     }
 
-    console.log("Inicializando Quill editor...");
-
     const toolbarOptions = [
       [{ header: [1, 2, 3, false] }],
       ["bold", "italic", "underline", "link"],
@@ -105,11 +106,9 @@ const QuillEditor = ({ userId: _userId }: QuillEditorProps) => {
 
     quillRef.current = quill;
 
-    // Cargar nota activa
     void loadActiveNote();
     void loadSnapshots();
 
-    // Auto-save cada 3 segundos
     quill.on("text-change", () => {
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
@@ -145,7 +144,7 @@ const QuillEditor = ({ userId: _userId }: QuillEditorProps) => {
       const allSnapshots = await fetchSnapshots(projectId);
       setSnapshots(allSnapshots);
     } catch (error) {
-      console.error("Error cargando nota del proyecto:", error);
+      logError("editor.loadProjectNote", error);
       setHasDocument(false);
     } finally {
       setIsLoadingNote(false);
@@ -160,7 +159,6 @@ const QuillEditor = ({ userId: _userId }: QuillEditorProps) => {
     void loadProjectNote();
   }, [loadProjectNote]);
 
-  // Cargar la nota activa
   const loadActiveNote = async () => {
     if (!projectId || !quillRef.current) {
       return;
@@ -170,18 +168,14 @@ const QuillEditor = ({ userId: _userId }: QuillEditorProps) => {
       const note = await fetchActiveNote(projectId);
 
       if (note && note.content) {
-        console.log("Nota activa encontrada");
-        quillRef.current.setContents(note.content as any);
+        quillRef.current.setContents(note.content as QuillContents);
         setLastSaved(new Date(note.updated_at));
-      } else {
-        console.log("No hay nota activa");
       }
     } catch (error) {
-      console.error("Error cargando nota:", error);
+      logError("editor.loadActiveNote", error);
     }
   };
 
-  // Cargar snapshots
   const loadSnapshots = async () => {
     if (!projectId) {
       return;
@@ -191,11 +185,10 @@ const QuillEditor = ({ userId: _userId }: QuillEditorProps) => {
       const allSnapshots = await fetchSnapshots(projectId);
       setSnapshots(allSnapshots);
     } catch (error) {
-      console.error("Error cargando snapshots:", error);
+      logError("editor.loadSnapshots", error);
     }
   };
 
-  // Auto-save (actualiza la nota activa)
   const handleAutoSave = async () => {
     if (!projectId || !quillRef.current) {
       return;
@@ -206,15 +199,13 @@ const QuillEditor = ({ userId: _userId }: QuillEditorProps) => {
       const content = quillRef.current.getContents();
       await autoSaveNote(projectId, content);
       setLastSaved(new Date());
-      console.log("✅ Auto-guardado");
     } catch (error) {
-      console.error("Error en auto-guardado:", error);
+      logError("editor.autoSave", error);
     } finally {
       setIsSaving(false);
     }
   };
 
-  // Crear snapshot manual
   const handleCreateSnapshot = async () => {
     if (!projectId || !quillRef.current) {
       return;
@@ -225,15 +216,13 @@ const QuillEditor = ({ userId: _userId }: QuillEditorProps) => {
       const content = quillRef.current.getContents();
       await createSnapshot(projectId, content);
       await loadSnapshots();
-      console.log("✅ Snapshot creado");
     } catch (error) {
-      console.error("Error creando snapshot:", error);
+      logError("editor.createSnapshot", error);
     } finally {
       setIsCreatingSnapshot(false);
     }
   };
 
-  // Abrir diálogo de confirmación para cambiar versión
   const handleOpenRestoreDialog = (snapshotId: string, versionNumber: number) => {
     setConfirmDialog({
       open: true,
@@ -242,7 +231,6 @@ const QuillEditor = ({ userId: _userId }: QuillEditorProps) => {
     });
   };
 
-  // Cambiar a una versión específica
   const handleConfirmRestore = async () => {
     const { snapshotId } = confirmDialog;
     
@@ -251,24 +239,19 @@ const QuillEditor = ({ userId: _userId }: QuillEditorProps) => {
     }
 
     try {
-      // Auto-guardar contenido actual antes de cambiar
       const currentContent = quillRef.current.getContents();
       await autoSaveNote(projectId, currentContent);
       
-      // Cargar la versión seleccionada
       await restoreSnapshot(projectId, snapshotId);
       await loadActiveNote();
       
       setConfirmDialog({ open: false, snapshotId: null, versionNumber: null });
       setIsHistoryOpen(false);
-      
-      console.log("✅ Cambiado a versión anterior");
     } catch (error) {
-      console.error("Error cambiando versión:", error);
+      logError("editor.restoreSnapshot", error);
     }
   };
 
-  // Abrir diálogo de confirmación para eliminar
   const handleOpenDeleteDialog = (snapshotId: string, versionNumber: number) => {
     setDeleteDialog({
       open: true,
@@ -277,7 +260,6 @@ const QuillEditor = ({ userId: _userId }: QuillEditorProps) => {
     });
   };
 
-  // Eliminar snapshot confirmado
   const handleConfirmDelete = async () => {
     const { snapshotId } = deleteDialog;
     
@@ -290,14 +272,11 @@ const QuillEditor = ({ userId: _userId }: QuillEditorProps) => {
       await loadSnapshots();
       
       setDeleteDialog({ open: false, snapshotId: null, versionNumber: null });
-      
-      console.log("✅ Snapshot eliminado");
     } catch (error) {
-      console.error("Error eliminando snapshot:", error);
+      logError("editor.deleteSnapshot", error);
     }
   };
 
-  // Crear documento del proyecto.
   const handleCreateDocument = async () => {
     if (!projectId) {
       return;
@@ -310,13 +289,12 @@ const QuillEditor = ({ userId: _userId }: QuillEditorProps) => {
       setLastSaved(new Date());
       await loadSnapshots();
     } catch (error) {
-      console.error("Error creando documento:", error);
+      logError("editor.createDocument", error);
     } finally {
       setIsCreatingDocument(false);
     }
   };
 
-  // Formatear fecha de forma humanizada
   const formatHumanDate = (dateString: string) => {
     const date = new Date(dateString);
     const now = new Date();
@@ -325,27 +303,22 @@ const QuillEditor = ({ userId: _userId }: QuillEditorProps) => {
     const diffInHours = Math.floor(diffInMinutes / 60);
     const diffInDays = Math.floor(diffInHours / 24);
 
-    // Hace menos de 1 minuto
     if (diffInSeconds < 60) {
       return "Hace unos segundos";
     }
 
-    // Hace menos de 1 hora
     if (diffInMinutes < 60) {
       return `Hace ${diffInMinutes} ${diffInMinutes === 1 ? "minuto" : "minutos"}`;
     }
 
-    // Hace menos de 24 horas
     if (diffInHours < 24) {
       return `Hace ${diffInHours} ${diffInHours === 1 ? "hora" : "horas"}`;
     }
 
-    // Hace menos de 7 días
     if (diffInDays < 7) {
       return `Hace ${diffInDays} ${diffInDays === 1 ? "día" : "días"}`;
     }
 
-    // Más de 7 días: mostrar fecha completa
     const months = [
       "enero", "febrero", "marzo", "abril", "mayo", "junio",
       "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"
@@ -366,7 +339,7 @@ const QuillEditor = ({ userId: _userId }: QuillEditorProps) => {
     if (seconds < 60) return "hace unos segundos";
     if (seconds < 3600) return `hace ${Math.floor(seconds / 60)} min`;
     if (seconds < 86400) return `hace ${Math.floor(seconds / 3600)} h`;
-    return formatHumanDate(date.toISOString()); // ✅ CORREGIDO
+    return formatHumanDate(date.toISOString());
   };
   const editorBorder = theme.palette.divider;
   const editorToolbarBg = theme.palette.action.selected;

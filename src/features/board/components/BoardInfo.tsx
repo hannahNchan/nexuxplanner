@@ -58,12 +58,8 @@ const BoardInfo: React.FC<BoardInfoProps> = ({ userId }) => {
       )}
       {displaySprint && (
         <Chip
-          label={
-            displaySprint.status === "active"
-              ? "SPRINT ACTIVO"
-              : "SPRINT FUTURO"
-          }
-          color={displaySprint.status === "active" ? "success" : "warning"}
+          label="SPRINT ACTIVO"
+          color="success"
           size="small"
           sx={{ fontWeight: 600, borderRadius: "4px" }}
         />

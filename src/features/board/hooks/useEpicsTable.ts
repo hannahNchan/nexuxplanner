@@ -24,6 +24,7 @@ import {
 } from "../../api/projectService";
 import { useProject } from "../../../shared/contexts/ProjectContext";
 import type { GridRowsProp } from "@mui/x-data-grid";
+import { getErrorMessage, logError, type NotificationSeverity } from "../../../shared/utils/errorHandling";
 
 type Filters = {
   phases: string[];
@@ -32,7 +33,8 @@ type Filters = {
 };
 
 export const useEpicsTable = (userId: string) => {
-  const { currentProject } = useProject();
+  const { currentProject, activeOrganization } = useProject();
+  const canEditProject = currentProject?.can_edit ?? true;
 
   // Estado principal
   const [epics, setEpics] = useState<EpicWithDetails[]>([]);
@@ -79,6 +81,18 @@ export const useEpicsTable = (userId: string) => {
   // Estado de eliminación
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [epicToDelete, setEpicToDelete] = useState<string | null>(null);
+  const [notification, setNotification] = useState<{
+    severity: NotificationSeverity;
+    message: string;
+  } | null>(null);
+
+  const showError = (context: string, error: unknown, fallback: string) => {
+    logError(context, error);
+    setNotification({
+      severity: "error",
+      message: getErrorMessage(error, fallback),
+    });
+  };
 
   // Cargar datos iniciales
   const loadData = async () => {
@@ -88,7 +102,7 @@ export const useEpicsTable = (userId: string) => {
         fetchEpics(userId, currentProject?.id ?? null),
         fetchEpicPhases(),
         fetchDefaultPointSystem(),
-        fetchProjects(userId),
+        fetchProjects(userId, activeOrganization?.id),
       ]);
 
       setEpics(epicsData);
@@ -100,7 +114,7 @@ export const useEpicsTable = (userId: string) => {
         setPointValues(points);
       }
     } catch (error) {
-      console.error("Error cargando datos:", error);
+      showError("epics.loadData", error, "No se pudieron cargar las épicas.");
     } finally {
       setIsLoading(false);
     }
@@ -108,7 +122,7 @@ export const useEpicsTable = (userId: string) => {
 
   useEffect(() => {
     void loadData();
-  }, [userId, currentProject]);
+  }, [userId, currentProject, activeOrganization?.id]);
 
   useEffect(() => {
     let processedEpics = epics.filter((epic) => !hiddenEpics.includes(epic.id));
@@ -221,7 +235,7 @@ export const useEpicsTable = (userId: string) => {
         }
       })
       .catch((error) => {
-        console.error("Error buscando tareas:", error);
+        showError("epics.searchTasks", error, "No se pudieron buscar tareas.");
         if (isActive) {
           setTaskOptions([]);
         }
@@ -238,10 +252,19 @@ export const useEpicsTable = (userId: string) => {
   }, [taskSearchText, taskSearchOpen, userId, currentProject]);
 
   const handleAddEpic = async () => {
+    if (!currentProject) return;
+    if (!canEditProject) {
+      setNotification({
+        severity: "info",
+        message: "Solo puedes crear épicas en proyectos donde eres colaborador.",
+      });
+      return;
+    }
+
     try {
       const newEpic = await createEpic(userId, {
         name: "Nueva épica",
-        project_id: currentProject?.id ?? null,
+        project_id: currentProject.id,
       });
 
       const epicWithDetails: EpicWithDetails = {
@@ -253,45 +276,48 @@ export const useEpicsTable = (userId: string) => {
 
       setEpics((prev) => [epicWithDetails, ...prev]);
     } catch (error) {
-      console.error("Error creando épica:", error);
+      showError("epics.create", error, "No se pudo crear la épica.");
     }
   };
 
   const handleColorChange = async (epicId: string, color: string | null) => {
-    console.log("🎨 Cambiando color de épica:", epicId, "a color:", color);
+    if (!currentProject) return;
+    if (!canEditProject) return;
     
     try {
-      const result = await updateEpic(epicId, { color });
-      console.log("🎨 Resultado de updateEpic:", result);
+      await updateEpic(currentProject.id, epicId, { color });
 
-      // ✅ Actualizar solo el estado local
       setEpics((prev) =>
         prev.map((epic) =>
           epic.id === epicId ? { ...epic, color } : epic
         )
       );
-      
-      console.log("🎨 Estado local actualizado");
     } catch (error) {
-      console.error("Error actualizando color:", error);
+      showError("epics.updateColor", error, "No se pudo actualizar el color.");
     }
   };
 
   const handleNameChange = async (epicId: string, newName: string) => {
+    if (!currentProject) return;
+    if (!canEditProject) return;
+
     try {
-      await updateEpic(epicId, { name: newName });
+      await updateEpic(currentProject.id, epicId, { name: newName });
 
       setEpics((prev) =>
         prev.map((epic) => (epic.id === epicId ? { ...epic, name: newName } : epic))
       );
     } catch (error) {
-      console.error("Error actualizando nombre:", error);
+      showError("epics.updateName", error, "No se pudo actualizar el nombre.");
     }
   };
 
   const handlePhaseChange = async (epicId: string, phaseId: string) => {
+    if (!currentProject) return;
+    if (!canEditProject) return;
+
     try {
-      await updateEpic(epicId, { phase_id: phaseId || null });
+      await updateEpic(currentProject.id, epicId, { phase_id: phaseId || null });
 
       const phase = phases.find((p) => p.id === phaseId);
       setEpics((prev) =>
@@ -307,13 +333,16 @@ export const useEpicsTable = (userId: string) => {
         )
       );
     } catch (error) {
-      console.error("Error actualizando fase:", error);
+      showError("epics.updatePhase", error, "No se pudo actualizar la fase.");
     }
   };
 
   const handleEffortChange = async (epicId: string, effort: string) => {
+    if (!currentProject) return;
+    if (!canEditProject) return;
+
     try {
-      await updateEpic(epicId, { estimated_effort: effort || null });
+      await updateEpic(currentProject.id, epicId, { estimated_effort: effort || null });
 
       setEpics((prev) =>
         prev.map((epic) =>
@@ -321,7 +350,7 @@ export const useEpicsTable = (userId: string) => {
         )
       );
     } catch (error) {
-      console.error("Error actualizando esfuerzo:", error);
+      showError("epics.updateEffort", error, "No se pudo actualizar el esfuerzo.");
     }
   };
 
@@ -330,8 +359,11 @@ export const useEpicsTable = (userId: string) => {
     field: "start_date" | "end_date",
     value: string | null
   ) => {
+    if (!currentProject) return;
+    if (!canEditProject) return;
+
     try {
-      await updateEpic(epicId, { [field]: value });
+      await updateEpic(currentProject.id, epicId, { [field]: value });
 
       setEpics((prev) =>
         prev.map((epic) =>
@@ -344,11 +376,12 @@ export const useEpicsTable = (userId: string) => {
         )
       );
     } catch (error) {
-      console.error("Error actualizando fecha de épica:", error);
+      showError("epics.updateDate", error, "No se pudo actualizar la fecha de la épica.");
     }
   };
 
   const handleProjectChange = async (epicId: string, projectId: string) => {
+    if (!canEditProject) return;
     try {
       await linkEpicToProject(epicId, projectId || null);
 
@@ -358,13 +391,16 @@ export const useEpicsTable = (userId: string) => {
         )
       );
     } catch (error) {
-      console.error("Error actualizando proyecto:", error);
+      showError("epics.updateProject", error, "No se pudo cambiar el proyecto de la épica.");
     }
   };
 
   const handleConnectTask = async (epicId: string, taskId: string) => {
+    if (!currentProject) return;
+    if (!canEditProject) return;
+
     try {
-      await connectTaskToEpic(epicId, taskId);
+      await connectTaskToEpic(currentProject.id, epicId, taskId);
 
       const task = taskOptions.find((t) => t.id === taskId);
       if (task) {
@@ -399,13 +435,16 @@ export const useEpicsTable = (userId: string) => {
         );
       }
     } catch (error) {
-      console.error("Error conectando tarea:", error);
+      showError("epics.connectTask", error, "No se pudo conectar la tarea.");
     }
   };
 
   const handleDisconnectTask = async (epicId: string, taskId: string) => {
+    if (!currentProject) return;
+    if (!canEditProject) return;
+
     try {
-      await disconnectTaskFromEpic(epicId, taskId);
+      await disconnectTaskFromEpic(currentProject.id, epicId, taskId);
 
       setEpics((prev) =>
         prev.map((epic) =>
@@ -418,26 +457,28 @@ export const useEpicsTable = (userId: string) => {
         )
       );
     } catch (error) {
-      console.error("Error desconectando tarea:", error);
+      showError("epics.disconnectTask", error, "No se pudo desconectar la tarea.");
     }
   };
 
   const handleDeleteEpic = (epicId: string) => {
+    if (!canEditProject) return;
     setEpicToDelete(epicId);
     setDeleteDialogOpen(true);
   };
 
   const confirmDeleteEpic = async () => {
-    if (!epicToDelete) return;
+    if (!currentProject || !epicToDelete) return;
+    if (!canEditProject) return;
 
     try {
-      await deleteEpic(epicToDelete);
+      await deleteEpic(currentProject.id, epicToDelete);
 
       setEpics((prev) => prev.filter((epic) => epic.id !== epicToDelete));
       setDeleteDialogOpen(false);
       setEpicToDelete(null);
     } catch (error) {
-      console.error("Error eliminando épica:", error);
+      showError("epics.delete", error, "No se pudo eliminar la épica.");
     }
   };
 
@@ -476,6 +517,7 @@ export const useEpicsTable = (userId: string) => {
     epicToDelete,
     editingColor,
     colorMenuAnchor,
+    notification,
 
     activeFiltersCount,
 
@@ -504,6 +546,7 @@ export const useEpicsTable = (userId: string) => {
     setTaskOptions,
     setDeleteDialogOpen,
     setEpicToDelete,
+    setNotification,
 
     // Handlers
     handleAddEpic,

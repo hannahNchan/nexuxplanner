@@ -29,6 +29,7 @@ import { useState } from "react";
 import type { ProjectWithTags } from "../../api/projectService";
 import { getEmojiForTag, getColorForTag } from "../../../shared/utils/tagHelpers";
 import { deleteProject } from "../../api/projectService";
+import { logError } from "../../../shared/utils/errorHandling";
 
 type ExploreProjectsModalProps = {
   open: boolean;
@@ -97,7 +98,7 @@ const ExploreProjectsModal = ({
       setProjectToDelete(null);
       onRefresh();
     } catch (error) {
-      console.error("Error eliminando proyecto:", error);
+      logError("projects.explore.delete", error);
       setDeleteError({
         title: "Error",
         message: "Error al eliminar el proyecto. Por favor intenta de nuevo.",

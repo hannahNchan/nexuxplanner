@@ -17,6 +17,10 @@ import {
   CircularProgress,
   FormControlLabel,
   Switch,
+  Avatar,
+  Alert,
+  ToggleButton,
+  ToggleButtonGroup,
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import AddIcon from "@mui/icons-material/Add";
@@ -32,7 +36,14 @@ import { useProjectCatalogs } from "../hooks/useProjectCatalogs";
 import IconPicker from "../../../shared/ui/IconPicker";
 import ColorPicker from "../../../shared/ui/ColorPicker";
 import { uploadProjectBanner, removeProjectBanner, fetchProjectById } from "../../../features/api/projectService";
+import {
+  uploadOrganizationLogo,
+  updateOrganization,
+  type Organization,
+} from "../../../features/api/organizationService";
 import type { IssueType, Priority, EpicPhase } from "../../../features/api/catalogService";
+import { logError } from "../../../shared/utils/errorHandling";
+import OrganizationLogoCropDialog from "../../../shared/ui/OrganizationLogoCropDialog";
 
 type ProjectSettingsModalProps = {
   open: boolean;
@@ -41,6 +52,10 @@ type ProjectSettingsModalProps = {
   allowBoardTaskCreation: boolean;
   onClose: () => void;
   onUpdateAllowBoardTaskCreation: (projectId: string, value: boolean) => Promise<void>;
+  organization?: Organization | null;
+  onOrganizationUpdated?: (organization: Organization) => void;
+  projectVisibility: "organization" | "private";
+  onUpdateProjectVisibility: (projectId: string, value: "organization" | "private") => Promise<void>;
 };
 
 type Section = "general" | "tasks" | "epics";
@@ -52,15 +67,25 @@ const ProjectSettingsModal = ({
   allowBoardTaskCreation: initialAllowBoardTaskCreation,
   onClose,
   onUpdateAllowBoardTaskCreation,
+  organization = null,
+  onOrganizationUpdated,
+  projectVisibility,
+  onUpdateProjectVisibility,
 }: ProjectSettingsModalProps) => {
   const theme = useTheme();
   const [selectedSection, setSelectedSection] = useState<Section>("general");
   const catalogs = useProjectCatalogs();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const logoInputRef = useRef<HTMLInputElement>(null);
   const [uploadingBanner, setUploadingBanner] = useState(false);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string>("");
   const [currentBannerUrl, setCurrentBannerUrl] = useState<string>("");
+  const [organizationName, setOrganizationName] = useState(organization?.name ?? "");
+  const [visibility, setVisibility] = useState<"organization" | "private">(projectVisibility);
+  const [logoError, setLogoError] = useState("");
+  const [logoCropSourceFile, setLogoCropSourceFile] = useState<File | null>(null);
 
   const [editingIssueTypes, setEditingIssueTypes] = useState<Record<string, Partial<IssueType>>>({});
   const [editingPriorities, setEditingPriorities] = useState<Record<string, Partial<Priority>>>({});
@@ -71,10 +96,14 @@ const ProjectSettingsModal = ({
   useEffect(() => {
     if (open) {
       setAllowBoardTaskCreation(initialAllowBoardTaskCreation);
+      setOrganizationName(organization?.name ?? "");
+      setVisibility(projectVisibility);
+      setLogoError("");
+      setLogoCropSourceFile(null);
       void catalogs.refetch();
       void loadProjectData();
     }
-  }, [open, initialAllowBoardTaskCreation]);
+  }, [open, initialAllowBoardTaskCreation, organization?.name, projectVisibility]);
 
   const loadProjectData = async () => {
     try {
@@ -85,7 +114,7 @@ const ProjectSettingsModal = ({
         setSelectedFile(null);
       }
     } catch (error) {
-      console.error("Error cargando datos del proyecto:", error);
+      logError("projectSettings.loadProject", error);
     }
   };
 
@@ -94,7 +123,7 @@ const ProjectSettingsModal = ({
     try {
       await onUpdateAllowBoardTaskCreation(projectId, checked);
     } catch (error) {
-      console.error("Error actualizando configuración:", error);
+      logError("projectSettings.updateBoardTaskCreation", error);
       setAllowBoardTaskCreation(!checked);
     }
   };
@@ -104,18 +133,87 @@ const ProjectSettingsModal = ({
     if (!file) return;
 
     if (file.size > 5 * 1024 * 1024) {
-      console.error("El archivo es demasiado grande. Máximo 5MB");
       return;
     }
 
     if (!file.type.startsWith("image/")) {
-      console.error("El archivo debe ser una imagen");
       return;
     }
 
     setSelectedFile(file);
     const url = URL.createObjectURL(file);
     setPreviewUrl(url);
+  };
+
+  const handleOrganizationLogoSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !organization) return;
+
+    if (!file.type.startsWith("image/")) {
+      setLogoError("Selecciona una imagen válida.");
+      return;
+    }
+
+    if (file.size > 2 * 1024 * 1024) {
+      setLogoError("El logo debe pesar menos de 2MB.");
+      return;
+    }
+
+    setLogoError("");
+    setLogoCropSourceFile(file);
+    event.target.value = "";
+  };
+
+  const handleOrganizationLogoCrop = async (croppedFile: File) => {
+    if (!organization) return;
+
+    try {
+      setUploadingLogo(true);
+      setLogoError("");
+      const logoUrl = await uploadOrganizationLogo(organization.id, croppedFile);
+      onOrganizationUpdated?.({
+        ...organization,
+        logo_url: logoUrl,
+        updated_at: new Date().toISOString(),
+      });
+      setLogoCropSourceFile(null);
+    } catch (error) {
+      logError("projectSettings.uploadOrganizationLogo", error);
+      setLogoError(error instanceof Error ? error.message : "No se pudo subir el logo.");
+    } finally {
+      setUploadingLogo(false);
+      if (logoInputRef.current) {
+        logoInputRef.current.value = "";
+      }
+    }
+  };
+
+  const handleOrganizationNameSave = async () => {
+    if (!organization || !organizationName.trim()) return;
+
+    try {
+      const updatedOrganization = await updateOrganization(organization.id, {
+        name: organizationName,
+      });
+      onOrganizationUpdated?.({
+        ...updatedOrganization,
+        role: organization.role,
+      });
+    } catch (error) {
+      logError("projectSettings.updateOrganizationName", error);
+      setLogoError("No se pudo actualizar la organización.");
+    }
+  };
+
+  const handleProjectVisibilityChange = async (nextVisibility: "organization" | "private") => {
+    setVisibility(nextVisibility);
+    try {
+      await onUpdateProjectVisibility(projectId, nextVisibility);
+    } catch (error) {
+      logError("projectSettings.updateVisibility", error);
+      setVisibility(projectVisibility);
+      setLogoError("No se pudo actualizar la visibilidad del proyecto.");
+    }
   };
 
   const handleUploadBanner = async () => {
@@ -127,9 +225,8 @@ const ProjectSettingsModal = ({
       setCurrentBannerUrl(bannerUrl);
       setPreviewUrl("");
       setSelectedFile(null);
-      console.log("Banner subido exitosamente:", bannerUrl);
     } catch (error) {
-      console.error("Error subiendo el banner:", error);
+      logError("projectSettings.uploadBanner", error);
     } finally {
       setUploadingBanner(false);
       if (fileInputRef.current) {
@@ -153,9 +250,8 @@ const ProjectSettingsModal = ({
     try {
       await removeProjectBanner(projectId);
       setCurrentBannerUrl("");
-      console.log("Banner eliminado exitosamente");
     } catch (error) {
-      console.error("Error eliminando el banner:", error);
+      logError("projectSettings.removeBanner", error);
     } finally {
       setUploadingBanner(false);
     }
@@ -278,6 +374,99 @@ const ProjectSettingsModal = ({
             </Button>
           )}
         </Box>
+      </Box>
+      <Divider />
+      <Box>
+        <Typography variant="h6" fontWeight={600} gutterBottom>
+          Acceso del Proyecto
+        </Typography>
+        <Typography variant="body2" color="text.secondary" paragraph>
+          Define si el proyecto aparece para toda la organización o solo para colaboradores agregados.
+        </Typography>
+
+        <ToggleButtonGroup
+          exclusive
+          value={visibility}
+          onChange={(_, nextVisibility) => {
+            if (nextVisibility) {
+              void handleProjectVisibilityChange(nextVisibility);
+            }
+          }}
+          size="small"
+        >
+          <ToggleButton value="organization">
+            Visible para la organización
+          </ToggleButton>
+          <ToggleButton value="private">
+            Privado
+          </ToggleButton>
+        </ToggleButtonGroup>
+        <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: "block" }}>
+          {visibility === "organization"
+            ? "Los miembros de la organización pueden ver el proyecto, pero solo colaboradores del proyecto pueden modificarlo."
+            : "Solo colaboradores agregados al proyecto pueden ver y abrir este proyecto."}
+        </Typography>
+      </Box>
+      <Divider />
+      <Box>
+        <Typography variant="h6" fontWeight={600} gutterBottom>
+          Logo de la Organización
+        </Typography>
+        <Typography variant="body2" color="text.secondary" paragraph>
+          Este logo aparece en el sidebar junto al nombre de la empresa.
+        </Typography>
+
+        {logoError ? (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            {logoError}
+          </Alert>
+        ) : null}
+
+        <Stack direction={{ xs: "column", sm: "row" }} spacing={2} alignItems={{ xs: "stretch", sm: "center" }}>
+          <Avatar
+            src={organization?.logo_url ?? undefined}
+            variant="rounded"
+            sx={{
+              width: 72,
+              height: 72,
+              fontSize: 20,
+              fontWeight: 900,
+              bgcolor: "primary.main",
+            }}
+          >
+            {(organization?.name ?? "OR").slice(0, 2).toUpperCase()}
+          </Avatar>
+          <Stack spacing={1.5} sx={{ flex: 1 }}>
+            <TextField
+              label="Nombre de la organización"
+              value={organizationName}
+              onChange={(event) => setOrganizationName(event.target.value)}
+              onBlur={handleOrganizationNameSave}
+              disabled={!organization}
+              fullWidth
+            />
+            <Stack direction="row" spacing={1}>
+              <Button
+                variant="outlined"
+                startIcon={uploadingLogo ? <CircularProgress size={18} /> : <UploadFileIcon />}
+                onClick={() => logoInputRef.current?.click()}
+                disabled={!organization || uploadingLogo}
+              >
+                {uploadingLogo ? "Subiendo..." : "Subir logo"}
+              </Button>
+              <input
+                ref={logoInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleOrganizationLogoSelect}
+                style={{ display: "none" }}
+              />
+            </Stack>
+            <Typography variant="caption" color="text.secondary">
+              Sube cualquier imagen y recortala en el cuadro para crear el logo. Si no hay logo, se mostrarán las iniciales.
+            </Typography>
+          </Stack>
+        </Stack>
       </Box>
     </Stack>
   );
@@ -855,6 +1044,13 @@ const ProjectSettingsModal = ({
           )}
         </Box>
       </DialogContent>
+      <OrganizationLogoCropDialog
+        open={Boolean(logoCropSourceFile)}
+        file={logoCropSourceFile}
+        title="Recortar logo de organizacion"
+        onCancel={() => setLogoCropSourceFile(null)}
+        onCrop={(file) => void handleOrganizationLogoCrop(file)}
+      />
     </Dialog>
   );
 };

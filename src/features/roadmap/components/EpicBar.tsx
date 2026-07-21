@@ -20,6 +20,7 @@ type EpicBarProps = {
   ) => void;
   onEndConnection: (epicId: string, anchor: "start" | "end", connectorId: string) => void;
   draggingFromEpic: string | null;
+  readOnly?: boolean;
 };
 
 const EpicBar = ({
@@ -33,6 +34,7 @@ const EpicBar = ({
   onStartConnection,
   onEndConnection,
   draggingFromEpic,
+  readOnly = false,
 }: EpicBarProps) => {
   const theme = useTheme();
   const color = epic.color || epic.phase_color || theme.palette.primary.main;
@@ -66,6 +68,7 @@ const EpicBar = ({
         targetId: hoveredConnectionTargetId,
       }}
       onConnectionTargetChange={onConnectionTargetChange}
+      readOnly={readOnly}
     />
   );
 };

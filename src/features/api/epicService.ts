@@ -51,9 +51,21 @@ export type TaskSearchOption = {
 export type EpicWithDetails = Epic & {
   owner_name?: string;
   phase_name?: string;
-  phase_color?: string;
+  phase_color?: string | null;
   connected_tasks?: RoadmapTask[];
 };
+
+type EpicRow = Epic & {
+  epic_phases?: {
+    name: string;
+    color: string | null;
+  } | null;
+};
+
+type RoadmapTaskRow = Omit<
+  RoadmapTask,
+  "column_name" | "sprint_name" | "sprint_start_date" | "sprint_end_date"
+>;
 
 export const fetchEpicPhases = async (): Promise<EpicPhase[]> => {
   const { data, error } = await supabase
@@ -90,28 +102,7 @@ export const fetchEpics = async (
   if (error) throw error;
 
   const epicsWithDetails: EpicWithDetails[] = await Promise.all(
-    (data ?? []).map(async (epic: any) => {
-      const { data: linkedEpicTasks } = await supabase
-        .from("epic_tasks")
-        .select(`
-          task_id,
-          tasks!epic_tasks_task_id_fkey (
-            id,
-            project_id,
-            column_id,
-            sprint_id,
-            title,
-            task_id_display,
-            issue_type_id,
-            priority_id,
-            story_points,
-            assignee_id,
-            planned_start_date,
-            planned_end_date
-          )
-        `)
-        .eq("epic_id", epic.id);
-
+    ((data ?? []) as EpicRow[]).map(async (epic) => {
       const { data: directEpicTasks } = await supabase
         .from("tasks")
         .select(`
@@ -133,13 +124,7 @@ export const fetchEpics = async (
 
       const tasksById = new Map<string, RoadmapTask>();
 
-      (linkedEpicTasks ?? []).forEach((et: any) => {
-        if (et.tasks?.id && et.tasks.project_id === projectId) {
-          tasksById.set(et.tasks.id, et.tasks);
-        }
-      });
-
-      (directEpicTasks ?? []).forEach((task: any) => {
+      ((directEpicTasks ?? []) as RoadmapTaskRow[]).forEach((task) => {
         if (task?.id && task.project_id === projectId) {
           tasksById.set(task.id, task);
         }
@@ -153,6 +138,7 @@ export const fetchEpics = async (
         const { data: columns } = await supabase
           .from("columns")
           .select("id, name")
+          .eq("project_id", projectId)
           .in("id", columnIds);
 
         const columnNameById = new Map((columns ?? []).map((column) => [column.id, column.name]));
@@ -165,6 +151,7 @@ export const fetchEpics = async (
         const { data: sprints } = await supabase
           .from("sprints")
           .select("id, name, start_date, end_date")
+          .eq("project_id", projectId)
           .in("id", sprintIds);
 
         const sprintById = new Map((sprints ?? []).map((sprint) => [sprint.id, sprint]));
@@ -196,16 +183,20 @@ export const createEpic = async (
     owner_id?: string | null;
     phase_id?: string | null;
     estimated_effort?: string | null;
-    project_id?: string | null;
+    project_id: string;
     start_date?: string | null;
     end_date?: string | null;
   }
 ): Promise<Epic> => {
+  if (!data.project_id) {
+    throw new Error("La épica debe pertenecer a un proyecto.");
+  }
+
   const { data: created, error } = await supabase
     .from("epics")
     .insert({
       user_id: userId,
-       color: data.color || "#3B82F6",
+      color: data.color || "#3B82F6",
       ...data,
     })
     .select()
@@ -216,6 +207,7 @@ export const createEpic = async (
 };
 
 export const updateEpic = async (
+  projectId: string,
   epicId: string,
   updates: {
     name?: string;
@@ -234,6 +226,7 @@ export const updateEpic = async (
       updated_at: new Date().toISOString(),
     })
     .eq("id", epicId)
+    .eq("project_id", projectId)
     .select()
     .single();
 
@@ -241,14 +234,27 @@ export const updateEpic = async (
   return data;
 };
 
-export const deleteEpic = async (epicId: string): Promise<boolean> => {
-  const { error } = await supabase.from("epics").delete().eq("id", epicId);
+export const deleteEpic = async (projectId: string, epicId: string): Promise<boolean> => {
+  const { data, error } = await supabase
+    .from("epics")
+    .delete()
+    .eq("id", epicId)
+    .eq("project_id", projectId)
+    .select("id");
 
   if (error) throw error;
+  if (!data || data.length === 0) {
+    throw new Error("No se pudo eliminar la épica del proyecto actual.");
+  }
+
   return true;
 };
 
-const assertTaskBelongsToEpicProject = async (taskId: string, epicId: string): Promise<void> => {
+const assertTaskBelongsToEpicProject = async (
+  projectId: string,
+  taskId: string,
+  epicId: string
+): Promise<void> => {
   const [{ data: epic, error: epicError }, { data: task, error: taskError }] = await Promise.all([
     supabase.from("epics").select("project_id").eq("id", epicId).single(),
     supabase.from("tasks").select("project_id").eq("id", taskId).single(),
@@ -257,34 +263,49 @@ const assertTaskBelongsToEpicProject = async (taskId: string, epicId: string): P
   if (epicError) throw epicError;
   if (taskError) throw taskError;
 
-  if (!epic?.project_id || !task?.project_id || epic.project_id !== task.project_id) {
+  if (
+    !epic?.project_id ||
+    !task?.project_id ||
+    epic.project_id !== task.project_id ||
+    epic.project_id !== projectId
+  ) {
     throw new Error("La tarea y la épica deben pertenecer al mismo proyecto.");
   }
 };
 
 export const connectTaskToEpic = async (
+  projectId: string,
   epicId: string,
   taskId: string
 ): Promise<void> => {
-  await assertTaskBelongsToEpicProject(taskId, epicId);
+  await assertTaskBelongsToEpicProject(projectId, taskId, epicId);
 
-  const { error } = await supabase.from("epic_tasks").insert({
-    epic_id: epicId,
-    task_id: taskId,
-  });
+  const { error } = await supabase
+    .from("tasks")
+    .update({
+      epic_id: epicId,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", taskId)
+    .eq("project_id", projectId);
 
   if (error) throw error;
 };
 
 export const disconnectTaskFromEpic = async (
+  projectId: string,
   epicId: string,
   taskId: string
 ): Promise<void> => {
   const { error } = await supabase
-    .from("epic_tasks")
-    .delete()
-    .eq("epic_id", epicId)
-    .eq("task_id", taskId);
+    .from("tasks")
+    .update({
+      epic_id: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", taskId)
+    .eq("project_id", projectId)
+    .eq("epic_id", epicId);
 
   if (error) throw error;
 };
@@ -298,25 +319,10 @@ export const searchTasks = async (
     return [];
   }
 
-  const { data: columns, error: columnsError } = await supabase
-    .from("columns")
-    .select("id")
-    .eq("project_id", projectId);
-
-  if (columnsError) {
-    throw columnsError;
-  }
-
-  if (!columns || columns.length === 0) {
-    return [];
-  }
-
-  const columnIds = columns.map((c) => c.id);
-
   let queryBuilder = supabase
     .from("tasks")
     .select("id, title, epic_id")
-    .in("column_id", columnIds)
+    .eq("project_id", projectId)
     .order("title", { ascending: true });
 
   if (query.trim()) {
@@ -331,34 +337,15 @@ export const searchTasks = async (
     throw error;
   }
 
-  const taskIds = (data ?? []).map((task) => task.id);
-  const linkedEpicByTaskId = new Map<string, string>();
-
-  if (taskIds.length > 0) {
-    const { data: linkedTasks, error: linkedTasksError } = await supabase
-      .from("epic_tasks")
-      .select("task_id, epic_id")
-      .in("task_id", taskIds);
-
-    if (linkedTasksError) {
-      throw linkedTasksError;
-    }
-
-    (linkedTasks ?? []).forEach((linkedTask) => {
-      if (linkedTask.task_id && linkedTask.epic_id && !linkedEpicByTaskId.has(linkedTask.task_id)) {
-        linkedEpicByTaskId.set(linkedTask.task_id, linkedTask.epic_id);
-      }
-    });
-  }
-
   return (data ?? []).map((task) => ({
     id: task.id,
     title: task.title,
-    assigned_epic_id: task.epic_id ?? linkedEpicByTaskId.get(task.id) ?? null,
+    assigned_epic_id: task.epic_id ?? null,
   }));
 };
 
 export const updateTaskPlannedDates = async (
+  projectId: string,
   taskId: string,
   startDate: string,
   endDate: string
@@ -370,7 +357,8 @@ export const updateTaskPlannedDates = async (
       planned_end_date: endDate,
       updated_at: new Date().toISOString(),
     })
-    .eq("id", taskId);
+    .eq("id", taskId)
+    .eq("project_id", projectId);
 
   if (error) throw error;
 };
@@ -417,15 +405,6 @@ export const createRoadmapTaskForEpic = async (
 
   if (createError) throw createError;
 
-  const { error: linkError } = await supabase
-    .from("epic_tasks")
-    .insert({
-      epic_id: epicId,
-      task_id: createdTask.id,
-    });
-
-  if (linkError) throw linkError;
-
   return {
     ...createdTask,
     column_name: null,
@@ -435,8 +414,8 @@ export const createRoadmapTaskForEpic = async (
   };
 };
 
-export const moveTaskToEpic = async (taskId: string, epicId: string): Promise<void> => {
-  await assertTaskBelongsToEpicProject(taskId, epicId);
+export const moveTaskToEpic = async (projectId: string, taskId: string, epicId: string): Promise<void> => {
+  await assertTaskBelongsToEpicProject(projectId, taskId, epicId);
 
   const { error: taskError } = await supabase
     .from("tasks")
@@ -444,23 +423,8 @@ export const moveTaskToEpic = async (taskId: string, epicId: string): Promise<vo
       epic_id: epicId,
       updated_at: new Date().toISOString(),
     })
-    .eq("id", taskId);
+    .eq("id", taskId)
+    .eq("project_id", projectId);
 
   if (taskError) throw taskError;
-
-  const { error: deleteError } = await supabase
-    .from("epic_tasks")
-    .delete()
-    .eq("task_id", taskId);
-
-  if (deleteError) throw deleteError;
-
-  const { error: insertError } = await supabase
-    .from("epic_tasks")
-    .insert({
-      epic_id: epicId,
-      task_id: taskId,
-    });
-
-  if (insertError) throw insertError;
 };

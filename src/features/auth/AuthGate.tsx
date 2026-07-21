@@ -3,6 +3,7 @@ import type { Session } from "@supabase/supabase-js";
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { supabase } from "../../lib/supabase";
+import { logError } from "../../shared/utils/errorHandling";
 import { ensureSessionProfile } from "../api/userService";
 import AuthForm from "./AuthForm";
 
@@ -27,7 +28,7 @@ const AuthGate = ({ children }: AuthGateProps) => {
     const loadSession = async () => {
       const { data, error } = await supabase.auth.getSession();
       if (error) {
-        console.error(error);
+        logError("auth.loadSession", error);
       }
       await applySession(data.session ?? null);
       if (isMounted) {

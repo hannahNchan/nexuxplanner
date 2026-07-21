@@ -19,8 +19,7 @@ type ColumnProps = {
   currentUserId?: string;
   allowTaskCreation?: boolean;
   currentUserEmail?: string;
-  columnRef?: (el: HTMLDivElement | null) => void;
-  maxHeight?: number | null;
+  readOnly?: boolean;
 };
 
 const Column = ({
@@ -30,47 +29,31 @@ const Column = ({
   onCreateTask,
   onTaskClick,
   isCreatingTask = false,
-  currentUserId,
   allowTaskCreation = false,
-  currentUserEmail = "",
-  columnRef,
-  maxHeight
+  readOnly = false,
 }: ColumnProps) => {
   const theme = useTheme();
 
   return (
-    <Draggable draggableId={column.id} index={index}>
+    <Draggable draggableId={column.id} index={index} isDragDisabled={readOnly}>
       {(provided, snapshot) => {
-        const handleRef = (element: HTMLDivElement | null) => {
-          if (columnRef) {
-            columnRef(element);
-          }
-          
-          if (provided.innerRef) {
-            if (typeof provided.innerRef === 'function') {
-              provided.innerRef(element);
-            } else {
-              (provided.innerRef as React.MutableRefObject<HTMLDivElement | null>).current = element;
-            }
-          }
-        };
         return (
           <Paper
-            ref={handleRef}
+            ref={provided.innerRef}
             {...provided.draggableProps}
-            elevation={snapshot.isDragging ? 8 : 1}
+            elevation={0}
             sx={{
               borderRadius: 1,
-              background: `linear-gradient(135deg, 
-                ${alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.16 : 0.08)} 0%, 
-                ${alpha(theme.palette.secondary.main, theme.palette.mode === "dark" ? 0.12 : 0.05)} 100%)`,
-              border: `1px solid ${alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.22 : 0.12)}`,
-              backdropFilter: "blur(10px)",
+              bgcolor: "background.paper",
+              border: `1px solid ${snapshot.isDragging ? theme.palette.warning.main : theme.palette.divider}`,
               width: "100%",
-              height: maxHeight ? `${maxHeight}px` : "auto",
+              minHeight: "100%",
+              overflow: "visible",
+              display: "flex",
+              flexDirection: "column",
             }}
           >
-            <Stack spacing={2} p={2}>
+            <Stack spacing={2} p={2} sx={{ flex: 1, minHeight: 0 }}>
               <Box {...provided.dragHandleProps}>
                 <Stack
                   direction="row"
@@ -122,16 +105,17 @@ const Column = ({
                     {...provided.droppableProps}
                     spacing={1.5}
                     sx={{
+                      flex: 1,
                       minHeight: tasks.length === 0 ? 200 : 100,
                       backgroundColor: dropSnapshot.isDraggingOver
                         ? alpha(theme.palette.success.main, 0.12)
                         : "transparent",
                       border: dropSnapshot.isDraggingOver
-                        ? `2px dashed ${theme.palette.success.main}`
-                        : "2px dashed transparent",
-                      borderRadius: 2,
+                      ? `2px dashed ${theme.palette.success.main}`
+                      : "2px dashed transparent",
+                      borderRadius: 1,
                       p: dropSnapshot.isDraggingOver ? 1.5 : 0,
-                      transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+                      transition: "background-color 0.16s ease, border-color 0.16s ease",
                     }}
                   >
                     {tasks.length === 0 ? (
@@ -149,26 +133,12 @@ const Column = ({
                           sx={{
                             width: 80,
                             height: 80,
-                            borderRadius: "50%",
+                            borderRadius: 1,
                             display: "flex",
                             alignItems: "center",
                             justifyContent: "center",
-                            background: `linear-gradient(135deg, 
-                              ${alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.2 : 0.1)} 0%, 
-                              ${alpha(theme.palette.secondary.main, theme.palette.mode === "dark" ? 0.16 : 0.05)} 100%)`,
-                            animation: dropSnapshot.isDraggingOver 
-                              ? "none" 
-                              : "pulse 2s ease-in-out infinite",
-                            "@keyframes pulse": {
-                              "0%, 100%": {
-                                transform: "scale(1)",
-                                opacity: 0.7,
-                              },
-                              "50%": {
-                                transform: "scale(1.05)",
-                                opacity: 1,
-                              },
-                            },
+                            bgcolor: alpha(theme.palette.text.secondary, 0.08),
+                            border: `1px solid ${alpha(theme.palette.text.secondary, 0.12)}`,
                           }}
                         >
                           <FontAwesomeIcon
@@ -222,7 +192,7 @@ const Column = ({
                     ) : (
                       <>
                         {tasks.map((task, taskIndex) => (
-                          <Draggable key={task.id} draggableId={task.id} index={taskIndex}>
+                          <Draggable key={task.id} draggableId={task.id} index={taskIndex} isDragDisabled={readOnly}>
                             {(taskProvided, taskSnapshot) => {
                               const child = (
                                 <Box
@@ -236,9 +206,7 @@ const Column = ({
                                   <TaskCard 
                                     task={task} 
                                     onClick={() => onTaskClick(task)}
-                                    currentUserId={currentUserId}
                                     isDragging={taskSnapshot.isDragging}
-                                    currentUserEmail={currentUserEmail}
                                   />
                                 </Box>
                               );
@@ -258,7 +226,6 @@ const Column = ({
                                     <TaskCard 
                                       task={task} 
                                       onClick={() => {}}
-                                      currentUserId={currentUserId}
                                       isDragging={true}
                                     />
                                   </Box>,
@@ -298,6 +265,7 @@ const Column = ({
                   onClick={() => onCreateTask(column.id)}
                   disabled={isCreatingTask}
                   sx={{
+                    mt: "auto",
                     justifyContent: "flex-start",
                     color: "text.secondary",
                     textTransform: "none",

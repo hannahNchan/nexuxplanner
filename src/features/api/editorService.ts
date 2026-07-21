@@ -1,4 +1,5 @@
 import { supabase } from "../../lib/supabase";
+import { logError } from "../../shared/utils/errorHandling";
 
 export type EditorNote = {
   id: string;
@@ -125,7 +126,7 @@ export const deleteSnapshot = async (snapshotId: string): Promise<boolean> => {
     if (error) throw error;
     return true;
   } catch (error) {
-    console.error("Error eliminando snapshot:", error);
+    logError("editorService.deleteSnapshot", error);
     return false;
   }
 };

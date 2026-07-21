@@ -2,12 +2,10 @@ import {
   Box,
   Button,
   Dialog,
-  DialogActions,
   DialogContent,
   FormControl,
   IconButton,
   InputLabel,
-  DialogTitle,
   MenuItem,
   Paper,
   Select,
@@ -20,20 +18,18 @@ import {
 import CloseIcon from "@mui/icons-material/Close";
 import DeleteIcon from "@mui/icons-material/Delete";
 import SaveIcon from "@mui/icons-material/Save";
-import WarningIcon from "@mui/icons-material/Warning";
 import ListAltIcon from "@mui/icons-material/ListAlt";
 import DashboardIcon from "@mui/icons-material/Dashboard";
 import ImageIcon from "@mui/icons-material/Image";
-import Quill from "quill";
-import "quill/dist/quill.snow.css";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { alpha, useTheme } from "@mui/material/styles";
 import type { IssueType, Priority, PointValue } from "../../api/catalogService";
 import IconRenderer from "../../../shared/ui/IconRenderer";
-import { fetchProjectMembers } from "../../api/projectService";
-import { uploadImageToStorage } from "../../../lib/imageUpload";
-import { supabase } from "../../../lib/supabase";
 import UserAvatar from "../../../shared/ui/UserAvatar";
+import { getErrorMessage, logError } from "../../../shared/utils/errorHandling";
+import TaskDeleteDialog from "./TaskEditor/TaskDeleteDialog";
+import TaskDescriptionEditor, { type TaskDescriptionEditorHandle } from "./TaskEditor/TaskDescriptionEditor";
+import { useTaskProjectMembers } from "./TaskEditor/useTaskProjectMembers";
 
 type TaskEditorModalProps = {
   open: boolean;
@@ -41,7 +37,7 @@ type TaskEditorModalProps = {
     id: string;
     project_id?: string | null;
     title: string;
-    subtitle?: string; // ✅ NUEVO
+    subtitle?: string;
     description?: string;
     column_id: string | null;
     issue_type_id?: string | null;
@@ -89,10 +85,7 @@ const TaskEditorModal = ({
   onDelete,
 }: TaskEditorModalProps) => {
   const theme = useTheme();
-  const editorRef = useRef<HTMLDivElement | null>(null);
-  const quillRef = useRef<Quill | null>(null);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-  
+  const descriptionEditorRef = useRef<TaskDescriptionEditorHandle | null>(null);
 
   const [title, setTitle] = useState("");
   const [subtitle, setSubtitle] = useState("");
@@ -106,190 +99,12 @@ const TaskEditorModal = ({
   const [isDeleting, setIsDeleting] = useState(false);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
-  const [projectMembers, setProjectMembers] = useState<Array<{ user_id: string; user_profiles: { full_name: string | null; avatar_url: string | null } }>>([]);
-  const [, setProjectId] = useState<string>("");
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const projectMembers = useTaskProjectMembers(open, task, columns, currentUserId);
   const taskIssueTypes = useMemo(
     () => issueTypes.filter((type) => !isEpicIssueType(type)),
     [issueTypes]
   );
-  const editorBorder = theme.palette.divider;
-  const editorToolbarBg = theme.palette.action.selected;
-  const editorText = theme.palette.text.primary;
-  const editorMuted = theme.palette.text.secondary;
-
-  useEffect(() => {
-    if (!open || !task) {
-      return;
-    }
-
-    const timer = setTimeout(() => {
-      if (!editorRef.current) {
-        console.error("❌ editorRef.current sigue siendo null");
-        return;
-      }
-
-      if (quillRef.current) {
-        console.log("⏭️ Quill ya existe");
-        return;
-      }
-
-      try {
-        const toolbarOptions = [
-          [{ header: [1, 2, 3, false] }],
-          ["bold", "italic", "underline", "link"],
-          ["blockquote", "code-block"],
-          [{ list: "ordered" }, { list: "bullet" }],
-          ["image"],
-          ["clean"],
-        ];
-
-        const quill = new Quill(editorRef.current, {
-          theme: "snow",
-          modules: {
-            toolbar: {
-              container: toolbarOptions,
-              handlers: {
-                image: imageHandler,
-              },
-            },
-          },
-          placeholder: "Escribe la descripción de la tarea...",
-        });
-
-        quillRef.current = quill;
-
-        if (task.description) {
-          quill.root.innerHTML = task.description;
-        }
-
-        quill.root.addEventListener("paste", handlePaste, true);
-
-        console.log("✅ Quill inicializado con soporte de imágenes");
-      } catch (error) {
-        console.error("💥 Error al inicializar Quill:", error);
-      }
-    }, 0);
-
-    return () => {
-      clearTimeout(timer);
-      if (quillRef.current) {
-        quillRef.current.root.removeEventListener("paste", handlePaste, true);
-        quillRef.current.off("text-change");
-      }
-    };
-  }, [open, task]);
-
-  useEffect(() => {
-    const loadProjectMembers = async () => {
-      if (!open || !task) return;
-
-      let projectId = task.project_id || null;
-      const columnId = task.column_id || columns[0]?.id;
-
-      if (!projectId && columnId) {
-        const { data: column } = await supabase
-          .from("columns")
-          .select("project_id")
-          .eq("id", columnId)
-          .maybeSingle();
-
-        projectId = column?.project_id || null;
-      }
-
-      try {
-        if (projectId) {
-          setProjectId(projectId);
-          const members = await fetchProjectMembers(projectId);
-          setProjectMembers(members);
-        } else {
-          const { data: currentUser } = await supabase.auth.getUser();
-          setProjectMembers([
-            {
-              user_id: currentUser.user?.id ?? currentUserId,
-              user_profiles: {
-                full_name: currentUser.user?.email ?? "Tú",
-                avatar_url: null,
-              },
-            },
-          ]);
-        }
-      } catch (error) {
-        console.error("Error cargando miembros:", error);
-        const { data: currentUser } = await supabase.auth.getUser();
-        setProjectMembers([
-          {
-            user_id: currentUser.user?.id ?? currentUserId,
-            user_profiles: {
-              full_name: currentUser.user?.email ?? "Tú",
-              avatar_url: null,
-            },
-          },
-        ]);
-      }
-    };
-
-    loadProjectMembers();
-  }, [open, task, columns]);
-
-  const handlePaste = async (e: ClipboardEvent) => {
-    const clipboardData = e.clipboardData;
-    if (!clipboardData) return;
-    console.log("📋 Datos del portapapeles:", clipboardData);
-
-    const items = clipboardData.items;
-    
-    for (let i = 0; i < items.length; i++) {
-      if (items[i].type.indexOf("image") !== -1) {
-        e.preventDefault();
-        e.stopPropagation();
-        e.stopImmediatePropagation();
-        
-        const file = items[i].getAsFile();
-        if (file) {
-          await insertImageFromFile(file);
-        }
-        return;
-      }
-    }
-  };
-
-  const imageHandler = () => {
-    if (fileInputRef.current) {
-      fileInputRef.current.click();
-    }
-  };
-
-  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      await insertImageFromFile(file);
-    }
-    // Reset input
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
-    }
-  };
-
-  const insertImageFromFile = async (file: File) => {
-    if (!quillRef.current) return;
-
-    try {
-      setIsUploadingImage(true);
-      const imageUrl = await uploadImageToStorage(file);
-      
-      const range = quillRef.current.getSelection(true);
-      quillRef.current.insertEmbed(range.index, "image", imageUrl);
-      quillRef.current.setSelection(range.index + 1, 0);
-      
-      console.log("✅ Imagen subida:", imageUrl);
-    } catch (error) {
-      console.error("Error subiendo imagen:", error);
-      setErrorMessage("No se pudo subir la imagen.");
-    } finally {
-      setIsUploadingImage(false);
-    }
-  };
 
   useEffect(() => {
     if (!task) {
@@ -325,9 +140,6 @@ const TaskEditorModal = ({
       setStoryPoints("");
       setAssigneeId("");
       setErrorMessage("");
-      if (quillRef.current) {
-        quillRef.current = null;
-      }
     }
   }, [open, defaultDestination]);
 
@@ -342,10 +154,7 @@ const TaskEditorModal = ({
     }
 
     setErrorMessage("");
-    let description = "";
-    if (quillRef.current) {
-      description = quillRef.current.root.innerHTML;
-    }
+    const description = descriptionEditorRef.current?.getHTML() ?? "";
 
     setIsSaving(true);
     try {
@@ -362,8 +171,8 @@ const TaskEditorModal = ({
       });
       onClose();
     } catch (error) {
-      console.error("Error guardando tarea:", error);
-      setErrorMessage("No se pudo guardar la tarea.");
+      logError("taskEditor.save", error);
+      setErrorMessage(getErrorMessage(error, "No se pudo guardar la tarea."));
     } finally {
       setIsSaving(false);
     }
@@ -384,30 +193,15 @@ const TaskEditorModal = ({
       setDeleteDialogOpen(false);
       onClose();
     } catch (error) {
-      console.error("Error eliminando tarea:", error);
+      logError("taskEditor.delete", error);
+      setErrorMessage(getErrorMessage(error, "No se pudo eliminar la tarea."));
     } finally {
       setIsDeleting(false);
     }
   };
 
-  // const handleToggleAssignment = () => {
-  //   if (assigneeId === currentUserId) {
-  //     setAssigneeId("");
-  //   } else {
-  //     setAssigneeId(currentUserId);
-  //   }
-  // };
-
   return (
     <>
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/*"
-        style={{ display: "none" }}
-        onChange={handleFileSelect}
-      />
-
       <Dialog
         open={open}
         onClose={onClose}
@@ -666,109 +460,24 @@ const TaskEditorModal = ({
               </FormControl>
             </Stack>
 
-            <Box>
-              <Stack direction="row" spacing={1} alignItems="center" mb={1}>
-                <Typography variant="subtitle2" color="text.secondary">
-                  Descripción
-                </Typography>
-                <Chip
-                  icon={<ImageIcon />}
-                  label="Soporta imágenes"
-                  size="small"
-                  variant="outlined"
-                />
-              </Stack>
-              <Box
-                ref={editorRef}
-                sx={{
-                  ".ql-editor": {
-                    minHeight: 250,
-                    maxHeight: 400,
-                    overflowY: "auto",
-                    fontSize: 16,
-                    fontFamily: "'Inter', 'Roboto', sans-serif",
-                    color: editorText,
-                    backgroundColor: theme.palette.background.paper,
-                    "&.ql-blank::before": {
-                      color: editorMuted,
-                      opacity: 0.8,
-                    },
-                  },
-                  ".ql-container": {
-                    borderBottomLeftRadius: 8,
-                    borderBottomRightRadius: 8,
-                    borderColor: editorBorder,
-                    backgroundColor: theme.palette.background.paper,
-                  },
-                  ".ql-toolbar": {
-                    borderTopLeftRadius: 8,
-                    borderTopRightRadius: 8,
-                    backgroundColor: editorToolbarBg,
-                    borderColor: editorBorder,
-                  },
-                  ".ql-stroke": { stroke: editorMuted },
-                  ".ql-fill": { fill: editorMuted },
-                  ".ql-picker-label": { color: editorMuted },
-                  ".ql-picker-options": {
-                    backgroundColor: theme.palette.background.paper,
-                    borderColor: editorBorder,
-                  },
-                  ".ql-toolbar button:hover .ql-stroke": { stroke: theme.palette.primary.main },
-                  ".ql-toolbar button:hover .ql-fill": { fill: theme.palette.primary.main },
-                  ".ql-toolbar button.ql-active .ql-stroke": { stroke: theme.palette.primary.main },
-                  ".ql-toolbar button.ql-active .ql-fill": { fill: theme.palette.primary.main },
-                }}
-              />
-            </Box>
+            <TaskDescriptionEditor
+              ref={descriptionEditorRef}
+              open={open}
+              initialDescription={task?.description ?? ""}
+              onError={setErrorMessage}
+              onUploadingChange={setIsUploadingImage}
+            />
           </Stack>
         </DialogContent>
       </Dialog>
 
-      <Dialog
+      <TaskDeleteDialog
         open={deleteDialogOpen}
+        taskTitle={task?.title}
+        isDeleting={isDeleting}
         onClose={() => setDeleteDialogOpen(false)}
-        maxWidth="xs"
-        fullWidth
-      >
-        <DialogTitle>
-          <Stack direction="row" spacing={1} alignItems="center">
-            <WarningIcon color="error" />
-            <Typography variant="h6">Eliminar tarea</Typography>
-          </Stack>
-        </DialogTitle>
-        <DialogContent>
-          <Stack spacing={2} pt={1}>
-            <Typography>
-              ¿Estás seguro de eliminar la tarea <strong>"{task?.title}"</strong>?
-            </Typography>
-            <Paper
-              sx={{
-                p: 2,
-                backgroundColor: alpha(theme.palette.error.main, 0.1),
-                borderLeft: `4px solid ${theme.palette.error.main}`,
-              }}
-            >
-              <Typography variant="body2" color="error.dark">
-                ⚠️ Esta acción no se puede deshacer
-              </Typography>
-            </Paper>
-          </Stack>
-        </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button onClick={() => setDeleteDialogOpen(false)}>
-            Cancelar
-          </Button>
-          <Button
-            variant="contained"
-            color="error"
-            onClick={handleConfirmDelete}
-            disabled={isDeleting}
-            startIcon={<DeleteIcon />}
-          >
-            {isDeleting ? "Eliminando..." : "Eliminar"}
-          </Button>
-        </DialogActions>
-      </Dialog>
+        onConfirm={handleConfirmDelete}
+      />
     </>
   );
 };

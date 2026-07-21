@@ -11,6 +11,7 @@ import UserSettingsPage from "../features/users/components/UserSettingsPage";
 import { Container, Stack, Typography } from "@mui/material";
 import { ProjectProvider } from "../shared/contexts/ProjectContext";
 import BoardInfo from "../features/board/components/BoardInfo";
+import { getProviderAvatarUrl } from "../features/api/userService";
 
 const App = () => {
   return (
@@ -20,15 +21,25 @@ const App = () => {
           <AuthGate>
             {(session) => (
               <Routes>
-                <Route path="/" element={<Layout />}>
+                <Route path="/" element={<Layout providerAvatarUrl={getProviderAvatarUrl(session.user)} />}>
                   <Route index element={<Navigate to="/tablero" replace />} />
                   
                   <Route
                     path="tablero"
                     element={
-                      <Container maxWidth={false}>
-                        <Stack spacing={3}>
-                          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+                      <Container
+                        maxWidth={false}
+                        sx={{
+                          height: "100%",
+                          minHeight: 0,
+                          boxSizing: "border-box",
+                        }}
+                      >
+                        <Board
+                          userId={session.user.id}
+                          userEmail={session.user.email || ""}
+                          header={
+                            <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
                             <Typography variant="h4" fontWeight={700}>
                               Tablero de Scrum
                             </Typography>
@@ -36,9 +47,9 @@ const App = () => {
                               Organiza y gestiona tus tareas con el tablero visual.
                             </Typography> */}
                             <BoardInfo userId={session.user.id} />
-                          </Stack>
-                          <Board userId={session.user.id} userEmail={session.user.email || ""} />
-                        </Stack>
+                            </Stack>
+                          }
+                        />
                       </Container>
                     }
                   />
@@ -83,6 +94,7 @@ const App = () => {
                       <UserSettingsPage 
                         userId={session.user.id} 
                         userEmail={session.user.email || ""} 
+                        providerAvatarUrl={getProviderAvatarUrl(session.user)}
                       />
                     }
                   />

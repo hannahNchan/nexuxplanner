@@ -1,5 +1,5 @@
 import { Box, Paper, Stack, Typography } from "@mui/material";
-import { alpha, useTheme } from "@mui/material/styles";
+import { useTheme } from "@mui/material/styles";
 import type { DataTableHeaderProps } from "./types";
 
 export const DataTableHeader = ({
@@ -14,18 +14,16 @@ export const DataTableHeader = ({
     <Paper
       elevation={0}
       sx={{
-        p: 3,
-        borderRadius: 3,
-        background: `linear-gradient(135deg, 
-          ${alpha(theme.palette.primary.main, 0.08)} 0%, 
-          ${alpha(theme.palette.secondary.main, 0.05)} 100%)`,
-        border: `1px solid ${alpha(theme.palette.primary.main, 0.1)}`,
+        p: 2.5,
+        borderRadius: 1,
+        bgcolor: "background.paper",
+        border: `1px solid ${theme.palette.divider}`,
         ...containerSx,
       }}
     >
       <Stack direction="row" justifyContent="space-between" alignItems="center">
         <Box>
-          <Typography variant="h4" fontWeight={700} gutterBottom>
+          <Typography variant="h4" fontWeight={700}>
             {title}
           </Typography>
           {subtitle && (

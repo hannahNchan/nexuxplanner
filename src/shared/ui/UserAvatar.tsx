@@ -4,6 +4,7 @@ import { useUserProfile } from "../../features/users/hooks/useUserProfiles";
 type UserAvatarProps = {
   userId: string | null | undefined;
   userEmail?: string;
+  fallbackAvatarUrl?: string | null;
   size?: number;
   showTooltip?: boolean;
 };
@@ -11,14 +12,15 @@ type UserAvatarProps = {
 const UserAvatar = ({ 
   userId, 
   userEmail = "", 
+  fallbackAvatarUrl = null,
   size = 36,
   showTooltip = true,
 }: UserAvatarProps) => {
   const { profile } = useUserProfile(userId);
+  const avatarSrc = profile?.avatar_url || fallbackAvatarUrl || undefined;
 
-  // Determinar qué mostrar en el avatar
   const getAvatarContent = () => {
-    if (profile?.avatar_url) {
+    if (avatarSrc) {
       return null;
     }
 
@@ -35,7 +37,7 @@ const UserAvatar = ({
 
   const avatarElement = (
     <Avatar
-      src={profile?.avatar_url || undefined}
+      src={avatarSrc}
       sx={{
         width: size,
         height: size,

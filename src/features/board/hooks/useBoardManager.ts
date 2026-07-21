@@ -1,5 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import type { DropResult } from "@hello-pangea/dnd";
+import { supabase } from "../../../lib/supabase";
 import type { BoardState, Task } from "../../../shared/types/board";
 import {
   createColumn,
@@ -22,9 +23,11 @@ import {
 } from "../../api/catalogService";
 import { useProject } from "../../../shared/contexts/ProjectContext";
 import { useSprintManager } from "../../sprints/hooks/useSprintManager";
+import { getErrorMessage, logError } from "../../../shared/utils/errorHandling";
 
 export const useBoardManager = (userId: string) => {
   const { currentProject } = useProject();
+  const canEditProject = currentProject?.can_edit ?? true;
   const sprintManager = useSprintManager(currentProject?.id || null);
 
   // Board state
@@ -32,6 +35,7 @@ export const useBoardManager = (userId: string) => {
   const [boardId, setBoardId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const boardReloadTimerRef = useRef<number | null>(null);
 
   // Catalogs
   const [issueTypes, setIssueTypes] = useState<IssueType[]>([]);
@@ -78,64 +82,123 @@ export const useBoardManager = (userId: string) => {
 
         setCatalogsLoaded(true);
       } catch (error) {
-        console.error("Error cargando catálogos:", error);
+        logError("board.loadCatalogs", error);
+        setErrorMessage(getErrorMessage(error, "No se pudieron cargar los catálogos del tablero."));
       }
     };
 
     void loadCatalogs();
   }, []);
 
-  // Load board
-  useEffect(() => {
-    const loadBoard = async () => {
-      if (!currentProject) {
-        setData(null);
-        setBoardId(null);
-        setIsLoading(false);
-        return;
-      }
+  const loadBoard = useCallback(async (showLoading = true) => {
+    if (!currentProject) {
+      setData(null);
+      setBoardId(null);
+      setIsLoading(false);
+      return;
+    }
 
-      if (sprintManager.isLoading) {
-        return;
-      }
+    if (sprintManager.isLoading) {
+      return;
+    }
 
-      const displaySprint =
-        sprintManager.activeSprint || sprintManager.sprints.find((s) => s.status === "future");
+    const displaySprint = sprintManager.activeSprint;
 
-      try {
+    if (!displaySprint) {
+      setBoardId(null);
+      setData(null);
+      setErrorMessage(null);
+      setIsLoading(false);
+      return;
+    }
+
+    try {
+      if (showLoading) {
         setIsLoading(true);
+      }
 
-        const response = await fetchBoardDataByProject(
-          userId,
-          currentProject.id,
-          displaySprint?.id || null
-        );
+      const response = await fetchBoardDataByProject(
+        userId,
+        currentProject.id,
+        displaySprint.id
+      );
 
-        if (!response.columns || response.columns.length === 0) {
-          setBoardId(null);
-          setData(null);
-          return;
-        }
+      if (!response.columns || response.columns.length === 0) {
+        setBoardId(null);
+        setData(null);
+        return;
+      }
 
-        const boardState = toBoardState(response.columns, response.tasks, response.columnOrder);
+      const boardState = toBoardState(response.columns, response.tasks, response.columnOrder);
 
-        setBoardId(response.board?.id ?? null);
-        setData(boardState);
-        setErrorMessage(null);
-      } catch (error) {
-        setErrorMessage("No se pudo cargar el tablero desde Supabase.");
-      } finally {
+      setBoardId(response.board?.id ?? null);
+      setData(boardState);
+      setErrorMessage(null);
+    } catch (error) {
+      logError("board.loadBoard", error);
+      setErrorMessage(getErrorMessage(error, "No se pudo cargar el tablero desde Supabase."));
+    } finally {
+      if (showLoading) {
         setIsLoading(false);
+      }
+    }
+  }, [userId, currentProject, sprintManager.activeSprint, sprintManager.isLoading]);
+
+  useEffect(() => {
+    void loadBoard();
+  }, [loadBoard, sprintManager.lastUpdate]);
+
+  useEffect(() => {
+    if (!currentProject?.id || !sprintManager.activeSprint?.id) {
+      return;
+    }
+
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    const subscriptionDelay = window.setTimeout(() => {
+      channel = supabase
+        .channel(`board-tasks:${currentProject.id}`)
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "tasks",
+            filter: `project_id=eq.${currentProject.id}`,
+          },
+          () => {
+            if (boardReloadTimerRef.current) {
+              window.clearTimeout(boardReloadTimerRef.current);
+            }
+
+            boardReloadTimerRef.current = window.setTimeout(() => {
+              void loadBoard(false);
+              boardReloadTimerRef.current = null;
+            }, 300);
+          }
+        )
+        .subscribe();
+    }, 1200);
+
+    return () => {
+      window.clearTimeout(subscriptionDelay);
+      if (boardReloadTimerRef.current) {
+        window.clearTimeout(boardReloadTimerRef.current);
+        boardReloadTimerRef.current = null;
+      }
+      if (channel) {
+        void supabase.removeChannel(channel);
       }
     };
-
-    void loadBoard();
-  }, [userId, currentProject, sprintManager.sprints, sprintManager.isLoading, sprintManager.lastUpdate]);
+  }, [currentProject?.id, sprintManager.activeSprint?.id, loadBoard]);
 
   // Handlers
   const handleCreateColumn = async (columnName: string) => {
     if (!currentProject || !data) {
       setErrorMessage("Selecciona un proyecto primero");
+      return;
+    }
+    if (!canEditProject) {
+      setErrorMessage("Solo puedes editar proyectos donde eres colaborador.");
       return;
     }
 
@@ -163,20 +226,24 @@ export const useBoardManager = (userId: string) => {
 
       setErrorMessage(null);
     } catch (error) {
-      console.error("Error creando columna:", error);
-      setErrorMessage("No se pudo crear la columna.");
+      logError("board.createColumn", error);
+      setErrorMessage(getErrorMessage(error, "No se pudo crear la columna."));
       throw error;
     }
   };
 
   const handleCreateTask = async (columnId: string) => {
-    if (!data) return;
+    if (!currentProject || !data) return;
+    if (!canEditProject) {
+      setErrorMessage("Solo puedes crear tareas en proyectos donde eres colaborador.");
+      return;
+    }
 
     setCreatingTaskColumnId(columnId);
     try {
       const column = data.columns[columnId];
       const position = column.taskIds.length;
-      const created = await createTask(columnId, "Nueva tarea", position);
+      const created = await createTask(columnId, "Nueva tarea", position, false, currentProject.id);
 
       setData((previous) => {
         if (!previous) return previous;
@@ -219,8 +286,8 @@ export const useBoardManager = (userId: string) => {
       setIsModalOpen(true);
       setErrorMessage(null);
     } catch (error) {
-      console.error(error);
-      setErrorMessage("No se pudo crear la tarea.");
+      logError("board.createTask", error);
+      setErrorMessage(getErrorMessage(error, "No se pudo crear la tarea."));
     } finally {
       setCreatingTaskColumnId(null);
     }
@@ -266,26 +333,37 @@ export const useBoardManager = (userId: string) => {
       assignee_id: string | null;
     }
   ) => {
-    if (!data) return;
+    if (!currentProject || !data) return;
+    if (!canEditProject) {
+      setErrorMessage("Solo puedes editar tareas en proyectos donde eres colaborador.");
+      return;
+    }
 
     try {
       const { destination, ...dbUpdates } = updates;
       const in_backlog = destination === "backlog";
 
-      const updated = await updateTask(taskId, {
-        ...dbUpdates,
-        in_backlog,
-        column_id: in_backlog ? null : updates.column_id,
-      });
+      const updated = await updateTask(
+        currentProject.id,
+        taskId,
+        {
+          ...dbUpdates,
+          in_backlog,
+          column_id: in_backlog ? null : updates.column_id,
+        }
+      );
 
       setData((previous) => {
         if (!previous) return previous;
+        const previousTask = previous.tasks[taskId];
 
         const updatedTasks = {
           ...previous.tasks,
           [taskId]: {
+            ...previousTask,
             id: updated.id,
             title: updated.title,
+            task_id_display: updated.task_id_display ?? previousTask?.task_id_display,
             subtitle: updated.subtitle ?? undefined,
             description: updated.description ?? undefined,
             issue_type_id: updated.issue_type_id ?? undefined,
@@ -350,17 +428,23 @@ export const useBoardManager = (userId: string) => {
           tasks: updatedTasks,
         };
       });
+      void loadBoard(false);
     } catch (error) {
-      console.error("Error actualizando tarea:", error);
+      logError("board.updateTask", error);
+      setErrorMessage(getErrorMessage(error, "No se pudo actualizar la tarea."));
       throw error;
     }
   };
 
   const handleDeleteTask = async (taskId: string) => {
-    if (!data) return;
+    if (!currentProject || !data) return;
+    if (!canEditProject) {
+      setErrorMessage("Solo puedes eliminar tareas en proyectos donde eres colaborador.");
+      return;
+    }
 
     try {
-      await deleteTask(taskId);
+      await deleteTask(currentProject.id, taskId);
 
       setData((previous) => {
         if (!previous) return previous;
@@ -384,7 +468,8 @@ export const useBoardManager = (userId: string) => {
         };
       });
     } catch (error) {
-      console.error("Error eliminando tarea:", error);
+      logError("board.deleteTask", error);
+      setErrorMessage(getErrorMessage(error, "No se pudo eliminar la tarea."));
       throw error;
     }
   };
@@ -392,15 +477,18 @@ export const useBoardManager = (userId: string) => {
   const onDragEnd = async (result: DropResult) => {
     const { destination, source, draggableId, type } = result;
 
-    if (!destination || !data) return;
+    if (!destination || !currentProject || !data) return;
+    if (!canEditProject) {
+      setErrorMessage("Solo puedes mover trabajo en proyectos donde eres colaborador.");
+      return;
+    }
 
     if (destination.droppableId === source.droppableId && destination.index === source.index) {
       return;
     }
 
     if (type === "column") {
-      if (!currentProject) return;
-
+      const previousData = data;
       const newColumnOrder = Array.from(data.columnOrder);
       newColumnOrder.splice(source.index, 1);
       newColumnOrder.splice(destination.index, 0, draggableId);
@@ -413,15 +501,14 @@ export const useBoardManager = (userId: string) => {
       try {
         await persistColumnOrder(currentProject.id, newColumnOrder);
       } catch (error) {
-        console.error("Error guardando orden de columnas:", error);
-        setData({
-          ...data,
-          columnOrder: data.columnOrder,
-        });
+        logError("board.persistColumnOrder", error);
+        setData(previousData);
+        setErrorMessage(getErrorMessage(error, "No se pudo guardar el orden de columnas."));
       }
       return;
     }
 
+    const previousData = data;
     const startColumn = data.columns[source.droppableId];
     const finishColumn = data.columns[destination.droppableId];
 
@@ -450,9 +537,11 @@ export const useBoardManager = (userId: string) => {
       }));
 
       try {
-        await persistTaskOrder(taskUpdates);
+        await persistTaskOrder(currentProject.id, taskUpdates);
       } catch (error) {
-        console.error(error);
+        logError("board.persistTaskOrder.sameColumn", error);
+        setData(previousData);
+        setErrorMessage(getErrorMessage(error, "No se pudo guardar el orden de tareas."));
       }
       return;
     }
@@ -495,15 +584,16 @@ export const useBoardManager = (userId: string) => {
     ];
 
     try {
-      await persistTaskOrder(taskUpdates);
+      await persistTaskOrder(currentProject.id, taskUpdates);
     } catch (error) {
-      console.error(error);
+      logError("board.persistTaskOrder.crossColumn", error);
+      setData(previousData);
+      setErrorMessage(getErrorMessage(error, "No se pudo mover la tarea."));
     }
   };
 
   // Computed values
-  const displaySprint =
-    sprintManager.activeSprint || sprintManager.sprints.find((s) => s.status === "future");
+  const displaySprint = sprintManager.activeSprint;
 
   const columnOptions = data
     ? data.columnOrder.map((colId) => ({

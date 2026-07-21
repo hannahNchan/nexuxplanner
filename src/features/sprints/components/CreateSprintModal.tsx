@@ -21,6 +21,7 @@ import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
 import { AdapterDateFns } from "@mui/x-date-pickers/AdapterDateFns";
 import { es } from "date-fns/locale";
 import { addDays, addMonths, addWeeks, endOfDay } from "date-fns";
+import { getErrorMessage, logError } from "../../../shared/utils/errorHandling";
 
 type SprintDuration = "1w" | "2w" | "1m" | "custom";
 
@@ -108,8 +109,8 @@ const CreateSprintModal = ({
       });
       onClose();
     } catch (error) {
-      console.error("Error creando sprint:", error);
-      setFormError("No se pudo crear el sprint. Revisa las fechas e inténtalo de nuevo.");
+      logError("sprint.create", error);
+      setFormError(getErrorMessage(error, "No se pudo crear el sprint. Revisa las fechas e inténtalo de nuevo."));
     } finally {
       setIsCreating(false);
     }

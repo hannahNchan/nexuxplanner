@@ -9,12 +9,14 @@ import {
   Divider,
   FormControlLabel,
   IconButton,
+  Paper,
   Stack,
   Switch,
   ToggleButton,
   ToggleButtonGroup,
   Typography,
 } from "@mui/material";
+import { useTheme } from "@mui/material/styles";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import SettingsIcon from "@mui/icons-material/Settings";
@@ -22,6 +24,7 @@ import { addMonths, addWeeks, endOfWeek, format, startOfWeek } from "date-fns";
 import { es } from "date-fns/locale";
 import { useEffect, useState } from "react";
 import { useProject } from "../../../shared/contexts/ProjectContext";
+import ReadOnlyProjectNotice from "../../../shared/ui/ReadOnlyProjectNotice";
 import { useRoadmap } from "../hooks/useRoadmap";
 import TimelineGrid from "./TimelineGrid";
 
@@ -30,7 +33,9 @@ type RoadmapProps = {
 };
 
 const Roadmap = ({ userId }: RoadmapProps) => {
+  const theme = useTheme();
   const { currentProject } = useProject();
+  const canEditProject = currentProject?.can_edit ?? true;
   const [timelineMode, setTimelineMode] = useState<"weeks" | "months">("months");
   const [hasTimelineOverflow, setHasTimelineOverflow] = useState(false);
   const [timelineScrollRequest, setTimelineScrollRequest] = useState<{
@@ -53,7 +58,7 @@ const Roadmap = ({ userId }: RoadmapProps) => {
     addTaskDependency,
     removeTaskDependency,
     updateSettings,
-  } = useRoadmap(userId, currentProject?.id || null);
+  } = useRoadmap(userId, currentProject?.id || null, canEditProject);
 
   const now = new Date();
   const timelineStart = startOfWeek(now, { weekStartsOn: 1 });
@@ -66,19 +71,11 @@ const Roadmap = ({ userId }: RoadmapProps) => {
   })} - ${format(timelineEnd, "d MMM yyyy", { locale: es })}`;
 
   const handleCreateDependency = async (fromEpicId: string, toEpicId: string, dependencyType: string) => {
-    try {
-      await addDependency(fromEpicId, toEpicId, dependencyType);
-    } catch (error) {
-      console.error("Error creating dependency:", error);
-    }
+    await addDependency(fromEpicId, toEpicId, dependencyType);
   };
 
   const handleCreateTaskDependency = async (fromTaskId: string, toTaskId: string, dependencyType: string) => {
-    try {
-      await addTaskDependency(fromTaskId, toTaskId, dependencyType);
-    } catch (error) {
-      console.error("Error creating task dependency:", error);
-    }
+    await addTaskDependency(fromTaskId, toTaskId, dependencyType);
   };
 
   const requestTimelineScroll = (direction: "left" | "right") => {
@@ -129,158 +126,180 @@ const Roadmap = ({ userId }: RoadmapProps) => {
         paddingX: "32px",
         width: "100%",
         maxWidth: "100%",
+        height: "100%",
         minWidth: 0,
-        overflowX: "hidden",
+        minHeight: 0,
+        overflow: "hidden",
       }}
     >
-      <Stack spacing={3} sx={{ height: "calc(100vh - 250px)", width: "100%", maxWidth: "100%", minWidth: 0 }}>
-        <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
-          <Stack spacing={1.25}>
-            <Stack direction="row" spacing={1.5} alignItems="center">
-              <Typography variant="h4" fontWeight={700}>
-                Roadmap
-              </Typography>
-              <Button
-                variant="outlined"
-                size="small"
-                startIcon={<SettingsIcon />}
-                onClick={() => setSettingsOpen(true)}
-                sx={{ fontWeight: 700 }}
-              >
-                Settings
-              </Button>
-            </Stack>
-            <Typography variant="body1" color="text.secondary">
-              Planifica y visualiza el timeline de tus épicas
-            </Typography>
-          </Stack>
-          <Typography variant="body2" fontWeight={700} color="text.secondary" sx={{ mt: 0.75 }}>
-            {timelineRangeLabel}
-          </Typography>
-        </Stack>
-
-        <Box
+      <Stack spacing={2} sx={{ height: "100%", width: "100%", maxWidth: "100%", minWidth: 0, minHeight: 0 }}>
+        <Paper
+          elevation={0}
           sx={{
-            display: "grid",
-            gridTemplateColumns: "1fr auto 1fr",
-            alignItems: "center",
-            gap: 2,
-            minWidth: 0,
+            position: "sticky",
+            top: 0,
+            zIndex: 20,
+            flexShrink: 0,
+            px: 3,
+            py: 2,
+            borderRadius: 1,
+            bgcolor: "background.paper",
+            border: `1px solid ${theme.palette.divider}`,
           }}
         >
-          <Box />
-          {hasTimelineOverflow ? (
+          <Stack
+            direction={{ xs: "column", lg: "row" }}
+            justifyContent="space-between"
+            alignItems={{ xs: "stretch", lg: "center" }}
+            spacing={2}
+          >
+            <Stack spacing={0.75} sx={{ minWidth: 0 }}>
+              <Stack direction="row" spacing={1.25} alignItems="center" flexWrap="wrap">
+                <Typography variant="h4" fontWeight={700} sx={{ lineHeight: 1.1 }}>
+                  Roadmap
+                </Typography>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={<SettingsIcon />}
+                  onClick={() => setSettingsOpen(true)}
+                  disabled={!canEditProject}
+                  sx={{ fontWeight: 700 }}
+                >
+                  Settings
+                </Button>
+              </Stack>
+              <Typography variant="body1" color="text.secondary" noWrap>
+                Planifica y visualiza el timeline de tus épicas
+              </Typography>
+            </Stack>
+
             <Stack
               direction="row"
-              spacing={1.5}
+              spacing={1.25}
               alignItems="center"
-              justifyContent="center"
+              justifyContent={{ xs: "flex-start", lg: "flex-end" }}
+              flexWrap="wrap"
               sx={{ minWidth: 0 }}
             >
-              <IconButton
-                onClick={() => requestTimelineScroll("left")}
-                aria-label="Desplazar calendario a la izquierda"
-                sx={{
-                  width: 40,
-                  height: 40,
-                  bgcolor: "background.paper",
-                  border: 1,
-                  borderColor: "divider",
-                  boxShadow: 1,
-                  "&:hover": {
-                    bgcolor: "action.hover",
-                  },
-                }}
-              >
-                <ChevronLeftIcon />
-              </IconButton>
               <Typography
                 variant="body2"
+                fontWeight={700}
                 color="text.secondary"
-                textAlign="center"
-                sx={{ maxWidth: 460 }}
+                sx={{ whiteSpace: "nowrap" }}
               >
-                Desplázate por el calendario con los botones o usa las teclas ← y →.
+                {timelineRangeLabel}
               </Typography>
-              <IconButton
-                onClick={() => requestTimelineScroll("right")}
-                aria-label="Desplazar calendario a la derecha"
+
+              {hasTimelineOverflow && (
+                <Stack direction="row" spacing={0.75} alignItems="center">
+                  <IconButton
+                    size="small"
+                    onClick={() => requestTimelineScroll("left")}
+                    aria-label="Desplazar calendario a la izquierda"
+                    sx={{
+                      width: 34,
+                      height: 34,
+                      bgcolor: "background.paper",
+                  border: 1,
+                  borderColor: "divider",
+                  borderRadius: 1,
+                }}
+                  >
+                    <ChevronLeftIcon fontSize="small" />
+                  </IconButton>
+                  <IconButton
+                    size="small"
+                    onClick={() => requestTimelineScroll("right")}
+                    aria-label="Desplazar calendario a la derecha"
+                    sx={{
+                      width: 34,
+                      height: 34,
+                      bgcolor: "background.paper",
+                  border: 1,
+                  borderColor: "divider",
+                  borderRadius: 1,
+                }}
+                  >
+                    <ChevronRightIcon fontSize="small" />
+                  </IconButton>
+                </Stack>
+              )}
+
+              <ToggleButtonGroup
+                exclusive
+                size="small"
+                value={timelineMode}
+                onChange={(_event, value: "weeks" | "months" | null) => {
+                  if (value) {
+                    setTimelineMode(value);
+                  }
+                }}
                 sx={{
-                  width: 40,
-                  height: 40,
                   bgcolor: "background.paper",
                   border: 1,
                   borderColor: "divider",
-                  boxShadow: 1,
-                  "&:hover": {
-                    bgcolor: "action.hover",
+                  borderRadius: 1,
+                  overflow: "hidden",
+                  "& .MuiToggleButton-root": {
+                    px: 2.25,
+                    py: 0.75,
+                    border: 0,
+                    borderRight: 1,
+                    borderColor: "divider",
+                    fontSize: 12,
+                    fontWeight: 800,
+                    "&.Mui-selected": {
+                      color: "primary.contrastText",
+                      bgcolor: "primary.main",
+                      "&:hover": {
+                        bgcolor: "primary.dark",
+                      },
+                    },
+                    "&:last-of-type": {
+                      borderRight: 0,
+                    },
+                    "&.Mui-disabled": {
+                      color: "text.disabled",
+                    },
                   },
                 }}
               >
-                <ChevronRightIcon />
-              </IconButton>
+                <ToggleButton value="weeks">Weeks</ToggleButton>
+                <ToggleButton value="months">Monthly</ToggleButton>
+                <ToggleButton value="quarters" disabled>
+                  Quarters
+                </ToggleButton>
+              </ToggleButtonGroup>
             </Stack>
-          ) : (
-            <Box />
-          )}
-
-          <Stack direction="row" justifyContent="flex-end" sx={{ minWidth: 0 }}>
-          <ToggleButtonGroup
-            exclusive
-            size="small"
-            value={timelineMode}
-            onChange={(_event, value: "weeks" | "months" | null) => {
-              if (value) {
-                setTimelineMode(value);
-              }
-            }}
-            sx={{
-              bgcolor: "background.paper",
-              border: 1,
-              borderColor: "divider",
-              "& .MuiToggleButton-root": {
-                px: 3,
-                py: 1,
-                border: 0,
-                borderRight: 1,
-                borderColor: "divider",
-                fontWeight: 700,
-                "&.Mui-selected": {
-                  color: "primary.contrastText",
-                  bgcolor: "primary.main",
-                  "&:hover": {
-                    bgcolor: "primary.dark",
-                  },
-                },
-              },
-            }}
-          >
-            <ToggleButton value="weeks">Weeks</ToggleButton>
-            <ToggleButton value="months">Months</ToggleButton>
-            <ToggleButton value="quarters" disabled>
-              Quarters
-            </ToggleButton>
-          </ToggleButtonGroup>
           </Stack>
-        </Box>
+          {!canEditProject && currentProject ? (
+            <Box sx={{ mt: 2 }}>
+              <ReadOnlyProjectNotice projectName={currentProject.title} />
+            </Box>
+          ) : null}
+        </Paper>
 
-        <TimelineGrid 
-          epics={epics} 
-          dependencies={dependencies}
-          taskDependencies={taskDependencies}
-          timelineMode={timelineMode}
-          scrollRequest={timelineScrollRequest}
-          onOverflowChange={setHasTimelineOverflow}
-          onUpdateEpicDates={updateEpicDates}
-          onUpdateTaskDates={updateTaskDates}
-          onMoveTaskToEpic={moveTaskBetweenEpics}
-          onCreateTask={createTaskUnderEpic}
-          onCreateDependency={handleCreateDependency}
-          onDeleteDependency={removeDependency}
-          onCreateTaskDependency={handleCreateTaskDependency}
-          onDeleteTaskDependency={removeTaskDependency}
-          showChildLevelIssues={settings.child_level_issue_scheduling}
-        />
+        <Box sx={{ flex: 1, minHeight: 0, width: "100%", maxWidth: "100%", overflow: "hidden" }}>
+          <TimelineGrid 
+            epics={epics} 
+            dependencies={dependencies}
+            taskDependencies={taskDependencies}
+            timelineMode={timelineMode}
+            scrollRequest={timelineScrollRequest}
+            onOverflowChange={setHasTimelineOverflow}
+            onUpdateEpicDates={updateEpicDates}
+            onUpdateTaskDates={updateTaskDates}
+            onMoveTaskToEpic={moveTaskBetweenEpics}
+            onCreateTask={createTaskUnderEpic}
+            onCreateDependency={handleCreateDependency}
+            onDeleteDependency={removeDependency}
+            onCreateTaskDependency={handleCreateTaskDependency}
+            onDeleteTaskDependency={removeTaskDependency}
+            showChildLevelIssues={settings.child_level_issue_scheduling}
+            readOnly={!canEditProject}
+          />
+        </Box>
       </Stack>
 
       <Dialog open={settingsOpen} onClose={() => setSettingsOpen(false)} maxWidth="sm" fullWidth>

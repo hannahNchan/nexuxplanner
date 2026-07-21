@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
     "check": "npm run typecheck && npm run lint"
   },
   "dependencies": {
@@ -24,7 +25,7 @@
     "@mui/x-date-pickers": "^8.23.0",
     "@supabase/auth-ui-react": "^0.4.7",
     "@supabase/auth-ui-shared": "^0.1.8",
-    "@supabase/supabase-js": "^2.45.1",
+    "@supabase/supabase-js": "^2.110.7",
     "@xyflow/react": "^12.11.2",
     "axios": "^1.7.2",
     "date-fns": "^4.1.0",
@@ -51,6 +52,7 @@
     "supabase": "^2.109.1",
     "tailwindcss": "^4.1.18",
     "typescript": "^5.5.4",
-    "vite": "^5.4.1"
+    "vite": "^5.4.1",
+    "vitest": "^2.1.9"
   }
 }

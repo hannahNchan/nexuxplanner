@@ -1,6 +1,6 @@
 import { Menu, MenuItem, ListItemText } from "@mui/material";
 import { useEffect, useState } from "react";
-import { supabase } from "../../../../../lib/supabase";
+import { fetchCurrentUserOption } from "../../../../api/projectService";
 
 type User = {
   id: string;
@@ -24,11 +24,9 @@ export const AssigneeMenu = ({
 
   useEffect(() => {
     const loadUsers = async () => {
-      // En un entorno real, deberías tener una tabla de usuarios del proyecto
-      // Por ahora, obtenemos el usuario actual
-      const { data } = await supabase.auth.getUser();
-      if (data.user) {
-        setUsers([{ id: data.user.id, email: data.user.email || "Usuario" }]);
+      const currentUser = await fetchCurrentUserOption();
+      if (currentUser) {
+        setUsers([currentUser]);
       }
     };
 

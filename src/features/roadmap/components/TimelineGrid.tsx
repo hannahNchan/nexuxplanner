@@ -33,6 +33,21 @@ import type { EpicWithDetails, RoadmapTask } from "../../../features/api/epicSer
 import EpicBar from "./EpicBar";
 import RoadmapDependencyLayer, { type RoadmapDependencyLine } from "./RoadmapDependencyLayer";
 import TimelineBar from "./TimelineBar";
+import {
+  DAY_WIDTH,
+  LEFT_PANEL_SHADOW,
+  LEFT_PANEL_WIDTH,
+  MONTH_DAY_WIDTH,
+  ROADMAP_TASK_DRAG_TYPE,
+  TIMELINE_MONTHS,
+  TIMELINE_WEEKS,
+  TimelineColumns,
+  TimelineEmptyState,
+  TimelineHeader,
+  TimelineLeftHeader,
+  TodayMarker,
+  type TimelineUnit,
+} from "./TimelineGridParts";
 
 type TimelineGridProps = {
   epics: EpicWithDetails[];
@@ -50,15 +65,8 @@ type TimelineGridProps = {
   onCreateTaskDependency: (fromTaskId: string, toTaskId: string, dependencyType: string) => Promise<void> | void;
   onDeleteTaskDependency: (dependencyId: string) => void;
   showChildLevelIssues: boolean;
+  readOnly?: boolean;
 };
-
-const LEFT_PANEL_WIDTH = 520;
-const MONTH_DAY_WIDTH = 18;
-const DAY_WIDTH = 72;
-const ROADMAP_TASK_DRAG_TYPE = "application/x-roadmap-task";
-const TIMELINE_MONTHS = 3;
-const TIMELINE_WEEKS = 6;
-const LEFT_PANEL_SHADOW = "8px 0 12px rgba(15, 23, 42, 0.08)";
 
 type ConnectionEndpoint = {
   id: string;
@@ -70,6 +78,9 @@ type RoadmapBarTarget = {
   id: string;
   type?: "epic" | "task";
 };
+
+const getErrorMessage = (error: unknown) =>
+  error instanceof Error ? error.message : "No se pudo crear la dependencia.";
 
 const getDragPreviewPath = (
   source: { x: number; y: number },
@@ -116,6 +127,7 @@ const TimelineGrid = ({
   onCreateTaskDependency,
   onDeleteTaskDependency,
   showChildLevelIssues,
+  readOnly = false,
 }: TimelineGridProps) => {
   const theme = useTheme();
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
@@ -204,7 +216,7 @@ const TimelineGrid = ({
     };
   });
 
-  const timelineUnits = timelineMode === "weeks" ? timelineDays : timelineMonths;
+  const timelineUnits: TimelineUnit[] = timelineMode === "weeks" ? timelineDays : timelineMonths;
   const timelineWidth = timelineUnits.reduce((sum, unit) => sum + unit.width, 0);
   const timelineAreaSx = {
     width: timelineWidth,
@@ -288,6 +300,7 @@ const TimelineGrid = ({
 
   useEffect(() => {
     if (!isDraggingConnection || !connectionStart) return;
+    if (readOnly) return;
 
     const finishConnection = (target: RoadmapBarTarget | null) => {
       const finalTarget = target ?? hoveredConnectionTarget;
@@ -302,17 +315,25 @@ const TimelineGrid = ({
       if (finalTarget.type !== connectionStart.type) {
         setConnectionWarning("Por ahora solo puedes conectar épica con épica o tarea con tarea.");
       } else if (connectionStart.type === "task") {
-        void Promise.resolve(onCreateTaskDependency(finalTarget.id, connectionStart.id, "finish-to-start")).finally(() => {
-          window.requestAnimationFrame(() => {
-            window.dispatchEvent(new Event("roadmap-bars-change"));
+        void Promise.resolve(onCreateTaskDependency(finalTarget.id, connectionStart.id, "finish-to-start"))
+          .catch((error) => {
+            setConnectionWarning(getErrorMessage(error));
+          })
+          .finally(() => {
+            window.requestAnimationFrame(() => {
+              window.dispatchEvent(new Event("roadmap-bars-change"));
+            });
           });
-        });
       } else {
-        void Promise.resolve(onCreateDependency(finalTarget.id, connectionStart.id, "finish-to-start")).finally(() => {
-          window.requestAnimationFrame(() => {
-            window.dispatchEvent(new Event("roadmap-bars-change"));
+        void Promise.resolve(onCreateDependency(finalTarget.id, connectionStart.id, "finish-to-start"))
+          .catch((error) => {
+            setConnectionWarning(getErrorMessage(error));
+          })
+          .finally(() => {
+            window.requestAnimationFrame(() => {
+              window.dispatchEvent(new Event("roadmap-bars-change"));
+            });
           });
-        });
       }
       setIsDraggingConnection(false);
       setConnectionStart(null);
@@ -348,7 +369,7 @@ const TimelineGrid = ({
       document.removeEventListener("mouseup", handleMouseUp);
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [connectionStart, hoveredConnectionTarget, isDraggingConnection, onCreateDependency, onCreateTaskDependency]);
+  }, [connectionStart, hoveredConnectionTarget, isDraggingConnection, onCreateDependency, onCreateTaskDependency, readOnly]);
 
   const epicsWithTimelineData = epics;
 
@@ -359,6 +380,7 @@ const TimelineGrid = ({
     cursor: { x: number; y: number },
     barType: "epic" | "task"
   ) => {
+    if (readOnly) return;
     if (anchor === "start") {
       setIsDraggingConnection(false);
       setConnectionStart(null);
@@ -379,6 +401,7 @@ const TimelineGrid = ({
     _anchor: "start" | "end",
     _connectorId: string
   ) => {
+    if (readOnly) return;
     if (connectionStart && connectionStart.id !== toEpicId) {
       void onCreateDependency(toEpicId, connectionStart.id, "finish-to-start");
     }
@@ -399,6 +422,7 @@ const TimelineGrid = ({
   };
 
   const handleEpicDragOver = (event: React.DragEvent, epicId: string) => {
+    if (readOnly) return;
     if (!showChildLevelIssues) return;
     if (!Array.from(event.dataTransfer.types).includes(ROADMAP_TASK_DRAG_TYPE)) return;
     event.preventDefault();
@@ -407,6 +431,7 @@ const TimelineGrid = ({
   };
 
   const handleEpicDrop = (event: React.DragEvent, epicId: string) => {
+    if (readOnly) return;
     if (!showChildLevelIssues) return;
     const taskId = event.dataTransfer.getData(ROADMAP_TASK_DRAG_TYPE);
     setDragOverEpicId(null);
@@ -418,6 +443,7 @@ const TimelineGrid = ({
 
   const handleCreateTask = async (epicId: string) => {
     const title = draftTaskTitles[epicId]?.trim();
+    if (readOnly) return;
     if (!title || creatingTaskEpicIds.has(epicId)) return;
 
     setCreatingTaskEpicIds((current) => new Set(current).add(epicId));
@@ -439,114 +465,6 @@ const TimelineGrid = ({
     }
   };
 
-  const renderLeftHeader = () => (
-    <Box
-      sx={{
-        width: LEFT_PANEL_WIDTH,
-        flexShrink: 0,
-        position: "sticky",
-        left: 0,
-        zIndex: 60,
-        display: "flex",
-        alignItems: "center",
-        bgcolor: theme.palette.background.paper,
-        overflow: "hidden",
-        px: 1.5,
-        py: 1.25,
-        borderRight: 1,
-        borderColor: "divider",
-        boxShadow: LEFT_PANEL_SHADOW,
-      }}
-    >
-      <Typography variant="caption" color="text.secondary" fontWeight={800}>
-        ÉPICA
-      </Typography>
-    </Box>
-  );
-
-  const renderTimelineColumns = () =>
-    timelineUnits.map((unit, unitIndex) => (
-      <Box
-        key={unitIndex}
-        sx={{
-          width: unit.width,
-          flexShrink: 0,
-          borderRight: 1,
-          borderLeft: timelineMode === "weeks" && unit.type === "day" && unit.isWeekStart ? 2 : 0,
-          borderColor: "divider",
-          position: "relative",
-          bgcolor:
-            timelineMode === "weeks" && unit.type === "day" && unit.weekIndex % 2 === 1
-              ? alpha(theme.palette.text.primary, 0.035)
-              : "transparent",
-        }}
-      />
-    ));
-
-  const renderTimelineHeader = () =>
-    timelineUnits.map((unit, index) => (
-      <Box
-        key={index}
-        sx={{
-          width: unit.width,
-          flexShrink: 0,
-          px: timelineMode === "weeks" ? 0.5 : 2,
-          py: timelineMode === "weeks" ? 0.75 : 2,
-          borderRight: 1,
-          borderLeft: timelineMode === "weeks" && unit.type === "day" && unit.isWeekStart ? 2 : 0,
-          borderColor: "divider",
-          textAlign: "center",
-          bgcolor:
-            timelineMode === "weeks" && unit.type === "day" && unit.weekIndex % 2 === 1
-              ? alpha(theme.palette.text.primary, 0.035)
-              : "transparent",
-        }}
-      >
-        {unit.type === "day" ? (
-          <Stack spacing={0.25} alignItems="center">
-            <Typography variant="caption" color="text.disabled" fontWeight={700} sx={{ lineHeight: 1 }}>
-              {unit.monthLabel}
-            </Typography>
-            <Typography
-              variant="caption"
-              color={format(unit.start, "yyyy-MM-dd") === format(today, "yyyy-MM-dd") ? "primary" : "text.secondary"}
-              fontWeight={800}
-              sx={{ lineHeight: 1.1 }}
-            >
-              {unit.label}
-            </Typography>
-            <Typography
-              variant="body2"
-              color={format(unit.start, "yyyy-MM-dd") === format(today, "yyyy-MM-dd") ? "primary" : "text.primary"}
-              fontWeight={format(unit.start, "yyyy-MM-dd") === format(today, "yyyy-MM-dd") ? 800 : 600}
-              sx={{ lineHeight: 1.1 }}
-            >
-              {unit.dayNumber}
-            </Typography>
-          </Stack>
-        ) : (
-          <Typography variant="subtitle2" fontWeight={700}>
-            {unit.label}
-          </Typography>
-        )}
-      </Box>
-    ));
-
-  const renderTodayMarker = () => (
-    <Box
-      sx={{
-        position: "absolute",
-        left: `${todayOffsetPercent}%`,
-        top: 0,
-        bottom: 0,
-        width: 2,
-        bgcolor: "warning.main",
-        zIndex: 1,
-        pointerEvents: "none",
-      }}
-    />
-  );
-
   const renderTaskRow = (task: RoadmapTask, taskIndex: number, epicIndex: number) => {
     const fallbackDates = getDefaultTaskDates(taskIndex, timelineStart, timelineEnd, epicIndex);
     const taskStart = task.planned_start_date ?? task.sprint_start_date ?? fallbackDates.planned_start_date;
@@ -557,7 +475,7 @@ const TimelineGrid = ({
         key={task.id}
         sx={{
           display: "flex",
-          minHeight: 46,
+          minHeight: 42,
           bgcolor: alpha(theme.palette.background.paper, 0.62),
           borderTop: 1,
           borderColor: "divider",
@@ -575,7 +493,7 @@ const TimelineGrid = ({
             zIndex: 45,
             pl: 6,
             pr: 1.5,
-            py: 1,
+            py: 0.75,
             borderRight: 1,
             borderColor: "divider",
             display: "flex",
@@ -635,8 +553,8 @@ const TimelineGrid = ({
         </Box>
 
         <Box sx={timelineAreaSx}>
-          {renderTimelineColumns()}
-          {renderTodayMarker()}
+          <TimelineColumns theme={theme} timelineMode={timelineMode} units={timelineUnits} />
+          <TodayMarker offsetPercent={todayOffsetPercent} />
 
           <TimelineBar
             id={task.id}
@@ -646,7 +564,7 @@ const TimelineGrid = ({
             endDate={taskEnd}
             timelineStart={timelineStart}
             timelineEnd={timelineEnd}
-            height={30}
+            height={28}
             barType="task"
             onUpdateDates={onUpdateTaskDates}
             connectors={{
@@ -668,6 +586,7 @@ const TimelineGrid = ({
               data: task.id,
               label: "Mover tarea entre épicas",
             }}
+            readOnly={readOnly}
           />
         </Box>
       </Box>
@@ -685,7 +604,7 @@ const TimelineGrid = ({
         key={`${epic.id}-create-task`}
         sx={{
           display: "flex",
-          minHeight: 46,
+          minHeight: 42,
           bgcolor: alpha(theme.palette.background.paper, 0.82),
           borderTop: 1,
           borderColor: "divider",
@@ -700,7 +619,7 @@ const TimelineGrid = ({
             zIndex: 45,
             pl: 6,
             pr: 1.5,
-            py: 0.75,
+            py: 0.5,
             borderRight: 1,
             borderColor: "divider",
             display: "flex",
@@ -713,7 +632,7 @@ const TimelineGrid = ({
         >
           <IconButton
             size="small"
-            disabled={!value.trim() || isCreating}
+            disabled={!value.trim() || isCreating || readOnly}
             onClick={() => void handleCreateTask(epic.id)}
             aria-label="Crear tarea en épica"
             sx={{
@@ -755,8 +674,8 @@ const TimelineGrid = ({
         </Box>
 
         <Box sx={timelineAreaSx}>
-          {renderTimelineColumns()}
-          {renderTodayMarker()}
+          <TimelineColumns theme={theme} timelineMode={timelineMode} units={timelineUnits} />
+          <TodayMarker offsetPercent={todayOffsetPercent} />
         </Box>
       </Box>
     );
@@ -804,9 +723,9 @@ const TimelineGrid = ({
           zIndex: 50,
         }}
       >
-        {renderLeftHeader()}
+        <TimelineLeftHeader theme={theme} />
 
-        {renderTimelineHeader()}
+        <TimelineHeader theme={theme} timelineMode={timelineMode} units={timelineUnits} today={today} />
       </Box>
 
       <Box sx={{ position: "relative" }}>
@@ -834,7 +753,7 @@ const TimelineGrid = ({
               <Box
                 sx={{
                   display: "flex",
-                  minHeight: 58,
+                  minHeight: 52,
                   bgcolor: isExpanded
                     ? alpha(theme.palette.primary.main, 0.07)
                     : epicIndex % 2 === 0
@@ -853,7 +772,7 @@ const TimelineGrid = ({
                     left: 0,
                     zIndex: 45,
                     px: 1.5,
-                    py: 1.25,
+                    py: 1,
                     borderRight: 1,
                     borderColor: "divider",
                     display: "flex",
@@ -915,7 +834,9 @@ const TimelineGrid = ({
                   {showChildLevelIssues && (
                     <IconButton
                       size="small"
+                      disabled={readOnly}
                       onClick={() => {
+                        if (readOnly) return;
                         setCreatingInputEpicId((current) => (current === epic.id ? null : epic.id));
                         setCollapsedEpicIds((current) => {
                           const next = new Set(current);
@@ -942,8 +863,8 @@ const TimelineGrid = ({
                 </Box>
 
                 <Box sx={timelineAreaSx}>
-                  {renderTimelineColumns()}
-                  {renderTodayMarker()}
+                  <TimelineColumns theme={theme} timelineMode={timelineMode} units={timelineUnits} />
+                  <TodayMarker offsetPercent={todayOffsetPercent} />
                   <EpicBar
                     epic={epic}
                     monthStart={timelineStart}
@@ -955,6 +876,7 @@ const TimelineGrid = ({
                     onStartConnection={handleStartConnection}
                     onEndConnection={handleEndConnection}
                     draggingFromEpic={connectionStart?.id ?? null}
+                    readOnly={readOnly}
                   />
                 </Box>
               </Box>
@@ -969,29 +891,7 @@ const TimelineGrid = ({
           );
         })}
 
-        {epicsWithTimelineData.length === 0 && (
-          <Box sx={{ display: "flex", minHeight: 120 }}>
-            <Box
-              sx={{
-                width: LEFT_PANEL_WIDTH,
-                flexShrink: 0,
-                position: "sticky",
-                left: 0,
-                zIndex: 45,
-                borderRight: 1,
-                borderColor: "divider",
-                bgcolor: theme.palette.background.paper,
-                overflow: "hidden",
-                boxShadow: LEFT_PANEL_SHADOW,
-              }}
-            />
-            <Box sx={{ flex: 1, position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <Typography variant="body2" color="text.secondary">
-                Crea épicas o asigna tareas para comenzar el roadmap.
-              </Typography>
-            </Box>
-          </Box>
-        )}
+        {epicsWithTimelineData.length === 0 && <TimelineEmptyState theme={theme} />}
       </Box>
 
       </Box>

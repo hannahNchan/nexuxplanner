@@ -29,6 +29,11 @@ import ExploreProjectsModal from "./ExploreProjectsModal";
 import ProjectSettingsModal from "./ProjectSettingsModal";
 import type { ProjectWithTags } from "../../api/projectService";
 import { useProject } from "../../../shared/contexts/ProjectContext";
+import {
+  createOrganization,
+  uploadOrganizationLogo,
+  type Organization,
+} from "../../api/organizationService";
 
 type ProjectSelectorProps = {
   userId: string;
@@ -44,7 +49,15 @@ const ProjectSelector = ({ userId, collapsed }: ProjectSelectorProps) => {
   const [editingProject, setEditingProject] = useState<ProjectWithTags | null>(null);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
 
-  const { currentProject, setCurrentProject, updateCurrentProject } = useProject();
+  const {
+    currentProject,
+    setCurrentProject,
+    updateCurrentProject,
+    activeOrganization,
+    setActiveOrganization,
+    setOrganizations,
+    updateActiveOrganization,
+  } = useProject();
 
   const { 
     projects,
@@ -53,7 +66,8 @@ const ProjectSelector = ({ userId, collapsed }: ProjectSelectorProps) => {
     updateProject,
     searchProjects, 
     refetch 
-  } = useProjects(userId);
+  } = useProjects(userId, activeOrganization?.id);
+  const canEditCurrentProject = currentProject?.can_edit ?? true;
 
   const menuOpen = Boolean(anchorEl);
 
@@ -62,6 +76,17 @@ const ProjectSelector = ({ userId, collapsed }: ProjectSelectorProps) => {
       setCurrentProject(projects[0]);
     }
   }, [projects, loading, currentProject, setCurrentProject]);
+
+  useEffect(() => {
+    const handleProjectsChanged = () => {
+      void refetch();
+    };
+
+    window.addEventListener("nexusplanner:projects-changed", handleProjectsChanged);
+    return () => {
+      window.removeEventListener("nexusplanner:projects-changed", handleProjectsChanged);
+    };
+  }, [refetch]);
 
   const handleClick = (event: React.MouseEvent<HTMLElement>) => {
     if (collapsed) {
@@ -96,7 +121,9 @@ const ProjectSelector = ({ userId, collapsed }: ProjectSelectorProps) => {
     description: string,
     tags: string[],
     projectKey: string,
-    projectId?: string
+    projectId?: string,
+    organizationDraft?: { name: string; logoFile: File | null },
+    visibility: ProjectWithTags["visibility"] = "organization"
   ) => {
     if (projectId) {
       await updateProject(projectId, { 
@@ -106,8 +133,37 @@ const ProjectSelector = ({ userId, collapsed }: ProjectSelectorProps) => {
         project_key: projectKey,
       });
     } else {
-      const newProject = await createProject(title, description, tags, projectKey);
+      let targetOrganization: Organization | null = activeOrganization;
+
+      if (!targetOrganization) {
+        if (!organizationDraft?.name.trim()) {
+          throw new Error("Crea o selecciona una organización antes de crear el proyecto.");
+        }
+
+        targetOrganization = await createOrganization(userId, organizationDraft.name);
+
+        if (organizationDraft.logoFile) {
+          const logoUrl = await uploadOrganizationLogo(targetOrganization.id, organizationDraft.logoFile);
+          targetOrganization = {
+            ...targetOrganization,
+            logo_url: logoUrl,
+          };
+        }
+
+        setOrganizations([targetOrganization]);
+        setActiveOrganization(targetOrganization);
+      }
+
+      const newProject = await createProject(
+        title,
+        description,
+        tags,
+        projectKey,
+        targetOrganization.id,
+        visibility
+      );
       setCurrentProject(newProject);
+      window.dispatchEvent(new Event("nexusplanner:projects-changed"));
     }
   };
 
@@ -152,6 +208,38 @@ const ProjectSelector = ({ userId, collapsed }: ProjectSelectorProps) => {
                   >
                     {project.project_key}
                   </Typography>
+                  {!project.can_edit ? (
+                    <Typography
+                      variant="caption"
+                      color="text.secondary"
+                      sx={{
+                        border: 1,
+                        borderColor: "divider",
+                        borderRadius: 0.5,
+                        px: 0.75,
+                        py: 0.2,
+                        fontWeight: 700,
+                      }}
+                    >
+                      lectura
+                    </Typography>
+                  ) : null}
+                  {project.visibility === "private" ? (
+                    <Typography
+                      variant="caption"
+                      color="text.secondary"
+                      sx={{
+                        border: 1,
+                        borderColor: "divider",
+                        borderRadius: 0.5,
+                        px: 0.75,
+                        py: 0.2,
+                        fontWeight: 700,
+                      }}
+                    >
+                      privado
+                    </Typography>
+                  ) : null}
                 </Stack>
               }
               secondary={project.description}
@@ -247,7 +335,7 @@ const ProjectSelector = ({ userId, collapsed }: ProjectSelectorProps) => {
               handleCloseMenu();
               setSettingsModalOpen(true);
             }}
-            disabled={!currentProject}
+            disabled={!currentProject || !canEditCurrentProject}
           >
             <ListItemIcon>
               <SettingsIcon fontSize="small" />
@@ -316,7 +404,7 @@ const ProjectSelector = ({ userId, collapsed }: ProjectSelectorProps) => {
                   setSettingsModalOpen(true);
                 }}
                 sx={{ pl: 4 }}
-                disabled={!currentProject}
+                disabled={!currentProject || !canEditCurrentProject}
               >
                 <ListItemIcon sx={{ minWidth: 36 }}>
                   <SettingsIcon fontSize="small" />
@@ -336,6 +424,7 @@ const ProjectSelector = ({ userId, collapsed }: ProjectSelectorProps) => {
         }}
         onSave={handleSaveProject}
         editingProject={editingProject}
+        activeOrganization={activeOrganization}
       />
 
       <ExploreProjectsModal
@@ -357,6 +446,21 @@ const ProjectSelector = ({ userId, collapsed }: ProjectSelectorProps) => {
         open={settingsModalOpen}
         projectName={currentProject?.title || ""}
         projectId={currentProject?.id || ""}
+        organization={activeOrganization}
+        onOrganizationUpdated={(organization) => {
+          updateActiveOrganization(organization);
+          window.dispatchEvent(new Event("nexusplanner:projects-changed"));
+        }}
+        projectVisibility={currentProject?.visibility ?? "organization"}
+        onUpdateProjectVisibility={async (projectId: string, value: ProjectWithTags["visibility"]) => {
+          await updateProject(projectId, {
+            visibility: value,
+          });
+
+          updateCurrentProject({
+            visibility: value,
+          });
+        }}
         allowBoardTaskCreation={currentProject?.allow_board_task_creation ?? false}
         onClose={() => setSettingsModalOpen(false)}
         onUpdateAllowBoardTaskCreation={async (projectId: string, value: boolean) => {

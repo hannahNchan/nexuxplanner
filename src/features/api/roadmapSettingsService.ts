@@ -1,4 +1,5 @@
 import { supabase } from "../../lib/supabase";
+import { logError } from "../../shared/utils/errorHandling";
 
 export type RoadmapSettings = {
   id: string;
@@ -29,7 +30,7 @@ export const fetchRoadmapSettings = async (
     .maybeSingle();
 
   if (error) {
-    console.error("Error fetching roadmap settings:", error);
+    logError("roadmapSettings.fetch", error);
     return DEFAULT_ROADMAP_SETTINGS;
   }
 

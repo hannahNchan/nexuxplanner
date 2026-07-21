@@ -43,6 +43,7 @@ type TimelineBarProps = {
     data: string;
     label: string;
   };
+  readOnly?: boolean;
 };
 
 const parseRoadmapDate = (value: string | null) => {
@@ -67,6 +68,7 @@ const TimelineBar = ({
   connectionVisual,
   onConnectionTargetChange,
   verticalDrag,
+  readOnly = false,
 }: TimelineBarProps) => {
   const theme = useTheme();
   const resolvedBarType = barType ?? (verticalDrag ? "task" : "epic");
@@ -201,7 +203,7 @@ const TimelineBar = ({
   const widthPercent = (duration / totalDays) * 100;
   const connectorActiveColor = theme.palette.warning.main;
   const barTextColor = theme.palette.getContrastText(color);
-  const showConnectors = connectors?.enabled && isHovering;
+  const showConnectors = !readOnly && connectors?.enabled && isHovering;
   const isConnectionSource = connectionVisual?.active && connectionVisual.sourceId === id;
   const isConnectionTarget = connectionVisual?.active && connectionVisual.targetId === id;
   const isConnectionDimmed =
@@ -210,6 +212,7 @@ const TimelineBar = ({
   const endConnectorId = `${id}-connector-end`;
 
   const handleMouseDownStart = (event: React.MouseEvent) => {
+    if (readOnly) return;
     event.stopPropagation();
     setIsResizingStart(true);
     setTempStartDate(barStart);
@@ -219,6 +222,7 @@ const TimelineBar = ({
   };
 
   const handleMouseDownEnd = (event: React.MouseEvent) => {
+    if (readOnly) return;
     event.stopPropagation();
     setIsResizingEnd(true);
     setTempStartDate(barStart);
@@ -228,6 +232,7 @@ const TimelineBar = ({
   };
 
   const handleMouseDownDrag = (event: React.MouseEvent) => {
+    if (readOnly) return;
     if (connectors?.isDraggingConnection) return;
     event.stopPropagation();
     setIsDragging(true);
@@ -241,6 +246,7 @@ const TimelineBar = ({
   };
 
   const handleVerticalDragStart = (event: React.DragEvent) => {
+    if (readOnly) return;
     if (!verticalDrag) return;
     event.stopPropagation();
     event.dataTransfer.effectAllowed = "move";
@@ -254,7 +260,7 @@ const TimelineBar = ({
   ) => {
     event.stopPropagation();
     event.preventDefault();
-    if (!connectors?.enabled) return;
+    if (readOnly || !connectors?.enabled) return;
 
     if (!connectors.isDraggingConnection) {
       connectors.onStartConnection(id, anchor, connectorId, { x: event.clientX, y: event.clientY }, resolvedBarType);
@@ -298,7 +304,7 @@ const TimelineBar = ({
           minWidth: 72,
           px: 1,
           zIndex: 4,
-          cursor: isDragging ? "grabbing" : "grab",
+          cursor: readOnly ? "default" : isDragging ? "grabbing" : "grab",
           opacity: isDragging || isResizingStart || isResizingEnd ? 0.7 : isConnectionDimmed ? 0.24 : 1,
           transition: isDragging || isResizingStart || isResizingEnd ? "none" : "opacity 0.16s",
           boxShadow: 2,
@@ -354,7 +360,7 @@ const TimelineBar = ({
             bgcolor: alpha(theme.palette.common.black, 0.3),
             borderTopLeftRadius: 4,
             borderBottomLeftRadius: 4,
-            display: "flex",
+            display: readOnly ? "none" : "flex",
             alignItems: "center",
             justifyContent: "center",
             "&:hover": {
@@ -382,7 +388,7 @@ const TimelineBar = ({
           {label}
         </Typography>
 
-        {verticalDrag && (
+        {verticalDrag && !readOnly && (
           <Tooltip title={verticalDrag.label}>
             <Box
               draggable
@@ -419,7 +425,7 @@ const TimelineBar = ({
             bgcolor: alpha(theme.palette.common.black, 0.3),
             borderTopRightRadius: 4,
             borderBottomRightRadius: 4,
-            display: "flex",
+            display: readOnly ? "none" : "flex",
             alignItems: "center",
             justifyContent: "center",
             "&:hover": {

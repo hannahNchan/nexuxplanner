@@ -11,18 +11,20 @@ import {
 import type { ProjectWithTags } from "../../../../api/projectService";
 import type { Priority } from "../../../../api/catalogService";
 
+type BacklogFilters = {
+  projects: string[];
+  priorities: string[];
+  hasEpic: boolean | null;
+  hasGithubLink: boolean | null;
+};
+
 type FilterMenuProps = {
   anchorEl: HTMLElement | null;
-  filters: {
-    projects: string[];
-    priorities: string[];
-    hasEpic: boolean | null;
-    hasGithubLink: boolean | null;
-  };
+  filters: BacklogFilters;
   projects: ProjectWithTags[];
   priorities: Priority[];
   onClose: () => void;
-  onFilterChange: (filters: any) => void;
+  onFilterChange: (filters: BacklogFilters) => void;
 };
 
 export const FilterMenu = ({

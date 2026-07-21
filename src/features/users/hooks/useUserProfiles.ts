@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
-import { supabase } from "../../../lib/supabase";
-import type { UserProfile } from "../../api/userService";
+import { fetchUserProfilesByIds, type UserProfile } from "../../api/userService";
+import { logError } from "../../../shared/utils/errorHandling";
 
 const profileCache = new Map<string, UserProfile | null>();
 
@@ -32,24 +32,19 @@ export const useUserProfiles = (userIds: string[]) => {
       }
 
       try {
-        const { data, error } = await supabase
-          .from("user_profiles")
-          .select("*")
-          .in("id", idsToFetch);
-
-        if (error) throw error;
+        const data = await fetchUserProfilesByIds(idsToFetch);
 
         const fetchedProfiles: Record<string, UserProfile | null> = {};
         
         idsToFetch.forEach(id => {
-          const profile = data?.find(p => p.id === id) || null;
+          const profile = data.find(p => p.id === id) || null;
           profileCache.set(id, profile);
           fetchedProfiles[id] = profile;
         });
 
         setProfiles({ ...cachedProfiles, ...fetchedProfiles });
       } catch (error) {
-        console.error("Error loading profiles:", error);
+        logError("userProfiles.load", error);
         idsToFetch.forEach(id => {
           profileCache.set(id, null);
         });

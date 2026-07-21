@@ -25,12 +25,72 @@ export type BacklogTask = {
 export type BacklogTaskWithDetails = BacklogTask & {
   assignee_name?: string;
   priority_name?: string;
-  priority_color?: string;
+  priority_color?: string | null;
   epic_name?: string;
   project_name?: string;
 };
 
-// Fetch backlog tasks (in_backlog = true)
+type BacklogTaskRow = BacklogTask & {
+  priority?: {
+    name: string;
+    color: string | null;
+  } | null;
+};
+
+type BacklogTaskUpdate = {
+  updated_at: string;
+  title?: string;
+  subtitle?: string;
+  description?: string;
+  assignee_id?: string | null;
+  priority_id?: string | null;
+  story_points?: string | null;
+  epic_id?: string | null;
+  github_link?: string | null;
+};
+
+export const fetchFirstProjectColumnId = async (projectId: string): Promise<string | null> => {
+  const { data, error } = await supabase
+    .from("columns")
+    .select("id")
+    .eq("project_id", projectId)
+    .order("position", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data?.id ?? null;
+};
+
+export const fetchProjectEpicName = async (
+  projectId: string,
+  epicId: string
+): Promise<string | undefined> => {
+  const { data, error } = await supabase
+    .from("epics")
+    .select("name")
+    .eq("id", epicId)
+    .eq("project_id", projectId)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data?.name;
+};
+
+const assertEpicBelongsToProject = async (projectId: string, epicId: string): Promise<void> => {
+  const { data, error } = await supabase
+    .from("epics")
+    .select("id")
+    .eq("id", epicId)
+    .eq("project_id", projectId)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) {
+    throw new Error("La épica no pertenece al proyecto activo.");
+  }
+};
+
 export const fetchBacklogTasks = async (
   userId: string,
   projectId?: string | null
@@ -52,28 +112,25 @@ export const fetchBacklogTasks = async (
 
   if (error) throw error;
 
-  // Obtener el usuario actual para comparar
   const { data: currentUser } = await supabase.auth.getUser();
 
-  // Buscar épicas separadamente
   const tasksWithDetails = await Promise.all(
-    (data ?? []).map(async (item: any) => {
-      let epicName = undefined;
-      let assigneeName = undefined;
+    ((data ?? []) as BacklogTaskRow[]).map(async (item) => {
+      let epicName: string | undefined = undefined;
+      let assigneeName: string | undefined = undefined;
       
-      // Si está asignado al usuario actual, usar su email
       if (item.assignee_id && currentUser.user && item.assignee_id === currentUser.user.id) {
         assigneeName = currentUser.user.email || "Tú";
       } else if (item.assignee_id) {
-        assigneeName = "Asignado"; // Placeholder por ahora
+        assigneeName = "Asignado";
       }
       
-      // Buscar épica
       if (item.epic_id) {
         const { data: epic } = await supabase
           .from("epics")
           .select("name")
           .eq("id", item.epic_id)
+          .eq("project_id", projectId)
           .maybeSingle();
         
         epicName = epic?.name;
@@ -81,7 +138,7 @@ export const fetchBacklogTasks = async (
 
       return {
         ...item,
-        user_id: userId, // Agregar manualmente para compatibilidad de tipos
+        user_id: userId,
         epic_id: item.epic_id,
         assignee_name: assigneeName,
         priority_name: item.priority?.name,
@@ -94,7 +151,6 @@ export const fetchBacklogTasks = async (
   return tasksWithDetails;
 };
 
-// Create backlog task
 export const createBacklogTask = async (
   userId: string,
   projectId: string,
@@ -109,10 +165,14 @@ export const createBacklogTask = async (
     github_link?: string | null;
   }
 ): Promise<BacklogTask> => {
+  if (data.epic_id) {
+    await assertEpicBelongsToProject(projectId, data.epic_id);
+  }
+
   const { data: task, error } = await supabase
     .from("tasks")
     .insert({
-      project_id: projectId, // ✅ Usar project_id, no user_id
+      project_id: projectId,
       title: data.title,
       subtitle: data.subtitle || null,
       description: data.description || null,
@@ -130,15 +190,14 @@ export const createBacklogTask = async (
 
   if (error) throw error;
   
-  // Agregar user_id manualmente para compatibilidad
   return {
     ...task,
     user_id: userId,
   };
 };
 
-// Update backlog task
 export const updateBacklogTask = async (
+  projectId: string,
   taskId: string,
   updates: {
     title?: string;
@@ -151,7 +210,11 @@ export const updateBacklogTask = async (
     github_link?: string | null;
   }
 ): Promise<void> => {
-  const updateData: any = {
+  if (updates.epic_id) {
+    await assertEpicBelongsToProject(projectId, updates.epic_id);
+  }
+
+  const updateData: BacklogTaskUpdate = {
     ...updates,
     updated_at: new Date().toISOString(),
   };
@@ -159,26 +222,42 @@ export const updateBacklogTask = async (
   const { error } = await supabase
     .from("tasks")
     .update(updateData)
-    .eq("id", taskId);
+    .eq("id", taskId)
+    .eq("project_id", projectId);
 
   if (error) throw error;
 };
 
-// Delete backlog task
-export const deleteBacklogTask = async (taskId: string): Promise<void> => {
-  const { error } = await supabase
+export const deleteBacklogTask = async (projectId: string, taskId: string): Promise<void> => {
+  const { data, error } = await supabase
     .from("tasks")
     .delete()
-    .eq("id", taskId);
+    .eq("id", taskId)
+    .eq("project_id", projectId)
+    .select("id");
 
   if (error) throw error;
+
+  if (!data || data.length === 0) {
+    throw new Error("No se pudo eliminar la tarea del proyecto activo.");
+  }
 };
 
-// Move task from backlog to Kanban
 export const moveToKanban = async (
+  projectId: string,
   taskId: string,
   columnId: string
 ): Promise<void> => {
+  const { data: column, error: columnError } = await supabase
+    .from("columns")
+    .select("id")
+    .eq("id", columnId)
+    .eq("project_id", projectId)
+    .maybeSingle();
+
+  if (columnError) throw columnError;
+  if (!column) throw new Error("La columna no pertenece al proyecto activo.");
+
   const { error } = await supabase
     .from("tasks")
     .update({
@@ -186,13 +265,13 @@ export const moveToKanban = async (
       column_id: columnId,
       updated_at: new Date().toISOString(),
     })
-    .eq("id", taskId);
+    .eq("id", taskId)
+    .eq("project_id", projectId);
 
   if (error) throw error;
 };
 
-// Move task from Kanban to backlog
-export const moveToBacklog = async (taskId: string): Promise<void> => {
+export const moveToBacklog = async (projectId: string, taskId: string): Promise<void> => {
   const { error } = await supabase
     .from("tasks")
     .update({
@@ -200,7 +279,40 @@ export const moveToBacklog = async (taskId: string): Promise<void> => {
       column_id: null,
       updated_at: new Date().toISOString(),
     })
-    .eq("id", taskId);
+    .eq("id", taskId)
+    .eq("project_id", projectId);
+
+  if (error) throw error;
+};
+
+export const assignBacklogTaskToSprint = async (
+  projectId: string,
+  taskId: string,
+  sprintId: string,
+  columnId: string
+): Promise<void> => {
+  const { data: sprint, error: sprintError } = await supabase
+    .from("sprints")
+    .select("id")
+    .eq("id", sprintId)
+    .eq("project_id", projectId)
+    .maybeSingle();
+
+  if (sprintError) throw sprintError;
+  if (!sprint) {
+    throw new Error("El sprint no pertenece al proyecto activo.");
+  }
+
+  const { error } = await supabase
+    .from("tasks")
+    .update({
+      sprint_id: sprintId,
+      in_backlog: false,
+      column_id: columnId,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", taskId)
+    .eq("project_id", projectId);
 
   if (error) throw error;
 };

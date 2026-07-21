@@ -1,12 +1,10 @@
 import {
   Box,
-  Button,
   CircularProgress,
   Stack,
   Typography,
   Alert,
 } from "@mui/material";
-import AddIcon from "@mui/icons-material/Add";
 import { DragDropContext, Droppable } from "@hello-pangea/dnd";
 import { useState, useMemo } from "react";
 import Column from "./Column";
@@ -14,19 +12,19 @@ import TaskEditorModal from "./TaskEditorModal";
 import AddColumnModal from "./AddColumnModal";
 import BoardToolbar from "./BoardToolbar";
 import { useBoardManager } from "../hooks/useBoardManager";
-import { useMaxElementHeight } from "../hooks/useMaxElementHeight";
+import ReadOnlyProjectNotice from "../../../shared/ui/ReadOnlyProjectNotice";
 
 type BoardProps = {
   userId: string;
   userEmail: string;
+  header?: React.ReactNode;
 };
 
-const Board = ({ userId, userEmail }: BoardProps) => {
+const Board = ({ userId, userEmail, header }: BoardProps) => {
   const board = useBoardManager(userId);
   const allowBoardTaskCreation = board.currentProject?.allow_board_task_creation ?? false;
-
-  const numColumns = board.data?.columnOrder.length || 0;
-  const [setColumnRef, maxHeight] = useMaxElementHeight(numColumns, board.data?.tasks);
+  const canEditProject = board.currentProject?.can_edit ?? true;
+  const hasFutureSprints = board.sprintManager.sprints.some((sprint) => sprint.status === "future");
 
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -86,10 +84,12 @@ const Board = ({ userId, userEmail }: BoardProps) => {
       <Stack spacing={3} py={4} alignItems="center">
         <Alert severity="info" sx={{ maxWidth: 600 }}>
           <Typography variant="subtitle1" fontWeight={600} gutterBottom>
-            No hay sprint
+            No hay sprint activo
           </Typography>
           <Typography variant="body2">
-            Ve al Backlog para crear un sprint. El tablero Scrum muestra las tareas del sprint activo.
+            {hasFutureSprints
+              ? "Hay sprints planificados en el Backlog. Inicia uno para ver sus tareas en el Tablero Scrum."
+              : "Ve al Backlog para crear tu primer sprint. El Tablero Scrum muestra solo las tareas del sprint activo."}
           </Typography>
         </Alert>
       </Stack>
@@ -114,56 +114,85 @@ const Board = ({ userId, userEmail }: BoardProps) => {
 
   return (
     <>
-      <Stack spacing={2}>
-        <BoardToolbar 
-          tasks={board.data?.tasks || {}}
-          onSearchChange={setSearchQuery}
-          projectId={board.currentProject?.id || ""}
-        />
+      <Stack
+        sx={{
+          minWidth: 0,
+          height: "100%",
+          minHeight: 0,
+          overflow: "hidden",
+        }}
+      >
+        <Stack
+          spacing={2}
+          sx={{
+            flexShrink: 0,
+            bgcolor: "background.default",
+            pb: 2,
+            zIndex: 2,
+          }}
+        >
+          {header}
+          <BoardToolbar
+            tasks={board.data?.tasks || {}}
+            onSearchChange={setSearchQuery}
+            projectId={board.currentProject?.id || ""}
+            onAddColumn={() => board.setIsAddColumnModalOpen(true)}
+            readOnly={!canEditProject}
+          />
+          {!canEditProject ? <ReadOnlyProjectNotice projectName={board.currentProject.title} /> : null}
+        </Stack>
 
         <DragDropContext onDragEnd={board.onDragEnd}>
           <Droppable droppableId="board" direction="horizontal" type="column">
             {(provided) => (
               <Box
                 sx={{
+                  flexGrow: 1,
+                  minHeight: 0,
                   overflowX: "auto",
-                  overflowY: "hidden",
+                  overflowY: "auto",
+                  scrollbarWidth: "none",
+                  "&::-webkit-scrollbar": {
+                    display: "none",
+                  },
                 }}
               >
                 <Box
                   ref={provided.innerRef}
                   {...provided.droppableProps}
-                  display="inline-flex"
-                  gap={3}
-                  flexWrap="nowrap"
-                  overflow="auto"
-                  pb={1}
-                  sx={{ width: "100%" }}
+                  sx={{
+                    display: "inline-flex",
+                    gap: 3,
+                    flexWrap: "nowrap",
+                    alignItems: "stretch",
+                    minWidth: "100%",
+                    minHeight: "100%",
+                    pb: 1,
+                  }}
                 >
-                  <Stack direction="column" justifyContent="space-between" alignItems="end" sx={{ width: "100%" }}>
-                    <Button
-                      variant="outlined"
-                      startIcon={<AddIcon />}
-                      onClick={() => board.setIsAddColumnModalOpen(true)}
-                      size="small"
+                  <Stack direction="column" alignItems="stretch" sx={{ minWidth: "100%", minHeight: "100%" }}>
+                    <Stack
+                      direction="row"
+                      alignItems="stretch"
+                      spacing={2}
+                      sx={{
+                        width: "max-content",
+                        minWidth: "100%",
+                        minHeight: "100%",
+                      }}
                     >
-                      Añadir columna
-                    </Button>
-                    <Stack direction="row" alignItems="start" spacing={2} mt={2} sx={{ width: "100%" }}>
                       {displayData?.columnOrder.map((columnId, index) => {
                         const column = displayData!.columns[columnId];
                         const tasks = column.taskIds.map((taskId) => displayData!.tasks[taskId]);
                         return (
                           <Box
                             key={column.id}
-                            display="inline-flex"
-                            gap={3}
-                            flexWrap="nowrap"
-                            overflow="auto"
-                            pb={1}
                             sx={{
-                              borderRadius: 1,
-                              width: "100%",
+                              flex: "0 0 360px",
+                              width: 360,
+                              maxWidth: "calc(100vw - 48px)",
+                              display: "flex",
+                              minHeight: "100%",
                             }}
                           >
                             <Column
@@ -175,9 +204,8 @@ const Board = ({ userId, userEmail }: BoardProps) => {
                               isCreatingTask={board.creatingTaskColumnId === column.id}
                               currentUserId={userId}
                               currentUserEmail={userEmail}
-                              allowTaskCreation={allowBoardTaskCreation}
-                              columnRef={(el) => setColumnRef(el, index)}
-                              maxHeight={maxHeight}
+                              allowTaskCreation={allowBoardTaskCreation && canEditProject}
+                              readOnly={!canEditProject}
                             />
                           </Box>
                         );

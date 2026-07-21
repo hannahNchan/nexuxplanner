@@ -1,14 +1,17 @@
 import { supabase } from "../../lib/supabase";
+import { logError } from "../../shared/utils/errorHandling";
 
 export type Project = {
   id: string;
   user_id: string;
+  organization_id: string;
   title: string;
   description: string | null;
   project_key: string;
   task_sequence: number;
   epic_sequence: number;
   allow_board_task_creation: boolean;
+  visibility: "organization" | "private";
   banner_url: string | null;
   created_at: string;
   updated_at: string;
@@ -23,6 +26,28 @@ export type ProjectTag = {
 
 export type ProjectWithTags = Project & {
   tags: string[];
+  current_user_project_role?: string | null;
+  can_edit?: boolean;
+};
+
+export type ProjectMemberWithProfile = {
+  id?: string;
+  user_id: string;
+  role?: string;
+  created_at?: string;
+  user_profiles: {
+    full_name: string | null;
+    avatar_url: string | null;
+  };
+};
+
+export type CurrentUserOption = {
+  id: string;
+  email: string;
+};
+
+type CreateProjectRpcResult = Project & {
+  tags?: string[];
 };
 
 const createDefaultColumns = async (projectId: string): Promise<void> => {
@@ -44,7 +69,7 @@ const createDefaultColumns = async (projectId: string): Promise<void> => {
     .sort((a, b) => a.position - b.position)
     .map((c) => c.id);
 
-  await supabase
+  const { error: columnOrderError } = await supabase
     .from("column_order")
     .upsert(
       {
@@ -55,22 +80,142 @@ const createDefaultColumns = async (projectId: string): Promise<void> => {
         onConflict: "project_id",
       }
     );
+
+  if (columnOrderError) throw columnOrderError;
 };
 
-export const fetchProjects = async (userId: string): Promise<ProjectWithTags[]> => {
-  const { data: projects, error: projectsError } = await supabase
+const isMissingCreateProjectRpcError = (error: unknown) => {
+  if (!error || typeof error !== "object") return false;
+
+  const candidate = error as { code?: string; message?: string; details?: string };
+  const message = `${candidate.message ?? ""} ${candidate.details ?? ""}`.toLowerCase();
+
+  return (
+    candidate.code === "PGRST202" ||
+    candidate.code === "42883" ||
+    message.includes("create_project_with_defaults") ||
+    message.includes("could not find the function")
+  );
+};
+
+const deletePartialProject = async (projectId: string): Promise<void> => {
+  const { error } = await supabase
+    .from("projects")
+    .delete()
+    .eq("id", projectId)
+    .select("id");
+
+  if (error) {
+    logError("projects.cleanupPartialProject", error);
+  }
+};
+
+const createProjectWithRollback = async (
+  userId: string,
+  data: {
+    title: string;
+    description?: string;
+    tags?: string[];
+    project_key: string;
+    organization_id: string;
+    visibility?: Project["visibility"];
+  }
+): Promise<ProjectWithTags> => {
+  let createdProjectId: string | null = null;
+
+  try {
+    const { data: project, error: projectError } = await supabase
+      .from("projects")
+      .insert({
+        user_id: userId,
+        organization_id: data.organization_id,
+        title: data.title,
+        description: data.description || null,
+        project_key: data.project_key.toUpperCase(),
+        task_sequence: 0,
+        epic_sequence: 0,
+        visibility: data.visibility ?? "organization",
+      })
+      .select()
+      .single();
+
+    if (projectError) throw projectError;
+
+    createdProjectId = project.id;
+
+    const { error: memberError } = await supabase
+      .from("project_members")
+      .insert({
+        project_id: project.id,
+        user_id: userId,
+        role: "owner",
+      });
+
+    if (memberError) throw memberError;
+
+    if (data.tags && data.tags.length > 0) {
+      const tagRecords = data.tags.map((tag) => ({
+        project_id: project.id,
+        tag,
+      }));
+
+      const { error: tagsError } = await supabase
+        .from("project_tags")
+        .insert(tagRecords);
+
+      if (tagsError) throw tagsError;
+    }
+
+    await createDefaultColumns(project.id);
+
+    const { data: columns, error: columnsError } = await supabase
+      .from("columns")
+      .select("id")
+      .eq("project_id", project.id);
+
+    if (columnsError) throw columnsError;
+
+    if (!columns || columns.length < 4) {
+      throw new Error("No se pudieron crear las columnas iniciales del proyecto.");
+    }
+
+    return {
+      ...project,
+      tags: data.tags || [],
+    };
+  } catch (error) {
+    if (createdProjectId) {
+      await deletePartialProject(createdProjectId);
+    }
+
+    throw error;
+  }
+};
+
+export const fetchProjects = async (
+  userId: string,
+  organizationId?: string | null
+): Promise<ProjectWithTags[]> => {
+  void userId;
+
+  let projectsQuery = supabase
     .from("projects")
     .select("*")
-    .eq("user_id", userId)
     .order("created_at", { ascending: false });
+
+  if (organizationId) {
+    projectsQuery = projectsQuery.eq("organization_id", organizationId);
+  }
+
+  const { data: projects, error: projectsError } = await projectsQuery;
 
   if (projectsError) throw projectsError;
 
-  if (!projects || projects.length === 0) {
+  const projectIds = (projects ?? []).map((project) => project.id);
+
+  if (projectIds.length === 0) {
     return [];
   }
-
-  const projectIds = projects.map((p) => p.id);
 
   const { data: tags, error: tagsError } = await supabase
     .from("project_tags")
@@ -87,9 +232,23 @@ export const fetchProjects = async (userId: string): Promise<ProjectWithTags[]> 
     return acc;
   }, {});
 
+  const { data: currentUserMemberships, error: currentUserMembershipsError } = await supabase
+    .from("project_members")
+    .select("project_id, role")
+    .eq("user_id", userId)
+    .in("project_id", projectIds);
+
+  if (currentUserMembershipsError) throw currentUserMembershipsError;
+
+  const membershipByProject = new Map(
+    (currentUserMemberships ?? []).map((membership) => [membership.project_id, membership.role])
+  );
+
   return projects.map((project) => ({
     ...project,
     tags: tagsByProject[project.id] || [],
+    current_user_project_role: membershipByProject.get(project.id) ?? null,
+    can_edit: membershipByProject.has(project.id),
   }));
 };
 
@@ -121,6 +280,8 @@ export const createProject = async (
     description?: string; 
     tags?: string[];
     project_key: string;
+    organization_id: string;
+    visibility?: Project["visibility"];
   }
 ): Promise<ProjectWithTags> => {
   if (!data.project_key || data.project_key.trim().length === 0) {
@@ -143,66 +304,28 @@ export const createProject = async (
     throw new Error(`Las siglas "${data.project_key}" ya están en uso por otro proyecto`);
   }
 
-  const { data: project, error: projectError } = await supabase
-    .from("projects")
-    .insert({
-      user_id: userId,
-      title: data.title,
-      description: data.description || null,
-      project_key: data.project_key.toUpperCase(),
-      task_sequence: 0,
-      epic_sequence: 0,
+  const { data: project, error: rpcError } = await supabase
+    .rpc("create_project_with_defaults", {
+      p_title: data.title,
+      p_description: data.description || null,
+      p_project_key: data.project_key.toUpperCase(),
+      p_organization_id: data.organization_id,
+      p_tags: data.tags || [],
+      p_visibility: data.visibility ?? "organization",
     })
-    .select()
-    .single();
+    .single<CreateProjectRpcResult>();
 
-  if (projectError) throw projectError;
-
-  await supabase
-    .from("project_members")
-    .insert({
-      project_id: project.id,
-      user_id: userId,
-      role: "owner",
-    });
-
-  if (data.tags && data.tags.length > 0) {
-    const tagRecords = data.tags.map((tag) => ({
-      project_id: project.id,
-      tag,
-    }));
-
-    const { error: tagsError } = await supabase
-      .from("project_tags")
-      .insert(tagRecords);
-
-    if (tagsError) throw tagsError;
-  }
-
-  await createDefaultColumns(project.id);
-
-  let columnsExist = false;
-  let attempts = 0;
-  const maxAttempts = 5;
-
-  while (!columnsExist && attempts < maxAttempts) {
-    attempts++;
-    
-    const { data: columns, error } = await supabase
-      .from("columns")
-      .select("id")
-      .eq("project_id", project.id);
-
-    if (!error && columns && columns.length >= 4) {
-      columnsExist = true;
-    } else {
-      await new Promise(resolve => setTimeout(resolve, 200));
+  if (rpcError) {
+    if (isMissingCreateProjectRpcError(rpcError)) {
+      return createProjectWithRollback(userId, data);
     }
+
+    throw rpcError;
   }
 
   return {
     ...project,
-    tags: data.tags || [],
+    tags: project.tags || [],
   };
 };
 
@@ -214,30 +337,16 @@ export const updateProject = async (
     tags?: string[];
     project_key?: string;
     allow_board_task_creation?: boolean;
+    visibility?: Project["visibility"];
   }
 ): Promise<void> => {
-  console.log("🔧 updateProject called with:", { projectId, updates });
-  
   if (updates.project_key !== undefined) {
-    const { data: columns, error: columnsError } = await supabase
-      .from("columns")
-      .select("id")
+    const { count: taskCount, error: taskCountError } = await supabase
+      .from("tasks")
+      .select("id", { count: "exact", head: true })
       .eq("project_id", projectId);
 
-    if (columnsError) throw columnsError;
-
-    const columnIds = (columns ?? []).map((c) => c.id);
-
-    let taskCount = 0;
-    if (columnIds.length > 0) {
-      const { count, error: taskCountError } = await supabase
-        .from("tasks")
-        .select("id", { count: "exact", head: true })
-        .in("column_id", columnIds);
-
-      if (taskCountError) throw taskCountError;
-      taskCount = count ?? 0;
-    }
+    if (taskCountError) throw taskCountError;
 
     const { count: epicCount, error: epicCountError } = await supabase
       .from("epics")
@@ -246,7 +355,7 @@ export const updateProject = async (
 
     if (epicCountError) throw epicCountError;
 
-    if (taskCount > 0 || (epicCount ?? 0) > 0) {
+    if ((taskCount ?? 0) > 0 || (epicCount ?? 0) > 0) {
       throw new Error("No se pueden cambiar las siglas de un proyecto que ya tiene tareas o épicas");
     }
 
@@ -264,32 +373,28 @@ export const updateProject = async (
     }
   }
 
-  // ✅ CRÍTICO: Agregar allow_board_task_creation a la condición
-  if (updates.title !== undefined || updates.description !== undefined || updates.project_key !== undefined || updates.allow_board_task_creation !== undefined) {
-    console.log("🔧 Entrando al bloque de actualización");
-    
+  if (
+    updates.title !== undefined ||
+    updates.description !== undefined ||
+    updates.project_key !== undefined ||
+    updates.allow_board_task_creation !== undefined ||
+    updates.visibility !== undefined
+  ) {
     const updateData = {
       ...(updates.title !== undefined && { title: updates.title }),
       ...(updates.description !== undefined && { description: updates.description }),
       ...(updates.project_key !== undefined && { project_key: updates.project_key.toUpperCase() }),
       ...(updates.allow_board_task_creation !== undefined && { allow_board_task_creation: updates.allow_board_task_creation }),
+      ...(updates.visibility !== undefined && { visibility: updates.visibility }),
       updated_at: new Date().toISOString(),
     };
-
-    console.log("🔧 Datos a actualizar en BD:", updateData);
 
     const { error: projectError } = await supabase
       .from("projects")
       .update(updateData)
       .eq("id", projectId);
 
-    console.log("🔧 Error de Supabase:", projectError);
-
     if (projectError) throw projectError;
-    
-    console.log("🔧 ✅ Actualización exitosa en BD");
-  } else {
-    console.log("🔧 ⚠️ No se entró al bloque de actualización - ninguna condición cumplida");
   }
 
   if (updates.tags !== undefined) {
@@ -329,8 +434,12 @@ export const deleteProject = async (projectId: string): Promise<void> => {
   }
 };
 
-export const searchProjects = async (userId: string, query: string): Promise<ProjectWithTags[]> => {
-  const projects = await fetchProjects(userId);
+export const searchProjects = async (
+  userId: string,
+  query: string,
+  organizationId?: string | null
+): Promise<ProjectWithTags[]> => {
+  const projects = await fetchProjects(userId, organizationId);
 
   if (!query.trim()) return projects;
 
@@ -348,6 +457,17 @@ export const linkEpicToProject = async (
   epicId: string,
   projectId: string | null
 ): Promise<void> => {
+  const { count: connectedTaskCount, error: taskCountError } = await supabase
+    .from("tasks")
+    .select("id", { count: "exact", head: true })
+    .eq("epic_id", epicId);
+
+  if (taskCountError) throw taskCountError;
+
+  if ((connectedTaskCount ?? 0) > 0) {
+    throw new Error("No se puede mover una épica con tareas conectadas a otro proyecto.");
+  }
+
   const { error } = await supabase
     .from("epics")
     .update({ project_id: projectId })
@@ -390,13 +510,15 @@ export const getProjectEpicsCount = async (projectId: string): Promise<number> =
 
 export const addProjectMember = async (
   projectId: string,
-  userId: string
+  userId: string,
+  role = "member"
 ): Promise<void> => {
   const { error } = await supabase
     .from("project_members")
     .insert({
       project_id: projectId,
       user_id: userId,
+      role,
     });
 
   if (error) {
@@ -407,7 +529,41 @@ export const addProjectMember = async (
   }
 };
 
-export const fetchProjectMembers = async (projectId: string) => {
+export const fetchCurrentUserOption = async (
+  fallbackUserId = ""
+): Promise<CurrentUserOption | null> => {
+  const { data, error } = await supabase.auth.getUser();
+
+  if (error) throw error;
+  const userId = data.user?.id ?? fallbackUserId;
+
+  if (!userId) return null;
+
+  return {
+    id: userId,
+    email: data.user?.email ?? "Usuario",
+  };
+};
+
+export const fetchCurrentUserMemberFallback = async (
+  fallbackUserId = ""
+): Promise<ProjectMemberWithProfile[]> => {
+  const currentUser = await fetchCurrentUserOption(fallbackUserId);
+
+  if (!currentUser) return [];
+
+  return [
+    {
+      user_id: currentUser.id,
+      user_profiles: {
+        full_name: currentUser.email,
+        avatar_url: null,
+      },
+    },
+  ];
+};
+
+export const fetchProjectMembers = async (projectId: string): Promise<ProjectMemberWithProfile[]> => {
   const { data, error } = await supabase
     .from("project_members")
     .select(`
@@ -431,7 +587,7 @@ export const fetchProjectMembers = async (projectId: string) => {
         .maybeSingle();
 
       if (profileError) {
-        console.error("Error cargando perfil del miembro:", profileError);
+        logError("projects.loadMemberProfile", profileError);
       }
 
       const isCurrentUser = currentUser.user?.id === member.user_id;
@@ -447,10 +603,11 @@ export const fetchProjectMembers = async (projectId: string) => {
   return membersWithProfiles;
 };
 
-export const removeProjectMember = async (memberId: string): Promise<void> => {
+export const removeProjectMember = async (projectId: string, memberId: string): Promise<void> => {
   const { error } = await supabase
     .from("project_members")
     .delete()
+    .eq("project_id", projectId)
     .eq("id", memberId);
 
   if (error) throw error;
