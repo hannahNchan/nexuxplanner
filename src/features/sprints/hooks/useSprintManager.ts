@@ -8,17 +8,18 @@ import {
   closeSprint as closeSprintApi,
   fetchSprintTasks,
 } from "../../api/sprintService";
+import { logError } from "../../../shared/utils/errorHandling";
 import type { Sprint } from "../types/sprint";
+import type { SprintTask } from "../components/SprintTasksTable";
 
 export const useSprintManager = (projectId: string | null) => {
   const [sprints, setSprints] = useState<Sprint[]>([]);
   const [activeSprint, setActiveSprint] = useState<Sprint | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [sprintTasks, setSprintTasks] = useState<any[]>([]);
-  const [lastUpdate, setLastUpdate] = useState<number>(Date.now()); // ✅ NUEVO timestamp
+  const [sprintTasks, setSprintTasks] = useState<SprintTask[]>([]);
+  const [lastUpdate, setLastUpdate] = useState<number>(Date.now());
 
-  // Cargar sprints
   const loadSprints = async () => {
     if (!projectId) {
       setSprints([]);
@@ -40,15 +41,15 @@ export const useSprintManager = (projectId: string | null) => {
 
       const targetSprint = active || allSprints.find((s) => s.status === "future");
       if (targetSprint) {
-        const tasks = await fetchSprintTasks(targetSprint.id);
+        const tasks = await fetchSprintTasks(projectId, targetSprint.id);
         setSprintTasks(tasks);
       } else {
         setSprintTasks([]);
       }
 
-      setLastUpdate(Date.now()); // ✅ Actualizar timestamp
+      setLastUpdate(Date.now());
     } catch (err) {
-      console.error("Error loading sprints:", err);
+      logError("sprints.load", err);
       setError("Error al cargar los sprints");
     } finally {
       setIsLoading(false);
@@ -59,12 +60,11 @@ export const useSprintManager = (projectId: string | null) => {
     void loadSprints();
   }, [projectId]);
 
-  // Crear sprint
   const createSprint = async (data: {
     name: string;
     goal: string;
     start_date: string;
-    end_date: string;
+    end_date: string | null;
   }) => {
     if (!projectId) {
       throw new Error("No hay proyecto seleccionado");
@@ -72,36 +72,44 @@ export const useSprintManager = (projectId: string | null) => {
 
     const newSprint = await createSprintApi(projectId, data);
     setSprints((prev) => [newSprint, ...prev]);
-    setLastUpdate(Date.now()); // ✅ Actualizar timestamp
+    setLastUpdate(Date.now());
     return newSprint;
   };
 
-  // Iniciar sprint
   const startSprint = async (sprintId: string) => {
-    const updated = await startSprintApi(sprintId);
+    if (!projectId) {
+      throw new Error("No hay proyecto seleccionado");
+    }
+
+    const updated = await startSprintApi(projectId, sprintId);
     setSprints((prev) => prev.map((s) => (s.id === sprintId ? updated : s)));
     setActiveSprint(updated);
-    setLastUpdate(Date.now()); // ✅ Actualizar timestamp
+    setLastUpdate(Date.now());
     return updated;
   };
 
-  // Cerrar sprint
   const closeSprint = async (sprintId: string) => {
-    const updated = await closeSprintApi(sprintId);
+    if (!projectId) {
+      throw new Error("No hay proyecto seleccionado");
+    }
+
+    const updated = await closeSprintApi(projectId, sprintId);
     setSprints((prev) => prev.map((s) => (s.id === sprintId ? updated : s)));
     setActiveSprint(null);
-    setLastUpdate(Date.now()); // ✅ Actualizar timestamp
+    setLastUpdate(Date.now());
     return updated;
   };
 
-  // Eliminar sprint
   const deleteSprint = async (sprintId: string) => {
-    await deleteSprintApi(sprintId);
+    if (!projectId) {
+      throw new Error("No hay proyecto seleccionado");
+    }
+
+    await deleteSprintApi(projectId, sprintId);
     setSprints((prev) => prev.filter((s) => s.id !== sprintId));
-    setLastUpdate(Date.now()); // ✅ Actualizar timestamp
+    setLastUpdate(Date.now());
   };
 
-  // Verificar si puede crear sprint
   const canCreateSprint = (taskCount: number) => {
     return taskCount > 0;
   };
@@ -112,7 +120,7 @@ export const useSprintManager = (projectId: string | null) => {
     sprintTasks,
     isLoading,
     error,
-    lastUpdate, // ✅ NUEVO: exportar timestamp
+    lastUpdate,
     createSprint,
     startSprint,
     closeSprint,

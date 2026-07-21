@@ -1,5 +1,12 @@
 import { useState, useEffect } from "react";
-import { fetchUserProfile, upsertUserProfile, uploadAvatar, type UserProfile } from "../../api/userService";
+import {
+  fetchUserProfile,
+  removeAvatar,
+  upsertUserProfile,
+  uploadAvatar,
+  type UserProfile,
+} from "../../api/userService";
+import { logError } from "../../../shared/utils/errorHandling";
 
 export const useUserProfile = (userId: string) => {
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -13,7 +20,7 @@ export const useUserProfile = (userId: string) => {
         const data = await fetchUserProfile(userId);
         setProfile(data);
       } catch (err) {
-        console.error("Error cargando perfil:", err);
+        logError("userProfile.load", err);
         setError("No se pudo cargar el perfil");
       } finally {
         setLoading(false);
@@ -31,7 +38,7 @@ export const useUserProfile = (userId: string) => {
       setProfile(updated);
       setError(null);
     } catch (err) {
-      console.error("Error actualizando perfil:", err);
+      logError("userProfile.update", err);
       setError("No se pudo actualizar el perfil");
       throw err;
     }
@@ -40,10 +47,25 @@ export const useUserProfile = (userId: string) => {
   const updateAvatar = async (file: File) => {
     try {
       const avatarUrl = await uploadAvatar(userId, file);
-      await updateProfile({ avatar_url: avatarUrl });
+      await updateProfile({
+        avatar_url: avatarUrl,
+      });
     } catch (err) {
-      console.error("Error subiendo avatar:", err);
+      logError("userProfile.uploadAvatar", err);
       setError("No se pudo subir el avatar");
+      throw err;
+    }
+  };
+
+  const deleteAvatar = async () => {
+    try {
+      await removeAvatar(userId, profile?.avatar_url);
+      await updateProfile({
+        avatar_url: null,
+      });
+    } catch (err) {
+      logError("userProfile.deleteAvatar", err);
+      setError("No se pudo quitar el avatar");
       throw err;
     }
   };
@@ -54,5 +76,6 @@ export const useUserProfile = (userId: string) => {
     error,
     updateProfile,
     updateAvatar,
+    deleteAvatar,
   };
 };

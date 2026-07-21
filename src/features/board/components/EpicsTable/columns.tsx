@@ -5,15 +5,25 @@ import {
   Tooltip,
   Typography,
 } from "@mui/material";
-import type { GridColDef } from "@mui/x-data-grid";
+import type { GridColDef, GridRenderCellParams } from "@mui/x-data-grid";
 import { GridActionsCellItem } from "@mui/x-data-grid";
+import { DatePicker } from "@mui/x-date-pickers/DatePicker";
+import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
+import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
 import { alpha } from "@mui/material/styles";
 import type { Theme } from "@mui/material/styles";
+import dayjs from "dayjs";
+import type { Dayjs } from "dayjs";
 import DeleteIcon from "@mui/icons-material/Delete";
 import EditIcon from "@mui/icons-material/Edit";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import FolderIcon from "@mui/icons-material/Folder";
 import TaskListCell from "./TaskListCell";
+
+const toDateString = (value: string | number | Date | Dayjs | null | undefined) => {
+  const parsed = dayjs(value);
+  return parsed.isValid() ? parsed.format("YYYY-MM-DD") : null;
+};
 
 type CreateColumnsParams = {
   theme: Theme;
@@ -34,8 +44,10 @@ type CreateColumnsParams = {
   setTaskSearchOpen: (id: string | null) => void;
   setTaskSearchText: (text: string) => void;
   handleNameChange: (epicId: string, newName: string) => void;
+  handleEpicDateChange: (epicId: string, field: "start_date" | "end_date", value: string | null) => void;
   handleDisconnectTask: (epicId: string, taskId: string) => void;
   handleDeleteEpic: (epicId: string) => void;
+  readOnly?: boolean;
 };
 
 export const createEpicsTableColumns = (params: CreateColumnsParams): GridColDef[] => {
@@ -54,20 +66,90 @@ export const createEpicsTableColumns = (params: CreateColumnsParams): GridColDef
     setTaskSearchOpen,
     setTaskSearchText,
     handleNameChange,
+    handleEpicDateChange,
     handleDisconnectTask,
     handleDeleteEpic,
+    readOnly = false,
   } = params;
+
+  const renderDateCell = (
+    cellParams: GridRenderCellParams,
+    field: "start_date" | "end_date",
+    label: string
+  ) => (
+    <Box
+      sx={{ width: "100%", display: "flex", alignItems: "center" }}
+      onClick={(event) => event.stopPropagation()}
+      onMouseDown={(event) => event.stopPropagation()}
+    >
+      <LocalizationProvider dateAdapter={AdapterDayjs}>
+        <DatePicker
+          disabled={readOnly}
+          value={cellParams.value ? dayjs(cellParams.value as string) : null}
+          onChange={(value) => {
+            handleEpicDateChange(
+              cellParams.row.id as string,
+              field,
+              value ? toDateString(value) : null
+            );
+          }}
+          slotProps={{
+            textField: {
+              size: "small",
+              placeholder: label,
+              variant: "outlined",
+              sx: {
+                width: "100%",
+                "& .MuiOutlinedInput-root": {
+                  height: 34,
+                  borderRadius: 1,
+                  bgcolor: alpha(theme.palette.primary.main, 0.04),
+                  "& fieldset": {
+                    borderColor: alpha(theme.palette.primary.main, 0.18),
+                  },
+                  "&:hover fieldset": {
+                    borderColor: alpha(theme.palette.primary.main, 0.45),
+                  },
+                },
+                "& input": {
+                  fontSize: 13,
+                  fontWeight: 600,
+                },
+              },
+            },
+          }}
+        />
+      </LocalizationProvider>
+    </Box>
+  );
 
   return [
     {
+      field: "epicId",
+      headerName: "ID",
+      width: 110,
+      renderCell: (cellParams) => (
+        <Typography
+          variant="caption"
+          sx={{
+            fontFamily: "monospace",
+            color: "text.secondary",
+            fontWeight: 800,
+          }}
+        >
+          {cellParams.value as string}
+        </Typography>
+      ),
+    },
+    {
       field: "color",
       headerName: "Color",
-      width: 80,
+      width: 64,
       renderCell: (cellParams) => (
-        <Tooltip title="Click para cambiar color" placement="top">
+        <Tooltip title={readOnly ? "Solo lectura" : "Click para cambiar color"} placement="top">
           <Box
             sx={{
-              cursor: "pointer",
+              cursor: readOnly ? "default" : "pointer",
               width: "100%",
               height: "100%",
               display: "flex",
@@ -77,6 +159,7 @@ export const createEpicsTableColumns = (params: CreateColumnsParams): GridColDef
               zIndex: 1,
             }}
             onClick={(e) => {
+              if (readOnly) return;
               e.stopPropagation();
               e.preventDefault();
               setEditingColor(cellParams.row.id as string);
@@ -86,15 +169,14 @@ export const createEpicsTableColumns = (params: CreateColumnsParams): GridColDef
           >
             <Box
               sx={{
-                width: 32,
-                height: 32,
-                borderRadius: 2,
+                width: 18,
+                height: 18,
+                borderRadius: 1,
                 bgcolor: cellParams.value as string,
-                border: `2px solid ${alpha(theme.palette.common.black, 0.1)}`,
-                transition: "all 0.2s ease",
+                border: `1px solid ${alpha(theme.palette.common.black, 0.14)}`,
+                transition: "border-color 0.16s ease",
                 "&:hover": {
-                  transform: "scale(1.15)",
-                  boxShadow: `0 4px 12px ${alpha(cellParams.value as string, 0.4)}`,
+                  borderColor: theme.palette.primary.main,
                 },
               }}
             />
@@ -105,7 +187,8 @@ export const createEpicsTableColumns = (params: CreateColumnsParams): GridColDef
     {
       field: "name",
       headerName: "Épica",
-      width: 250,
+      minWidth: 260,
+      flex: 1,
       renderCell: (cellParams) => {
         const isEditing = editingName === cellParams.row.id;
 
@@ -136,7 +219,7 @@ export const createEpicsTableColumns = (params: CreateColumnsParams): GridColDef
               sx={{
                 my: -1,
                 "& .MuiOutlinedInput-root": {
-                  borderRadius: 2,
+                  borderRadius: 1,
                 },
               }}
             />
@@ -144,24 +227,27 @@ export const createEpicsTableColumns = (params: CreateColumnsParams): GridColDef
         }
 
         return (
-          <Tooltip title="Click para editar" placement="top">
+          <Tooltip title={readOnly ? "Solo lectura" : "Click para editar"} placement="top">
             <Box
               sx={{
-                cursor: "pointer",
+                cursor: readOnly ? "default" : "pointer",
                 width: "100%",
                 height: "100%",
                 display: "flex",
                 alignItems: "center",
                 gap: 1,
                 px: 1,
-                borderRadius: 1.5,
-                transition: "all 0.2s ease",
+                borderRadius: 1,
+                transition: "background-color 0.16s ease",
                 "&:hover": {
                   bgcolor: alpha(theme.palette.primary.main, 0.08),
-                  transform: "translateX(2px)",
                 },
               }}
-              onClick={() => setEditingName(cellParams.row.id as string)}
+              onClick={() => {
+                if (!readOnly) {
+                  setEditingName(cellParams.row.id as string);
+                }
+              }}
             >
               <EditIcon sx={{ fontSize: 16, color: "text.secondary", opacity: 0.6 }} />
               <Typography variant="body2" fontWeight={600}>
@@ -175,18 +261,19 @@ export const createEpicsTableColumns = (params: CreateColumnsParams): GridColDef
     {
       field: "project",
       headerName: "Proyecto",
-      width: 220,
+      width: 180,
       renderCell: (cellParams) => (
-        <Tooltip title="Click para cambiar proyecto" placement="top">
+        <Tooltip title={readOnly ? "Solo lectura" : "Click para cambiar proyecto"} placement="top">
           <Box
             sx={{
-              cursor: "pointer",
+              cursor: readOnly ? "default" : "pointer",
               width: "100%",
               height: "100%",
               display: "flex",
               alignItems: "center",
             }}
             onClick={(e) => {
+              if (readOnly) return;
               setEditingProject(cellParams.row.id as string);
               setProjectMenuAnchor(e.currentTarget);
             }}
@@ -208,14 +295,10 @@ export const createEpicsTableColumns = (params: CreateColumnsParams): GridColDef
                     : alpha(theme.palette.grey[500], 0.2)
                 }`,
                 fontWeight: 600,
-                cursor: "pointer",
-                transition: "all 0.2s ease",
+                cursor: readOnly ? "default" : "pointer",
+                transition: "background-color 0.16s ease, border-color 0.16s ease",
                 "&:hover": {
-                  transform: "scale(1.05)",
-                  boxShadow: `0 4px 12px ${alpha(
-                    cellParams.row.project_id ? theme.palette.info.main : theme.palette.grey[500],
-                    0.3
-                  )}`,
+                  borderColor: cellParams.row.project_id ? theme.palette.info.main : theme.palette.text.secondary,
                 },
               }}
             />
@@ -226,82 +309,97 @@ export const createEpicsTableColumns = (params: CreateColumnsParams): GridColDef
     {
       field: "phase",
       headerName: "Fase",
-      width: 180,
-      renderCell: (cellParams) => (
-        <Tooltip title="Click para cambiar fase" placement="top">
-          <Box
-            sx={{
-              cursor: "pointer",
-              width: "100%",
-              height: "100%",
-              display: "flex",
-              alignItems: "center",
-            }}
-            onClick={(e) => {
-              setEditingPhase(cellParams.row.id as string);
-              setPhaseMenuAnchor(e.currentTarget);
-            }}
-          >
-            <Chip
-              label={cellParams.value as string}
-              size="small"
+      width: 150,
+      renderCell: (cellParams) => {
+        const phaseColor = (cellParams.row.phaseColor as string) || theme.palette.grey[400];
+
+        return (
+          <Tooltip title={readOnly ? "Solo lectura" : "Click para cambiar fase"} placement="top">
+            <Box
               sx={{
-                bgcolor: (cellParams.row.phaseColor as string) || theme.palette.grey[400],
-                color: "#fff",
-                fontWeight: 600,
-                cursor: "pointer",
-                transition: "all 0.2s ease",
-                "&:hover": {
-                  transform: "scale(1.05)",
-                  boxShadow: `0 4px 12px ${alpha(
-                    (cellParams.row.phaseColor as string) || theme.palette.grey[400],
-                    0.3
-                  )}`,
-                },
+                cursor: readOnly ? "default" : "pointer",
+                width: "100%",
+                height: "100%",
+                display: "flex",
+                alignItems: "center",
               }}
-              icon={<CheckCircleIcon sx={{ fontSize: 16, color: "#fff !important" }} />}
-            />
-          </Box>
-        </Tooltip>
-      ),
+              onClick={(e) => {
+                if (readOnly) return;
+                setEditingPhase(cellParams.row.id as string);
+                setPhaseMenuAnchor(e.currentTarget);
+              }}
+            >
+              <Chip
+                label={cellParams.value as string}
+                size="small"
+                sx={{
+                  bgcolor: phaseColor,
+                  color: theme.palette.getContrastText(phaseColor),
+                  fontWeight: 600,
+                  cursor: readOnly ? "default" : "pointer",
+                  transition: "filter 0.16s ease",
+                  "&:hover": {
+                    filter: "brightness(0.96)",
+                  },
+                }}
+                icon={<CheckCircleIcon sx={{ fontSize: 16, color: "inherit !important" }} />}
+              />
+            </Box>
+          </Tooltip>
+        );
+      },
     },
     {
       field: "connectedTasks",
       headerName: "Tareas conectadas",
-      width: 320,
+      width: 260,
       renderCell: (cellParams) => (
         <TaskListCell
           epicId={cellParams.row.id as string}
           tasks={cellParams.value as Array<{ id: string; title: string }>}
           onAddTask={(epicId) => {
+            if (readOnly) return;
             setTaskSearchOpen(epicId);
             setTaskSearchText("");
           }}
-          onRemoveTask={handleDisconnectTask}
+          onRemoveTask={readOnly ? undefined : handleDisconnectTask}
         />
       ),
     },
     {
+      field: "startDate",
+      headerName: "Inicio",
+      width: 170,
+      renderCell: (cellParams) => renderDateCell(cellParams, "start_date", "Sin inicio"),
+    },
+    {
+      field: "endDate",
+      headerName: "Fin",
+      width: 170,
+      renderCell: (cellParams) => renderDateCell(cellParams, "end_date", "Sin fin"),
+    },
+    {
       field: "estimatedEffort",
-      headerName: "Esfuerzo estimado",
-      width: 160,
+      headerName: "Esfuerzo",
+      width: 130,
       renderCell: (cellParams) => (
-        <Tooltip title="Click para cambiar esfuerzo" placement="top">
+        <Tooltip title={readOnly ? "Solo lectura" : "Click para cambiar esfuerzo"} placement="top">
           <Box
             sx={{
-              cursor: "pointer",
+              cursor: readOnly ? "default" : "pointer",
               width: "100%",
               height: "100%",
               display: "flex",
               alignItems: "center",
               px: 1.5,
-              borderRadius: 1.5,
-              transition: "all 0.2s ease",
+              borderRadius: 1,
+              transition: "background-color 0.16s ease",
               "&:hover": {
                 bgcolor: alpha(theme.palette.warning.main, 0.08),
               },
             }}
             onClick={(e) => {
+              if (readOnly) return;
               setEditingEffort(cellParams.row.id as string);
               setEffortMenuAnchor(e.currentTarget);
             }}
@@ -318,27 +416,10 @@ export const createEpicsTableColumns = (params: CreateColumnsParams): GridColDef
       ),
     },
     {
-      field: "epicId",
-      headerName: "ID",
-      width: 100,
-      renderCell: (cellParams) => (
-        <Chip
-          label={cellParams.value as string}
-          size="small"
-          variant="outlined"
-          sx={{
-            borderColor: alpha(theme.palette.text.primary, 0.2),
-            fontFamily: "monospace",
-            fontWeight: 600,
-          }}
-        />
-      ),
-    },
-    {
       field: "actions",
       type: "actions",
       headerName: "Acciones",
-      width: 80,
+      width: 90,
       getActions: (cellParams) => [
         <GridActionsCellItem
           key="delete"
@@ -348,6 +429,7 @@ export const createEpicsTableColumns = (params: CreateColumnsParams): GridColDef
             </Tooltip>
           }
           label="Eliminar"
+          disabled={readOnly}
           onClick={() => handleDeleteEpic(cellParams.row.id as string)}
         />,
       ],

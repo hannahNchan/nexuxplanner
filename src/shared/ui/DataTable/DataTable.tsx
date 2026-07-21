@@ -22,7 +22,7 @@ export const DataTable = ({
     <Paper
       elevation={0}
       sx={{
-        borderRadius: 3,
+        borderRadius: 1,
         overflow: "hidden",
         border: `1px solid ${theme.palette.divider}`,
         ...containerSx,
@@ -42,23 +42,24 @@ export const DataTable = ({
             },
           }}
           pageSizeOptions={pageSizeOptions}
+          rowHeight={52}
           sx={{
             border: "none",
             "& .MuiDataGrid-columnHeaders": {
-              bgcolor: alpha(theme.palette.primary.main, 0.05),
-              borderBottom: `2px solid ${theme.palette.divider}`,
+              bgcolor: alpha(theme.palette.text.primary, 0.03),
+              borderBottom: `1px solid ${theme.palette.divider}`,
               fontWeight: 700,
             },
             "& .MuiDataGrid-cell": {
-              py: 1.5,
+              py: 0.75,
               borderBottom: `1px solid ${alpha(theme.palette.divider, 0.5)}`,
               display: "flex",
               alignItems: "center",
             },
             "& .MuiDataGrid-row": {
-              transition: "all 0.2s ease",
+              transition: "background-color 0.16s ease",
               "&:hover": {
-                bgcolor: alpha(theme.palette.primary.main, 0.03),
+                bgcolor: alpha(theme.palette.primary.main, 0.04),
                 cursor: "pointer",
               },
             },
@@ -69,7 +70,7 @@ export const DataTable = ({
               outline: "none",
             },
             "& .MuiDataGrid-footerContainer": {
-              borderTop: `2px solid ${theme.palette.divider}`,
+              borderTop: `1px solid ${theme.palette.divider}`,
               bgcolor: alpha(theme.palette.background.paper, 0.5),
             },
             ...sx,

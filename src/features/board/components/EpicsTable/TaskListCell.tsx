@@ -17,7 +17,7 @@ type TaskListCellProps = {
   epicId: string;
   tasks: Array<{ id: string; title: string }>;
   onAddTask: (epicId: string) => void;
-  onRemoveTask: (epicId: string, taskId: string) => void;
+  onRemoveTask?: (epicId: string, taskId: string) => void;
 };
 
 const TaskListCell = ({ epicId, tasks, onAddTask, onRemoveTask }: TaskListCellProps) => {
@@ -48,13 +48,14 @@ const TaskListCell = ({ epicId, tasks, onAddTask, onRemoveTask }: TaskListCellPr
           <IconButton
             size="small"
             onClick={() => onAddTask(epicId)}
+            disabled={!onRemoveTask}
             sx={{
               width: 24,
               height: 24,
               bgcolor: alpha(theme.palette.primary.main, 0.08),
+              transition: "background-color 0.16s ease",
               "&:hover": {
                 bgcolor: alpha(theme.palette.primary.main, 0.15),
-                transform: "rotate(90deg)",
               },
             }}
           >
@@ -80,10 +81,14 @@ const TaskListCell = ({ epicId, tasks, onAddTask, onRemoveTask }: TaskListCellPr
                 key={task.id}
                 label={task.title}
                 size="small"
-                onDelete={() => {
-                  onRemoveTask(epicId, task.id);
-                  if (tasks.length === 1) setAnchorEl(null);
-                }}
+                onDelete={
+                  onRemoveTask
+                    ? () => {
+                        onRemoveTask(epicId, task.id);
+                        if (tasks.length === 1) setAnchorEl(null);
+                      }
+                    : undefined
+                }
                 sx={{
                   justifyContent: "space-between",
                   bgcolor: alpha(theme.palette.success.main, 0.1),

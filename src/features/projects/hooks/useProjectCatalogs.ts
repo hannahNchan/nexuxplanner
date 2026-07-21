@@ -26,6 +26,7 @@ import {
   type EpicPhase,
   type PointValue,
 } from "../../api/catalogService";
+import { logError } from "../../../shared/utils/errorHandling";
 
 export const useProjectCatalogs = () => {
   const [issueTypes, setIssueTypes] = useState<IssueType[]>([]);
@@ -55,7 +56,7 @@ export const useProjectCatalogs = () => {
         setPointValues(points);
       }
     } catch (error) {
-      console.error("Error loading catalogs:", error);
+      logError("projectCatalogs.load", error);
     } finally {
       setLoading(false);
     }

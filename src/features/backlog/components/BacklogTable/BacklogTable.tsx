@@ -6,6 +6,7 @@ import {
   Fade,
   IconButton,
   Paper,
+  Snackbar,
   Stack,
   TextField,
   Typography,
@@ -25,9 +26,11 @@ import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import { faClipboardList } from "@fortawesome/free-solid-svg-icons";
 
 import { useBacklogTable } from "../../hooks/useBacklogTable";
-import { DataTableHeader, DataTableToolbar } from "../../../../shared/ui/DataTable";
+import { DataTableHeader } from "../../../../shared/ui/DataTable";
 import { EmptyState } from "../../../../shared/ui/EmptyState";
+import { WorkTableToolbar } from "../../../../shared/ui/WorkTable";
 import { useProject } from "../../../../shared/contexts/ProjectContext";
+import ReadOnlyProjectNotice from "../../../../shared/ui/ReadOnlyProjectNotice";
 
 import BacklogTaskRow from "./BacklogTaskRow";
 import TaskEditorModal from "../../../board/components/TaskEditorModal";
@@ -52,6 +55,11 @@ const BacklogTable = ({ userId }: BacklogTableProps) => {
   const theme = useTheme();
   const backlog = useBacklogTable(userId);
   const { currentProject } = useProject();
+  const canEditProject = currentProject?.can_edit ?? true;
+  const sprintTarget =
+    backlog.sprintManager.activeSprint ||
+    backlog.sprintManager.sprints.find((s) => s.status === "future") ||
+    null;
 
   if (!backlog.catalogsLoaded) {
     return (
@@ -87,12 +95,12 @@ const BacklogTable = ({ userId }: BacklogTableProps) => {
             sx={{
               width: 120,
               height: 120,
-              borderRadius: 3,
+              borderRadius: 1,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
               bgcolor: alpha(theme.palette.primary.main, 0.1),
-              border: `2px dashed ${alpha(theme.palette.primary.main, 0.3)}`,
+              border: `1px dashed ${alpha(theme.palette.primary.main, 0.3)}`,
             }}
           >
             <FolderIcon sx={{ fontSize: 64, color: "primary.main", opacity: 0.6 }} />
@@ -121,8 +129,17 @@ const BacklogTable = ({ userId }: BacklogTableProps) => {
 
   return (
     <DragDropContext onDragEnd={backlog.handleDragEnd}>
-      <Container maxWidth={false}>
-        <Stack spacing={3}>
+      <Container
+        maxWidth={false}
+        sx={{
+          height: "100%",
+          minHeight: 0,
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden",
+        }}
+      >
+        <Stack spacing={2} sx={{ flexShrink: 0, pb: 2 }}>
           {/* Header */}
           <DataTableHeader
             title="Backlog"
@@ -135,8 +152,8 @@ const BacklogTable = ({ userId }: BacklogTableProps) => {
                     size="large"
                     startIcon={<PlayArrowIcon />}
                     onClick={() => backlog.setIsSprintModalOpen(true)}
+                    disabled={!canEditProject}
                     sx={{
-                      borderRadius: 2,
                       px: 3,
                       borderColor: theme.palette.success.main,
                       color: theme.palette.success.main,
@@ -155,15 +172,9 @@ const BacklogTable = ({ userId }: BacklogTableProps) => {
                   size="large"
                   startIcon={<AddIcon />}
                   onClick={backlog.handleAddTask}
+                  disabled={!canEditProject}
                   sx={{
-                    borderRadius: 2,
                     px: 3,
-                    boxShadow: `0 4px 14px ${alpha(theme.palette.primary.main, 0.3)}`,
-                    transition: "all 0.3s ease",
-                    "&:hover": {
-                      transform: "translateY(-2px)",
-                      boxShadow: `0 6px 20px ${alpha(theme.palette.primary.main, 0.4)}`,
-                    },
                   }}
                 >
                   Nueva Tarea
@@ -171,160 +182,273 @@ const BacklogTable = ({ userId }: BacklogTableProps) => {
               </Stack>
             }
           />
+          {!canEditProject ? <ReadOnlyProjectNotice projectName={currentProject.title} /> : null}
 
-          {/* Sprint Drop Zone */}
-          {(backlog.sprintManager.activeSprint ||
-            backlog.sprintManager.sprints.find((s) => s.status === "future")) && (
-            <SprintDropZone
-              sprint={
-                backlog.sprintManager.activeSprint ||
-                backlog.sprintManager.sprints.find((s) => s.status === "future")!
-              }
-              tasks={backlog.sprintManager.sprintTasks}
-              onStartSprint={async (sprintId) => {
-                await backlog.sprintManager.startSprint(sprintId);
-              }}
-            />
-          )}
+        </Stack>
 
-          {/* Toolbar Container */}
-          <Paper
-            elevation={0}
-            sx={{
-              p: 2,
-              borderRadius: 3,
-              border: `1px solid ${alpha(theme.palette.primary.main, 0.1)}`,
-            }}
-          >
-            <DataTableToolbar>
-              <Fade in={!backlog.searchOpen}>
-                <Button
-                  variant="outlined"
-                  startIcon={<SearchIcon />}
-                  onClick={() => backlog.setSearchOpen(true)}
-                  sx={{
-                    borderRadius: 2,
-                    borderColor: alpha(theme.palette.primary.main, 0.3),
-                  }}
-                >
-                  Buscar
-                </Button>
-              </Fade>
+        <Box
+          sx={{
+            flex: 1,
+            minHeight: 0,
+            display: "grid",
+            gridTemplateColumns: { xs: "1fr", lg: sprintTarget ? "minmax(0, 7fr) minmax(420px, 3fr)" : "1fr" },
+            gap: 2,
+            overflow: "hidden",
+          }}
+        >
+          <Stack sx={{ minHeight: 0, overflow: "hidden" }}>
+            <Box sx={{ flexShrink: 0, mb: 2 }}>
+              <WorkTableToolbar description="Backlog del proyecto. Arrastra tareas desde esta lista hacia el sprint de la derecha para planificarlas.">
+                  <Fade in={!backlog.searchOpen}>
+                    <Button
+                      variant="outlined"
+                      startIcon={<SearchIcon />}
+                      onClick={() => backlog.setSearchOpen(true)}
+                      sx={{
+                        borderColor: alpha(theme.palette.primary.main, 0.3),
+                      }}
+                    >
+                      Buscar
+                    </Button>
+                  </Fade>
 
-              {backlog.searchOpen && (
-                <Fade in={backlog.searchOpen}>
-                  <TextField
-                    size="small"
-                    placeholder="Buscar tareas..."
-                    value={backlog.searchText}
-                    onChange={(e) => backlog.setSearchText(e.target.value)}
-                    InputProps={{
-                      startAdornment: <SearchIcon sx={{ mr: 1, color: "text.secondary" }} />,
-                      endAdornment: (
-                        <IconButton
-                          size="small"
-                          onClick={() => {
-                            backlog.setSearchOpen(false);
-                            backlog.setSearchText("");
-                          }}
-                        >
-                          <CloseIcon />
-                        </IconButton>
-                      ),
-                    }}
+                  {backlog.searchOpen && (
+                    <Fade in={backlog.searchOpen}>
+                      <TextField
+                        size="small"
+                        placeholder="Buscar tareas..."
+                        value={backlog.searchText}
+                        onChange={(e) => backlog.setSearchText(e.target.value)}
+                        InputProps={{
+                          startAdornment: <SearchIcon sx={{ mr: 1, color: "text.secondary" }} />,
+                          endAdornment: (
+                            <IconButton
+                              size="small"
+                              onClick={() => {
+                                backlog.setSearchOpen(false);
+                                backlog.setSearchText("");
+                              }}
+                            >
+                              <CloseIcon />
+                            </IconButton>
+                          ),
+                        }}
+                        sx={{
+                          width: 300,
+                          "& .MuiOutlinedInput-root": {
+                            bgcolor: "background.paper",
+                          },
+                        }}
+                      />
+                    </Fade>
+                  )}
+
+                  <Badge badgeContent={backlog.activeFiltersCount} color="primary">
+                    <Button
+                      variant="outlined"
+                      startIcon={<FilterListIcon />}
+                      onClick={(e) => backlog.setFilterAnchor(e.currentTarget)}
+                      sx={{
+                        borderColor:
+                          backlog.activeFiltersCount > 0
+                            ? theme.palette.primary.main
+                            : alpha(theme.palette.primary.main, 0.3),
+                        bgcolor:
+                          backlog.activeFiltersCount > 0
+                            ? alpha(theme.palette.primary.main, 0.08)
+                            : "transparent",
+                      }}
+                    >
+                      Filtrar
+                    </Button>
+                  </Badge>
+
+                  <Button
+                    variant="outlined"
+                    startIcon={<SortIcon />}
+                    onClick={(e) => backlog.setSortAnchor(e.currentTarget)}
                     sx={{
-                      width: 300,
-                      "& .MuiOutlinedInput-root": {
-                        borderRadius: 2,
-                        bgcolor: "background.paper",
-                      },
+                      borderColor: alpha(theme.palette.primary.main, 0.3),
                     }}
-                  />
-                </Fade>
-              )}
+                  >
+                    Ordenar
+                  </Button>
 
-              <Badge badgeContent={backlog.activeFiltersCount} color="primary">
-                <Button
-                  variant="outlined"
-                  startIcon={<FilterListIcon />}
-                  onClick={(e) => backlog.setFilterAnchor(e.currentTarget)}
-                  sx={{
-                    borderRadius: 2,
-                    borderColor:
-                      backlog.activeFiltersCount > 0
-                        ? theme.palette.primary.main
-                        : alpha(theme.palette.primary.main, 0.3),
-                    bgcolor:
-                      backlog.activeFiltersCount > 0
-                        ? alpha(theme.palette.primary.main, 0.08)
-                        : "transparent",
-                  }}
-                >
-                  Filtrar
-                </Button>
-              </Badge>
+                  <Badge badgeContent={backlog.hiddenTasks.length} color="secondary">
+                    <Button
+                      variant="outlined"
+                      startIcon={<VisibilityOffIcon />}
+                      onClick={(e) => backlog.setHideAnchor(e.currentTarget)}
+                      sx={{
+                        borderColor: alpha(theme.palette.primary.main, 0.3),
+                      }}
+                    >
+                      Ocultar
+                    </Button>
+                  </Badge>
+              </WorkTableToolbar>
+            </Box>
 
-              <Button
-                variant="outlined"
-                startIcon={<SortIcon />}
-                onClick={(e) => backlog.setSortAnchor(e.currentTarget)}
-                sx={{
-                  borderRadius: 2,
-                  borderColor: alpha(theme.palette.primary.main, 0.3),
-                }}
-              >
-                Ordenar
-              </Button>
-
-              <Badge badgeContent={backlog.hiddenTasks.length} color="secondary">
-                <Button
-                  variant="outlined"
-                  startIcon={<VisibilityOffIcon />}
-                  onClick={(e) => backlog.setHideAnchor(e.currentTarget)}
-                  sx={{
-                    borderRadius: 2,
-                    borderColor: alpha(theme.palette.primary.main, 0.3),
-                  }}
-                >
-                  Ocultar
-                </Button>
-              </Badge>
-            </DataTableToolbar>
-          </Paper>
-
-          {/* Lista de tareas */}
-          {backlog.rows.length === 0 ? (
-            <EmptyState
-              icon={faClipboardList}
-              title="No hay tareas en el backlog"
-              description={`Crea tu primera tarea en el backlog de ${currentProject.title}.`}
-              action={{
-                label: "Crear Primera Tarea",
-                onClick: backlog.handleAddTask,
+            <Box
+              sx={{
+                flex: 1,
+                minHeight: 0,
+                overflowY: "auto",
+                overflowX: "hidden",
+                scrollbarWidth: "none",
+                "&::-webkit-scrollbar": {
+                  display: "none",
+                },
               }}
-            />
-          ) : (
-            <Droppable droppableId="backlog" type="task">
-              {(provided, snapshot) => (
-                <Box
-                  ref={provided.innerRef}
-                  {...provided.droppableProps}
+            >
+              {backlog.rows.length === 0 ? (
+                <EmptyState
+                  icon={faClipboardList}
+                  title="No hay tareas en el backlog"
+                  description={`Crea tu primera tarea en el backlog de ${currentProject.title}.`}
+                  action={
+                    canEditProject
+                      ? {
+                          label: "Crear Primera Tarea",
+                          onClick: backlog.handleAddTask,
+                        }
+                      : undefined
+                  }
+                />
+              ) : (
+                <Droppable
+                  droppableId="backlog"
+                  type="task"
+                  renderClone={(provided, snapshot, rubric) => {
+                    const row = backlog.rows[rubric.source.index];
+
+                    return (
+                      <Paper
+                        ref={provided.innerRef}
+                        {...provided.draggableProps}
+                        {...provided.dragHandleProps}
+                        style={{
+                          ...provided.draggableProps.style,
+                          width: 280,
+                          minWidth: 280,
+                          maxWidth: 280,
+                          height: "auto",
+                          minHeight: 78,
+                        }}
+                        elevation={0}
+                        sx={{
+                          p: 1.5,
+                          borderRadius: 1,
+                          border: `1px solid ${theme.palette.primary.main}`,
+                          bgcolor: alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.16 : 0.08),
+                          opacity: snapshot.isDragging ? 0.96 : 1,
+                          boxSizing: "border-box",
+                        }}
+                      >
+                        <Stack spacing={0.75} sx={{ minWidth: 0 }}>
+                          <Typography variant="body2" fontWeight={800} noWrap>
+                            {row.title}
+                          </Typography>
+                          <Stack
+                            direction="row"
+                            spacing={0.75}
+                            alignItems="center"
+                            sx={{ minWidth: 0, flexWrap: "wrap", rowGap: 0.5 }}
+                          >
+                            <Typography
+                              variant="caption"
+                              sx={{
+                                fontFamily: "monospace",
+                                px: 0.75,
+                                py: 0.35,
+                                borderRadius: 0.75,
+                                bgcolor: alpha(theme.palette.primary.main, 0.12),
+                                fontWeight: 800,
+                                maxWidth: "100%",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                              }}
+                            >
+                              {row.task_id}
+                            </Typography>
+                            <Typography
+                              variant="caption"
+                              color="text.secondary"
+                              sx={{
+                                minWidth: 0,
+                                maxWidth: "100%",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {row.epic || "Sin épica"}
+                            </Typography>
+                          </Stack>
+                        </Stack>
+                      </Paper>
+                    );
+                  }}
+                >
+                  {(provided, snapshot) => (
+                <Paper
+                  elevation={0}
                   sx={{
-                    minHeight: 200,
-                    p: 2,
-                    borderRadius: 3,
+                    overflow: "hidden",
+                    borderRadius: 1,
+                    border: `1px solid ${snapshot.isDraggingOver ? theme.palette.warning.main : theme.palette.divider}`,
                     bgcolor: snapshot.isDraggingOver
                       ? alpha(theme.palette.warning.main, 0.05)
-                      : "transparent",
-                    border: snapshot.isDraggingOver
-                      ? `2px dashed ${theme.palette.warning.main}`
-                      : "2px dashed transparent",
-                    transition: "all 0.3s",
+                      : "background.paper",
+                    transition: "background-color 0.16s ease, border-color 0.16s ease",
                   }}
                 >
-                  <Stack spacing={1.5}>
+                  <Stack
+                    direction="row"
+                    spacing={1.5}
+                    alignItems="center"
+                    sx={{
+                      position: "sticky",
+                      top: 0,
+                      zIndex: 1,
+                      px: 1.5,
+                      py: 1,
+                      minHeight: 40,
+                      bgcolor: alpha(theme.palette.text.primary, 0.03),
+                      borderBottom: `1px solid ${theme.palette.divider}`,
+                    }}
+                  >
+                    {["ID", "Tarea", "Prioridad", "Puntos", "Épica", "Acciones"].map((label, labelIndex) => (
+                      <Typography
+                        key={label}
+                        variant="caption"
+                        color="text.secondary"
+                        fontWeight={800}
+                        sx={{
+                          width: [88, "auto", 116, 72, 150, 76][labelIndex],
+                          flex: labelIndex === 1 ? 1 : "0 0 auto",
+                          minWidth: labelIndex === 1 ? 160 : undefined,
+                          textTransform: "uppercase",
+                        }}
+                      >
+                        {label}
+                      </Typography>
+                    ))}
+                  </Stack>
+                  <Box
+                    ref={provided.innerRef}
+                    {...provided.droppableProps}
+                    sx={{
+                      minHeight: 200,
+                    }}
+                  >
                     {backlog.rows.map((row, index) => (
-                      <Draggable key={row.id} draggableId={row.id as string} index={index}>
+                      <Draggable
+                        key={row.id}
+                        draggableId={row.id as string}
+                        index={index}
+                        isDragDisabled={!canEditProject}
+                      >
                         {(provided, snapshot) => (
                           <div
                             ref={provided.innerRef}
@@ -336,17 +460,33 @@ const BacklogTable = ({ userId }: BacklogTableProps) => {
                               isDragging={snapshot.isDragging}
                               dragHandleProps={provided.dragHandleProps}
                               onDelete={backlog.handleDeleteTask}
+                              readOnly={!canEditProject}
                             />
                           </div>
                         )}
                       </Draggable>
                     ))}
-                  </Stack>
-                  {provided.placeholder}
-                </Box>
+                    {provided.placeholder}
+                  </Box>
+                </Paper>
+                  )}
+                </Droppable>
               )}
-            </Droppable>
-          )}
+            </Box>
+          </Stack>
+
+          {sprintTarget ? (
+            <Box sx={{ minHeight: 0, overflow: "hidden", display: "flex", alignItems: "flex-start" }}>
+              <SprintDropZone
+                sprint={sprintTarget}
+                tasks={backlog.sprintManager.sprintTasks}
+                onStartSprint={async (sprintId) => {
+                  await backlog.sprintManager.startSprint(sprintId);
+                }}
+              />
+            </Box>
+          ) : null}
+        </Box>
 
           {/* Menús */}
           <FilterMenu
@@ -463,7 +603,24 @@ const BacklogTable = ({ userId }: BacklogTableProps) => {
             onClose={() => backlog.setIsSprintModalOpen(false)}
             onCreateSprint={backlog.handleCreateSprint}
           />
-        </Stack>
+
+          <Snackbar
+            open={Boolean(backlog.notification)}
+            autoHideDuration={5000}
+            onClose={() => backlog.setNotification(null)}
+            anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+          >
+            {backlog.notification ? (
+              <Alert
+                severity={backlog.notification.severity}
+                variant="filled"
+                onClose={() => backlog.setNotification(null)}
+                sx={{ width: "100%" }}
+              >
+                {backlog.notification.message}
+              </Alert>
+            ) : undefined}
+          </Snackbar>
       </Container>
     </DragDropContext>
   );

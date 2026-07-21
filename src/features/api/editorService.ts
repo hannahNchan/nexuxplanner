@@ -1,8 +1,10 @@
 import { supabase } from "../../lib/supabase";
+import { logError } from "../../shared/utils/errorHandling";
 
 export type EditorNote = {
   id: string;
-  board_id: string;
+  board_id: string | null;
+  project_id: string | null;
   content: unknown;
   created_at: string;
   updated_at: string;
@@ -12,11 +14,11 @@ export type EditorNote = {
 /**
  * Obtiene la nota activa (la que se auto-guarda constantemente)
  */
-export const fetchActiveNote = async (boardId: string): Promise<EditorNote | null> => {
+export const fetchActiveNote = async (projectId: string): Promise<EditorNote | null> => {
   const { data, error } = await supabase
     .from("editor_notes")
     .select("*")
-    .eq("board_id", boardId)
+    .eq("project_id", projectId)
     .eq("is_snapshot", false)
     .maybeSingle();
 
@@ -30,11 +32,11 @@ export const fetchActiveNote = async (boardId: string): Promise<EditorNote | nul
 /**
  * Obtiene todos los snapshots (versiones guardadas manualmente)
  */
-export const fetchSnapshots = async (boardId: string): Promise<EditorNote[]> => {
+export const fetchSnapshots = async (projectId: string): Promise<EditorNote[]> => {
   const { data, error } = await supabase
     .from("editor_notes")
     .select("*")
-    .eq("board_id", boardId)
+    .eq("project_id", projectId)
     .eq("is_snapshot", true)
     .order("created_at", { ascending: false })
     .limit(10);
@@ -49,9 +51,9 @@ export const fetchSnapshots = async (boardId: string): Promise<EditorNote[]> => 
 /**
  * Auto-guarda la nota activa (actualiza siempre la misma)
  */
-export const autoSaveNote = async (boardId: string, content: unknown) => {
+export const autoSaveNote = async (projectId: string, content: unknown) => {
   // Buscar si existe una nota activa
-  const existingNote = await fetchActiveNote(boardId);
+  const existingNote = await fetchActiveNote(projectId);
 
   if (existingNote) {
     // Actualizar la nota activa existente
@@ -67,7 +69,7 @@ export const autoSaveNote = async (boardId: string, content: unknown) => {
   } else {
     // Crear la primera nota activa
     const { error } = await supabase.from("editor_notes").insert({
-      board_id: boardId,
+      project_id: projectId,
       content,
       is_snapshot: false,
     });
@@ -79,10 +81,10 @@ export const autoSaveNote = async (boardId: string, content: unknown) => {
 /**
  * Crea un snapshot (versión manual) del estado actual
  */
-export const createSnapshot = async (boardId: string, content: unknown) => {
+export const createSnapshot = async (projectId: string, content: unknown) => {
   // Crear nuevo snapshot
   const { error: insertError } = await supabase.from("editor_notes").insert({
-    board_id: boardId,
+    project_id: projectId,
     content,
     is_snapshot: true,
   });
@@ -90,13 +92,13 @@ export const createSnapshot = async (boardId: string, content: unknown) => {
   if (insertError) throw insertError;
 
   // Limpiar snapshots antiguos (mantener solo 10)
-  await cleanupOldSnapshots(boardId);
+  await cleanupOldSnapshots(projectId);
 };
 
 /**
  * Restaura un snapshot (lo convierte en la nota activa)
  */
-export const restoreSnapshot = async (boardId: string, snapshotId: string) => {
+export const restoreSnapshot = async (projectId: string, snapshotId: string) => {
   // Obtener el contenido del snapshot
   const { data: snapshot, error: fetchError } = await supabase
     .from("editor_notes")
@@ -107,7 +109,7 @@ export const restoreSnapshot = async (boardId: string, snapshotId: string) => {
   if (fetchError) throw fetchError;
 
   // Actualizar la nota activa con el contenido del snapshot
-  await autoSaveNote(boardId, snapshot.content);
+  await autoSaveNote(projectId, snapshot.content);
 };
 
 /**
@@ -124,7 +126,7 @@ export const deleteSnapshot = async (snapshotId: string): Promise<boolean> => {
     if (error) throw error;
     return true;
   } catch (error) {
-    console.error("Error eliminando snapshot:", error);
+    logError("editorService.deleteSnapshot", error);
     return false;
   }
 };
@@ -132,11 +134,11 @@ export const deleteSnapshot = async (snapshotId: string): Promise<boolean> => {
 /**
  * Limpia snapshots antiguos, dejando solo los 10 más recientes
  */
-const cleanupOldSnapshots = async (boardId: string) => {
+const cleanupOldSnapshots = async (projectId: string) => {
   const { data: allSnapshots } = await supabase
     .from("editor_notes")
     .select("id")
-    .eq("board_id", boardId)
+    .eq("project_id", projectId)
     .eq("is_snapshot", true)
     .order("created_at", { ascending: false });
 

@@ -21,6 +21,7 @@ interface BoardInfoProps {
 const BoardInfo: React.FC<BoardInfoProps> = ({ userId }) => {
   const { displaySprint, errorMessage } = useBoardManager(userId);
   const theme = useTheme();
+  const canCompleteSprint = displaySprint?.status === "active";
 
   return (
     <Stack
@@ -57,12 +58,8 @@ const BoardInfo: React.FC<BoardInfoProps> = ({ userId }) => {
       )}
       {displaySprint && (
         <Chip
-          label={
-            displaySprint.status === "active"
-              ? "SPRINT ACTIVO"
-              : "SPRINT FUTURO"
-          }
-          color={displaySprint.status === "active" ? "success" : "warning"}
+          label="SPRINT ACTIVO"
+          color="success"
           size="small"
           sx={{ fontWeight: 600, borderRadius: "4px" }}
         />
@@ -70,6 +67,7 @@ const BoardInfo: React.FC<BoardInfoProps> = ({ userId }) => {
       <Button
         variant="contained"
         size="small"
+        disabled={!canCompleteSprint}
         sx={{
           textTransform: "none",
           fontWeight: 600,

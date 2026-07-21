@@ -1,4 +1,4 @@
-import type { GridColDef, GridRowsProp, GridSlotProps } from "@mui/x-data-grid";
+import type { GridColDef, GridEventListener, GridRowsProp } from "@mui/x-data-grid";
 import type { SxProps, Theme } from "@mui/material/styles";
 
 export interface DataTableProps {
@@ -8,9 +8,9 @@ export interface DataTableProps {
   height?: number | string;
   pageSize?: number;
   pageSizeOptions?: number[];
-  sx?: GridSlotProps;
+  sx?: SxProps<Theme>;
   containerSx?: SxProps<Theme>;
-  onRowClick?: (params: any) => void;
+  onRowClick?: GridEventListener<"rowClick">;
   checkboxSelection?: boolean;
   disableRowSelectionOnClick?: boolean;
 }

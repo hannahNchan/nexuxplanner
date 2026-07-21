@@ -13,12 +13,24 @@ import {
   IconButton,
   Typography,
   CircularProgress,
+  Alert,
 } from "@mui/material";
 import DeleteIcon from "@mui/icons-material/Delete";
 import { useState, useEffect } from "react";
 import UserAvatar from "../../../shared/ui/UserAvatar";
-import { supabase } from "../../../lib/supabase";
-import { addProjectMember, fetchProjectMembers, removeProjectMember, fetchAllUsers } from "../../api/projectService";
+import {
+  fetchCurrentUserOption,
+  fetchProjectMembers,
+  removeProjectMember,
+  addProjectMember,
+  type ProjectMemberWithProfile,
+} from "../../api/projectService";
+import {
+  fetchOrganizationMembers,
+  type OrganizationMemberWithProfile,
+} from "../../api/organizationService";
+import { getErrorMessage, logError } from "../../../shared/utils/errorHandling";
+import { useProject } from "../../../shared/contexts/ProjectContext";
 
 type InviteUserModalProps = {
   open: boolean;
@@ -26,35 +38,19 @@ type InviteUserModalProps = {
   projectId: string;
 };
 
-type Member = {
-  id: string;
-  user_id: string;
-  role: string;
-  created_at: string;
-  user_profiles: {
-    full_name: string | null;
-    avatar_url: string | null;
-  };
-};
-
-type User = {
-  id: string;
-  full_name: string | null;
-  avatar_url: string | null;
-};
-
 const InviteUserModal = ({ open, onClose, projectId }: InviteUserModalProps) => {
   const [searchQuery, setSearchQuery] = useState("");
-  const [members, setMembers] = useState<Member[]>([]);
-  const [users, setUsers] = useState<User[]>([]);
+  const [members, setMembers] = useState<ProjectMemberWithProfile[]>([]);
+  const [organizationMembers, setOrganizationMembers] = useState<OrganizationMemberWithProfile[]>([]);
   const [currentUserId, setCurrentUserId] = useState<string>("");
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { activeOrganization } = useProject();
 
   useEffect(() => {
     const getCurrentUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
+      const user = await fetchCurrentUserOption();
       if (user) setCurrentUserId(user.id);
     };
     getCurrentUser();
@@ -62,10 +58,10 @@ const InviteUserModal = ({ open, onClose, projectId }: InviteUserModalProps) => 
 
   useEffect(() => {
     if (open) {
-      loadMembers();
-      loadUsers();
+      void loadMembers();
+      void loadOrganizationMembers();
     }
-  }, [open, projectId]);
+  }, [open, projectId, activeOrganization?.id]);
 
   const loadMembers = async () => {
     setIsLoading(true);
@@ -73,22 +69,29 @@ const InviteUserModal = ({ open, onClose, projectId }: InviteUserModalProps) => 
       const data = await fetchProjectMembers(projectId);
       setMembers(data);
     } catch (err) {
-      console.error("Error cargando miembros:", err);
+      logError("inviteUsers.loadMembers", err);
+      setError(getErrorMessage(err, "No se pudieron cargar los miembros."));
     } finally {
       setIsLoading(false);
     }
   };
 
-  const loadUsers = async () => {
+  const loadOrganizationMembers = async () => {
+    if (!activeOrganization) {
+      setOrganizationMembers([]);
+      return;
+    }
+
     try {
-      const data = await fetchAllUsers();
-      setUsers(data);
+      const data = await fetchOrganizationMembers(activeOrganization.id);
+      setOrganizationMembers(data);
     } catch (err) {
-      console.error("Error cargando usuarios:", err);
+      logError("inviteUsers.loadOrganizationMembers", err);
+      setError(getErrorMessage(err, "No se pudieron cargar los miembros de la organización."));
     }
   };
 
-  const handleInvite = async (userId: string) => {
+  const handleAddProjectMember = async (userId: string) => {
     setIsSubmitting(true);
     setError(null);
 
@@ -97,11 +100,8 @@ const InviteUserModal = ({ open, onClose, projectId }: InviteUserModalProps) => 
       setSearchQuery("");
       await loadMembers();
     } catch (err) {
-      if (err instanceof Error) {
-        setError(err.message);
-      } else {
-        setError("Error al invitar usuario");
-      }
+      logError("inviteUsers.addProjectMember", err);
+      setError(getErrorMessage(err, "Error al agregar colaborador"));
     } finally {
       setIsSubmitting(false);
     }
@@ -109,71 +109,73 @@ const InviteUserModal = ({ open, onClose, projectId }: InviteUserModalProps) => 
 
   const handleRemove = async (memberId: string) => {
     try {
-      await removeProjectMember(memberId);
+      await removeProjectMember(projectId, memberId);
       await loadMembers();
     } catch (err) {
-      console.error("Error eliminando miembro:", err);
+      logError("inviteUsers.removeMember", err);
+      setError(getErrorMessage(err, "Error al eliminar miembro"));
     }
   };
 
   const memberUserIds = members.map(m => m.user_id);
   
-  const availableUsers = users.filter(user => {
+  const availableUsers = organizationMembers.filter(member => {
     const matchesSearch = searchQuery 
-      ? user.full_name?.toLowerCase().includes(searchQuery.toLowerCase())
+      ? member.user_profiles.full_name?.toLowerCase().includes(searchQuery.toLowerCase())
       : true;
     
-    const isNotCurrentUser = user.id !== currentUserId;
-    const isNotMember = !memberUserIds.includes(user.id);
+    const isNotCurrentUser = member.user_id !== currentUserId;
+    const isNotMember = !memberUserIds.includes(member.user_id);
     
     return matchesSearch && isNotCurrentUser && isNotMember;
   });
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle>Invitar usuarios al proyecto</DialogTitle>
+      <DialogTitle>Colaboradores del proyecto</DialogTitle>
       <DialogContent>
         <Stack spacing={3} sx={{ mt: 1 }}>
+          {error ? <Alert severity="error">{error}</Alert> : null}
+
           <TextField
             fullWidth
             size="small"
             placeholder="Buscar usuario por nombre..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            error={!!error}
-            helperText={error}
             disabled={isSubmitting}
           />
 
           <Stack spacing={1}>
             <Typography variant="caption" color="text.secondary">
-              Usuarios disponibles ({availableUsers.length}):
+              Miembros de {activeOrganization?.name ?? "la organización"} disponibles ({availableUsers.length})
             </Typography>
             {availableUsers.length === 0 ? (
               <Typography variant="body2" color="text.secondary" py={2}>
-                No hay usuarios disponibles para invitar
+                No hay miembros disponibles para agregar. Primero invita personas a la organización.
               </Typography>
             ) : (
               <List dense sx={{ maxHeight: 300, overflow: "auto" }}>
-                {availableUsers.map((user) => (
+                {availableUsers.map((member) => (
                   <ListItem
-                    key={user.id}
+                    key={member.user_id}
                     secondaryAction={
                       <Button
                         size="small"
                         variant="outlined"
-                        onClick={() => handleInvite(user.id)}
+                        onClick={() => handleAddProjectMember(member.user_id)}
                         disabled={isSubmitting}
                       >
-                        Invitar
+                        Agregar
                       </Button>
                     }
                   >
                     <ListItemAvatar>
-                      <UserAvatar userId={user.id} size={32} />
+                      <UserAvatar userId={member.user_id} size={32} />
                     </ListItemAvatar>
                     <ListItemText
-                      primary={user.full_name || "Sin nombre"}
+                      primary={member.user_profiles.full_name || "Sin nombre"}
+                      secondary={`Rol en organización: ${member.role}`}
                     />
                   </ListItem>
                 ))}
@@ -198,12 +200,13 @@ const InviteUserModal = ({ open, onClose, projectId }: InviteUserModalProps) => 
               <List>
                 {members.map((member) => (
                   <ListItem
-                    key={member.id}
+                    key={member.id ?? member.user_id}
                     secondaryAction={
                       <IconButton
                         edge="end"
-                        onClick={() => handleRemove(member.id)}
+                        onClick={() => member.id && handleRemove(member.id)}
                         size="small"
+                        disabled={!member.id}
                       >
                         <DeleteIcon fontSize="small" />
                       </IconButton>

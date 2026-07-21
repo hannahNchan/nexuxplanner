@@ -1,5 +1,6 @@
 import { supabase } from "../../lib/supabase";
 import type { BoardState, Column, Task } from "../../shared/types/board";
+import { logError } from "../../shared/utils/errorHandling";
 
 type BoardRecord = {
   id: string;
@@ -31,6 +32,53 @@ type TaskRecord = {
   epic_color?: string | null;
 };
 
+type CreateTaskInsert = {
+  title: string;
+  position: number;
+  in_backlog: boolean;
+  project_id: string;
+  column_id: string | null;
+};
+
+type TaskUpdatePayload = {
+  updated_at: string;
+  title?: string;
+  subtitle?: string;
+  description?: string;
+  column_id?: string | null;
+  issue_type_id?: string | null;
+  priority_id?: string | null;
+  story_points?: string | null;
+  assignee_id?: string | null;
+  in_backlog?: boolean;
+};
+
+const assertColumnBelongsToProject = async (columnId: string, projectId: string): Promise<void> => {
+  const { data, error } = await supabase
+    .from("columns")
+    .select("id")
+    .eq("id", columnId)
+    .eq("project_id", projectId)
+    .maybeSingle();
+
+  if (error) throw error;
+
+  if (!data) {
+    throw new Error("La columna no pertenece al proyecto activo.");
+  }
+};
+
+export const fetchColumnProjectId = async (columnId: string): Promise<string | null> => {
+  const { data, error } = await supabase
+    .from("columns")
+    .select("project_id")
+    .eq("id", columnId)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data?.project_id ?? null;
+};
+
 export const fetchPrimaryBoard = async (userId: string): Promise<BoardRecord | null> => {
   const { data, error } = await supabase
     .from("boards")
@@ -55,7 +103,7 @@ export const fetchColumnOrder = async (projectId: string): Promise<string[]> => 
     .maybeSingle();
 
   if (error) {
-    console.error("Error fetching column order:", error);
+    logError("board.fetchColumnOrder", error);
     return [];
   }
 
@@ -121,12 +169,13 @@ export const fetchBoardDataByProject = async (
     .select(
       "id, column_id, title, task_id_display, subtitle, description, position, issue_type_id, priority_id, story_points, assignee_id, epic_id"
     )
+    .eq("project_id", projectId)
     .in("column_id", columnIds);
 
   if (sprintId) {
     tasksQuery = tasksQuery.eq("sprint_id", sprintId);
   } else {
-    tasksQuery = tasksQuery.eq("sprint_id", "00000000-0000-0000-0000-000000000000");
+    tasksQuery = tasksQuery.is("sprint_id", null);
   }
 
   const { data: tasks, error: tasksError } = await tasksQuery.order("position", { ascending: true });
@@ -135,34 +184,30 @@ export const fetchBoardDataByProject = async (
 
   let tasksWithEpics = tasks ?? [];
   if (tasksWithEpics.length > 0) {
-    const taskIds = tasksWithEpics.map(t => t.id);
-    
-  const { data: epicTasks } = await supabase
-    .from("epic_tasks")
-    .select(`
-      task_id,
-      epic:epic_id(id, name, color)
-    `)
-    .in("task_id", taskIds);
+    const epicIds = [...new Set(tasksWithEpics.map((task) => task.epic_id).filter(Boolean))] as string[];
+    const epicById: Record<string, { name: string; color: string | null }> = {};
 
-    const taskEpicMap: Record<string, { id: string; name: string; color: string | null  }> = {};
-    if (epicTasks) {
-      epicTasks.forEach((et: any) => {
-        if (et.epic && !taskEpicMap[et.task_id]) {
-          taskEpicMap[et.task_id] = {
-            id: et.epic.id,
-            name: et.epic.name,
-            color: et.epic.color,
-          };
-        }
+    if (epicIds.length > 0) {
+      const { data: epics, error: epicsError } = await supabase
+        .from("epics")
+        .select("id, name, color")
+        .eq("project_id", projectId)
+        .in("id", epicIds);
+
+      if (epicsError) throw epicsError;
+
+      (epics ?? []).forEach((epic) => {
+        epicById[epic.id] = {
+          name: epic.name,
+          color: epic.color,
+        };
       });
     }
 
     tasksWithEpics = tasksWithEpics.map(task => ({
       ...task,
-      epic_id: taskEpicMap[task.id]?.id || task.epic_id || null,
-      epic_name: taskEpicMap[task.id]?.name || null,
-      epic_color: taskEpicMap[task.id]?.color || null,
+      epic_name: task.epic_id ? epicById[task.epic_id]?.name ?? null : null,
+      epic_color: task.epic_id ? epicById[task.epic_id]?.color ?? null : null,
     }));
 
   }
@@ -220,7 +265,8 @@ export const createTask = async (
   columnIdOrProjectId: string,
   title: string,
   position: number,
-  isBacklog = false
+  isBacklog = false,
+  expectedProjectId?: string
 ): Promise<TaskRecord> => {
 
   let projectId: string | null = null;
@@ -237,18 +283,17 @@ export const createTask = async (
     projectId = columnIdOrProjectId;
   }
 
-  const taskData: any = {
+  if (!projectId || (expectedProjectId && projectId !== expectedProjectId)) {
+    throw new Error("La tarea debe pertenecer al proyecto activo.");
+  }
+
+  const taskData: CreateTaskInsert = {
     title,
     position,
     in_backlog: isBacklog,
     project_id: projectId,
+    column_id: isBacklog ? null : columnIdOrProjectId,
   };
-
-  if (isBacklog) {
-    taskData.column_id = null;
-  } else {
-    taskData.column_id = columnIdOrProjectId;
-  }
 
   const { data, error } = await supabase
     .from("tasks")
@@ -264,6 +309,7 @@ export const createTask = async (
 };
 
 export const updateTask = async (
+  projectId: string,
   taskId: string,
   updates: {
     title?: string;
@@ -278,7 +324,11 @@ export const updateTask = async (
   }
 ): Promise<Task> => {
 
-  const updateData: any = {
+  if (updates.column_id) {
+    await assertColumnBelongsToProject(updates.column_id, projectId);
+  }
+
+  const updateData: TaskUpdatePayload = {
     ...updates,
     updated_at: new Date().toISOString(),
   };
@@ -289,11 +339,9 @@ export const updateTask = async (
 
   const { data, error } = await supabase
     .from("tasks")
-    .update({
-      ...updates,
-      updated_at: new Date().toISOString(),
-    })
+    .update(updateData)
     .eq("id", taskId)
+    .eq("project_id", projectId)
     .select("id, column_id, title, task_id_display, subtitle, description, position, issue_type_id, priority_id, story_points, assignee_id")
     .single();
 
@@ -304,11 +352,20 @@ export const updateTask = async (
   return data;
 };
 
-export const deleteTask = async (taskId: string): Promise<boolean> => {
-  const { error } = await supabase.from("tasks").delete().eq("id", taskId);
+export const deleteTask = async (projectId: string, taskId: string): Promise<boolean> => {
+  const { data, error } = await supabase
+    .from("tasks")
+    .delete()
+    .eq("id", taskId)
+    .eq("project_id", projectId)
+    .select("id");
 
   if (error) {
     throw error;
+  }
+
+  if (!data || data.length === 0) {
+    throw new Error("No se pudo eliminar la tarea del proyecto activo.");
   }
 
   return true;
@@ -385,6 +442,7 @@ export const persistColumnOrder = async (projectId: string, columnIds: string[])
 };
 
 export const persistTaskOrder = async (
+  projectId: string,
   updates: Array<{ id: string; column_id: string; position: number }>
 ) => {
   if (!updates.length) {
@@ -393,13 +451,16 @@ export const persistTaskOrder = async (
 
   await Promise.all(
     updates.map(async (update) => {
+      await assertColumnBelongsToProject(update.column_id, projectId);
+
       const { error } = await supabase
         .from("tasks")
         .update({
           column_id: update.column_id,
           position: update.position,
         })
-        .eq("id", update.id);
+        .eq("id", update.id)
+        .eq("project_id", projectId);
 
       if (error) throw error;
     })

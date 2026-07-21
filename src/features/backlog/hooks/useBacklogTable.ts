@@ -3,9 +3,12 @@ import type { GridRowsProp } from "@mui/x-data-grid";
 import type { DropResult } from "@hello-pangea/dnd";
 import {
   fetchBacklogTasks,
+  assignBacklogTaskToSprint,
   createBacklogTask,
   updateBacklogTask,
   deleteBacklogTask,
+  fetchFirstProjectColumnId,
+  fetchProjectEpicName,
   type BacklogTaskWithDetails,
 } from "../../api/backlogService";
 import { fetchProjects, type ProjectWithTags } from "../../api/projectService";
@@ -18,14 +21,18 @@ import {
   type PointValue,
 } from "../../api/catalogService";
 import { useProject } from "../../../shared/contexts/ProjectContext";
-import { supabase } from "../../../lib/supabase";
 import { useSprintManager } from "../../sprints/hooks/useSprintManager";
+import { getErrorMessage, logError } from "../../../shared/utils/errorHandling";
 
 type SortColumn = "title" | "assignee" | "priority" | "story_points" | "epic" | "task_id" | "created_at";
 type SortOrder = "asc" | "desc";
 
+const isEpicIssueTypeName = (name?: string | null) =>
+  name?.trim().toLowerCase() === "epic";
+
 export const useBacklogTable = (userId: string) => {
-  const { currentProject } = useProject();
+  const { currentProject, activeOrganization } = useProject();
+  const canEditProject = currentProject?.can_edit ?? true;
   const sprintManager = useSprintManager(currentProject?.id || null);
   
   const [tasks, setTasks] = useState<BacklogTaskWithDetails[]>([]);
@@ -80,6 +87,7 @@ export const useBacklogTable = (userId: string) => {
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
   const [selectedBacklogTask, setSelectedBacklogTask] = useState<{
     id: string;
+    project_id?: string | null;
     title: string;
     subtitle?: string | null;
     description?: string;
@@ -97,21 +105,30 @@ export const useBacklogTable = (userId: string) => {
   // Sprint modal
   const [isSprintModalOpen, setIsSprintModalOpen] = useState(false);
   const [firstColumnId, setFirstColumnId] = useState<string | null>(null);
+  const [notification, setNotification] = useState<{
+    severity: "error" | "info" | "success" | "warning";
+    message: string;
+  } | null>(null);
+
+  const showNotification = (
+    severity: "error" | "info" | "success" | "warning",
+    message: string
+  ) => {
+    setNotification({ severity, message });
+  };
+
+  const showError = (context: string, error: unknown, fallback: string) => {
+    logError(context, error);
+    showNotification("error", getErrorMessage(error, fallback));
+  };
 
   // Load first column for sprint assignment
   useEffect(() => {
     const fetchFirstColumn = async () => {
       if (!currentProject) return;
 
-      const { data } = await supabase
-        .from("columns")
-        .select("id")
-        .eq("project_id", currentProject.id)
-        .order("position", { ascending: true })
-        .limit(1)
-        .maybeSingle();
-
-      setFirstColumnId(data?.id || null);
+      const columnId = await fetchFirstProjectColumnId(currentProject.id);
+      setFirstColumnId(columnId);
     };
 
     void fetchFirstColumn();
@@ -124,7 +141,7 @@ export const useBacklogTable = (userId: string) => {
       
       const [tasksData, projectsData, prioritiesData, pointSystem] = await Promise.all([
         fetchBacklogTasks(userId, currentProject?.id),
-        fetchProjects(userId),
+        fetchProjects(userId, activeOrganization?.id),
         fetchPriorities(),
         fetchDefaultPointSystem(),
       ]);
@@ -138,7 +155,7 @@ export const useBacklogTable = (userId: string) => {
         setPointValues(points);
       }
     } catch (error) {
-      console.error("Error loading backlog:", error);
+      showError("backlog.loadData", error, "No se pudo cargar el Backlog.");
     } finally {
       setIsLoading(false);
     }
@@ -146,7 +163,7 @@ export const useBacklogTable = (userId: string) => {
 
   useEffect(() => {
     void loadData();
-  }, [userId, currentProject]);
+  }, [userId, currentProject, activeOrganization?.id]);
 
   // Load catalogs for modal
   useEffect(() => {
@@ -168,7 +185,7 @@ export const useBacklogTable = (userId: string) => {
 
         setCatalogsLoaded(true);
       } catch (error) {
-        console.error("Error cargando catálogos:", error);
+        showError("backlog.loadCatalogs", error, "No se pudieron cargar los catálogos.");
       }
     };
 
@@ -178,122 +195,176 @@ export const useBacklogTable = (userId: string) => {
   // HANDLERS
   const handleAddTask = async () => {
     if (!currentProject) return;
-    
-    const newTask = await createBacklogTask(userId, currentProject.id, {
-      title: "Nueva tarea",
-    });
-    
-    setTasks((prev) => [newTask, ...prev]);
-    
-    setSelectedBacklogTask({
-      id: newTask.id,
-      title: newTask.title,
-      subtitle: newTask.subtitle ?? undefined,
-      description: newTask.description ?? undefined,
-      column_id: null,
-      issue_type_id: newTask.issue_type_id ?? null,
-      priority_id: newTask.priority_id ?? null,
-      story_points: newTask.story_points ?? null,
-      assignee_id: newTask.assignee_id ?? null,
-    });
-    setIsTaskModalOpen(true);
+    if (!canEditProject) {
+      showNotification("info", "Solo puedes crear tareas en proyectos donde eres colaborador.");
+      return;
+    }
+
+    try {
+      const newTask = await createBacklogTask(userId, currentProject.id, {
+        title: "Nueva tarea",
+      });
+
+      setTasks((prev) => [newTask, ...prev]);
+
+      setSelectedBacklogTask({
+        id: newTask.id,
+        project_id: newTask.project_id,
+        title: newTask.title,
+        subtitle: newTask.subtitle ?? undefined,
+        description: newTask.description ?? undefined,
+        column_id: null,
+        issue_type_id: newTask.issue_type_id ?? null,
+        priority_id: newTask.priority_id ?? null,
+        story_points: newTask.story_points ?? null,
+        assignee_id: newTask.assignee_id ?? null,
+      });
+      setIsTaskModalOpen(true);
+    } catch (error) {
+      showError("backlog.createTask", error, "No se pudo crear la tarea.");
+    }
   };
 
   const handleTitleChange = async (taskId: string, newTitle: string) => {
-    await updateBacklogTask(taskId, { title: newTitle });
-    setTasks((prev) =>
-      prev.map((task) =>
-        task.id === taskId ? { ...task, title: newTitle } : task
-      )
-    );
+    if (!currentProject) return;
+    if (!canEditProject) return;
+
+    try {
+      await updateBacklogTask(currentProject.id, taskId, { title: newTitle });
+      setTasks((prev) =>
+        prev.map((task) =>
+          task.id === taskId ? { ...task, title: newTitle } : task
+        )
+      );
+    } catch (error) {
+      showError("backlog.updateTitle", error, "No se pudo actualizar el título.");
+    }
   };
 
   const handlePriorityChange = async (taskId: string, priorityId: string | null) => {
+    if (!currentProject) return;
+    if (!canEditProject) return;
+
     const priority = priorities.find((p) => p.id === priorityId);
-    await updateBacklogTask(taskId, { priority_id: priorityId });
-    
-    setTasks((prev) =>
-      prev.map((task) =>
-        task.id === taskId
-          ? ({
-              ...task,
-              priority_id: priorityId,
-              priority_name: priority?.name,
-              priority_color: priority?.color,
-            } as BacklogTaskWithDetails)
-          : task
-      )
-    );
+    try {
+      await updateBacklogTask(currentProject.id, taskId, { priority_id: priorityId });
+
+      setTasks((prev) =>
+        prev.map((task) =>
+          task.id === taskId
+            ? ({
+                ...task,
+                priority_id: priorityId,
+                priority_name: priority?.name,
+                priority_color: priority?.color,
+              } as BacklogTaskWithDetails)
+            : task
+        )
+      );
+    } catch (error) {
+      showError("backlog.updatePriority", error, "No se pudo actualizar la prioridad.");
+    }
   };
 
   const handleEffortChange = async (taskId: string, effort: string | null) => {
-    await updateBacklogTask(taskId, { story_points: effort });
-    setTasks((prev) =>
-      prev.map((task) =>
-        task.id === taskId ? { ...task, story_points: effort } : task
-      )
-    );
+    if (!currentProject) return;
+    if (!canEditProject) return;
+
+    try {
+      await updateBacklogTask(currentProject.id, taskId, { story_points: effort });
+      setTasks((prev) =>
+        prev.map((task) =>
+          task.id === taskId ? { ...task, story_points: effort } : task
+        )
+      );
+    } catch (error) {
+      showError("backlog.updateEffort", error, "No se pudo actualizar el esfuerzo.");
+    }
   };
 
   const handleEpicChange = async (taskId: string, epicId: string | null) => {
+    if (!currentProject) return;
+    if (!canEditProject) return;
+
     let epicName: string | undefined = undefined;
     
     if (epicId) {
-      const { data: epic } = await supabase
-        .from("epics")
-        .select("name")
-        .eq("id", epicId)
-        .maybeSingle();
-      
-      epicName = epic?.name;
+      epicName = await fetchProjectEpicName(currentProject.id, epicId);
     }
     
-    await updateBacklogTask(taskId, { epic_id: epicId });
-    
-    setTasks((prev) =>
-      prev.map((task) =>
-        task.id === taskId 
-          ? { 
-              ...task, 
-              epic_id: epicId,
-              epic_name: epicName
-            } 
-          : task
-      )
-    );
+    try {
+      await updateBacklogTask(currentProject.id, taskId, { epic_id: epicId });
+
+      setTasks((prev) =>
+        prev.map((task) =>
+          task.id === taskId
+            ? {
+                ...task,
+                epic_id: epicId,
+                epic_name: epicName
+              }
+            : task
+        )
+      );
+    } catch (error) {
+      showError("backlog.updateEpic", error, "No se pudo cambiar la épica.");
+    }
   };
 
   const handleAssigneeChange = async (taskId: string, assigneeId: string | null) => {
-    await updateBacklogTask(taskId, { assignee_id: assigneeId });
-    setTasks((prev) =>
-      prev.map((task) =>
-        task.id === taskId ? { ...task, assignee_id: assigneeId } : task
-      )
-    );
+    if (!currentProject) return;
+    if (!canEditProject) return;
+
+    try {
+      await updateBacklogTask(currentProject.id, taskId, { assignee_id: assigneeId });
+      setTasks((prev) =>
+        prev.map((task) =>
+          task.id === taskId ? { ...task, assignee_id: assigneeId } : task
+        )
+      );
+    } catch (error) {
+      showError("backlog.updateAssignee", error, "No se pudo cambiar el responsable.");
+    }
   };
 
   const handleGithubLinkChange = async (taskId: string, githubLink: string) => {
-    await updateBacklogTask(taskId, { github_link: githubLink });
-    setTasks((prev) =>
-      prev.map((task) =>
-        task.id === taskId ? { ...task, github_link: githubLink } : task
-      )
-    );
+    if (!currentProject) return;
+    if (!canEditProject) return;
+
+    try {
+      await updateBacklogTask(currentProject.id, taskId, { github_link: githubLink });
+      setTasks((prev) =>
+        prev.map((task) =>
+          task.id === taskId ? { ...task, github_link: githubLink } : task
+        )
+      );
+    } catch (error) {
+      showError("backlog.updateGithubLink", error, "No se pudo guardar el enlace de GitHub.");
+    }
   };
 
   const handleDeleteTask = (taskId: string) => {
+    if (!canEditProject) {
+      showNotification("info", "Solo puedes eliminar tareas en proyectos donde eres colaborador.");
+      return;
+    }
     setTaskToDelete(taskId);
     setDeleteDialogOpen(true);
   };
 
   const confirmDeleteTask = async () => {
-    if (!taskToDelete) return;
+    if (!currentProject || !taskToDelete) return;
+    if (!canEditProject) return;
     
-    await deleteBacklogTask(taskToDelete);
-    setTasks((prev) => prev.filter((task) => task.id !== taskToDelete));
-    
-    setDeleteDialogOpen(false);
-    setTaskToDelete(null);
+    try {
+      await deleteBacklogTask(currentProject.id, taskToDelete);
+      setTasks((prev) => prev.filter((task) => task.id !== taskToDelete));
+
+      setDeleteDialogOpen(false);
+      setTaskToDelete(null);
+    } catch (error) {
+      showError("backlog.deleteTask", error, "No se pudo eliminar la tarea.");
+    }
   };
 
   const handleSaveTaskFromModal = async (
@@ -310,10 +381,14 @@ export const useBacklogTable = (userId: string) => {
       assignee_id: string | null;
     }
   ) => {
-    if (updates.destination === "scrum") {
-      setTasks((prev) => prev.filter((task) => task.id !== taskId));
-      
-      await updateBacklogTask(taskId, {
+    if (!currentProject) return;
+    if (!canEditProject) {
+      showNotification("info", "Solo puedes editar tareas en proyectos donde eres colaborador.");
+      return;
+    }
+
+    try {
+      await updateBacklogTask(currentProject.id, taskId, {
         title: updates.title,
         subtitle: updates.subtitle,
         description: updates.description,
@@ -321,37 +396,34 @@ export const useBacklogTable = (userId: string) => {
         priority_id: updates.priority_id,
         story_points: updates.story_points,
       });
-      
-      return;
-    }
 
-    await updateBacklogTask(taskId, {
-      title: updates.title,
-      subtitle: updates.subtitle,
-      description: updates.description,
-      assignee_id: updates.assignee_id,
-      priority_id: updates.priority_id,
-      story_points: updates.story_points,
-    });
-    
-    const priority = priorities.find((p) => p.id === updates.priority_id);
-    setTasks((prev) =>
-      prev.map((task) =>
-        task.id === taskId
-          ? ({
-              ...task,
-              title: updates.title,
-              subtitle: updates.subtitle,
-              description: updates.description ?? null,
-              assignee_id: updates.assignee_id,
-              priority_id: updates.priority_id,
-              priority_name: priority?.name,
-              priority_color: priority?.color,
-              story_points: updates.story_points,
-            } as BacklogTaskWithDetails)
-          : task
-      )
-    );
+      if (updates.destination === "scrum") {
+        setTasks((prev) => prev.filter((task) => task.id !== taskId));
+        return;
+      }
+
+      const priority = priorities.find((p) => p.id === updates.priority_id);
+      setTasks((prev) =>
+        prev.map((task) =>
+          task.id === taskId
+            ? ({
+                ...task,
+                title: updates.title,
+                subtitle: updates.subtitle,
+                description: updates.description ?? null,
+                assignee_id: updates.assignee_id,
+                priority_id: updates.priority_id,
+                priority_name: priority?.name,
+                priority_color: priority?.color,
+                story_points: updates.story_points,
+              } as BacklogTaskWithDetails)
+            : task
+        )
+      );
+    } catch (error) {
+      showError("backlog.saveTaskModal", error, "No se pudo guardar la tarea.");
+      throw error;
+    }
   };
 
   // Sprint handlers
@@ -359,10 +431,19 @@ export const useBacklogTable = (userId: string) => {
     name: string;
     goal: string;
     start_date: string;
-    end_date: string;
+    end_date: string | null;
   }) => {
-    await sprintManager.createSprint(data);
-    setIsSprintModalOpen(false);
+    if (!canEditProject) {
+      showNotification("info", "Solo puedes crear sprints en proyectos donde eres colaborador.");
+      return;
+    }
+    try {
+      await sprintManager.createSprint(data);
+      setIsSprintModalOpen(false);
+    } catch (error) {
+      showError("backlog.createSprint", error, "No se pudo crear el sprint.");
+      throw error;
+    }
   };
 
   const handleDragEnd = async (result: DropResult) => {
@@ -374,34 +455,37 @@ export const useBacklogTable = (userId: string) => {
     }
 
     if (destination.droppableId.startsWith("sprint-")) {
+      if (!currentProject) return;
+      if (!canEditProject) {
+        showNotification("info", "Solo puedes planificar tareas en proyectos donde eres colaborador.");
+        return;
+      }
+
       const sprintId = destination.droppableId.replace("sprint-", "");
       const taskId = draggableId;
+      const backlogTask = tasks.find((task) => task.id === taskId);
+      const issueType = issueTypes.find((type) => type.id === backlogTask?.issue_type_id);
+
+      if (isEpicIssueTypeName(issueType?.name)) {
+        showNotification(
+          "warning",
+          "Las épicas no se asignan directamente a un sprint. Crea o asigna tareas dentro de la épica."
+        );
+        return;
+      }
 
       if (!firstColumnId) {
-        alert("No se encontró una columna TO DO en el proyecto");
+        showNotification("error", "No se encontró una columna TO DO en el proyecto.");
         return;
       }
 
       try {
-        await supabase
-          .from("tasks")
-          .update({
-            sprint_id: sprintId,
-            in_backlog: false,
-            column_id: firstColumnId,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", taskId);
+        await assignBacklogTaskToSprint(currentProject.id, taskId, sprintId, firstColumnId);
 
         setTasks((prev) => prev.filter((t) => t.id !== taskId));
-        
-        // ✅ CRÍTICO: Esto actualiza lastUpdate automáticamente
         await sprintManager.reload();
-        
-        console.log("✅ Tarea asignada al sprint y board refrescado");
       } catch (error) {
-        console.error("Error asignando tarea al sprint:", error);
-        alert("Error al asignar la tarea al sprint");
+        showError("backlog.assignTaskToSprint", error, "No se pudo asignar la tarea al sprint.");
       }
     }
   };
@@ -536,6 +620,7 @@ export const useBacklogTable = (userId: string) => {
     issueTypes,
     catalogsLoaded,
     sprintManager,
+    notification,
     isSprintModalOpen,
     setSearchText,
     setSearchOpen,
@@ -560,6 +645,7 @@ export const useBacklogTable = (userId: string) => {
     setTaskToDelete,
     setIsTaskModalOpen,
     setSelectedBacklogTask,
+    setNotification,
     setIsSprintModalOpen,
     handleAddTask,
     handleTitleChange,

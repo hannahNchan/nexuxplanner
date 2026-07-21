@@ -8,17 +8,20 @@ import RocketLaunchIcon from "@mui/icons-material/RocketLaunch";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import type { Sprint } from "../types/sprint";
-import SprintTasksTable from "./SprintTasksTable";
+import SprintTasksTable, { type SprintTask } from "./SprintTasksTable";
 
 type SprintDropZoneProps = {
   sprint: Sprint;
-  tasks: any[];
-  onStartSprint?: (sprintId: string) => void; // ✅ NUEVO
+  tasks: SprintTask[];
+  onStartSprint?: (sprintId: string) => void;
 };
 
 const SprintDropZone = ({ sprint, tasks, onStartSprint }: SprintDropZoneProps) => {
   const theme = useTheme();
   const isFuture = sprint.status === "future";
+  const normalizedName = sprint.name.trim().toLowerCase();
+  const normalizedGoal = sprint.goal?.trim().toLowerCase();
+  const shouldShowGoal = Boolean(sprint.goal && normalizedGoal !== normalizedName);
 
   return (
     <Droppable droppableId={`sprint-${sprint.id}`} type="task">
@@ -26,78 +29,75 @@ const SprintDropZone = ({ sprint, tasks, onStartSprint }: SprintDropZoneProps) =
         <Paper
           ref={provided.innerRef}
           {...provided.droppableProps}
-          elevation={snapshot.isDraggingOver ? 8 : 2}
+          elevation={0}
           sx={{
-            p: 3,
-            borderRadius: 3,
+            p: 2,
+            borderRadius: 1,
             border: snapshot.isDraggingOver
-              ? `3px dashed ${theme.palette.success.main}`
+              ? `1px dashed ${theme.palette.success.main}`
               : isFuture
-              ? `2px dashed ${alpha(theme.palette.warning.main, 0.5)}`
-              : `2px solid ${alpha(theme.palette.success.main, 0.5)}`,
+                ? `1px dashed ${alpha(theme.palette.warning.main, 0.55)}`
+                : `1px solid ${theme.palette.divider}`,
             backgroundColor: snapshot.isDraggingOver
               ? alpha(theme.palette.success.main, 0.08)
               : isFuture
-              ? alpha(theme.palette.warning.main, 0.03)
-              : alpha(theme.palette.success.main, 0.03),
-            transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
-            minHeight: tasks.length > 0 ? "auto" : 180,
+                ? alpha(theme.palette.warning.main, 0.035)
+                : theme.palette.background.paper,
+            transition: "background-color 0.16s ease, border-color 0.16s ease",
+            width: "100%",
+            maxHeight: "100%",
+            minHeight: 0,
+            overflow: "hidden",
+            display: "flex",
+            flexDirection: "column",
           }}
         >
-          <Stack spacing={2}>
-            {/* Header */}
-            <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between">
-              <Stack direction="row" spacing={2} alignItems="center" flex={1}>
-                {/* Icono */}
-                <Box
-                  sx={{
-                    width: 50,
-                    height: 50,
-                    borderRadius: "50%",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    bgcolor: snapshot.isDraggingOver
-                      ? alpha(theme.palette.success.main, 0.2)
-                      : isFuture
-                      ? alpha(theme.palette.warning.main, 0.2)
-                      : alpha(theme.palette.success.main, 0.2),
-                  }}
-                >
-                  <PlayArrowIcon
+          <Stack spacing={1.5} sx={{ minHeight: 0 }}>
+            <Stack spacing={1}>
+              <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
+                <Stack direction="row" spacing={1.25} alignItems="center" sx={{ minWidth: 0 }}>
+                  <Box
                     sx={{
-                      fontSize: 28,
-                      color: snapshot.isDraggingOver
-                        ? theme.palette.success.main
-                        : isFuture
-                        ? theme.palette.warning.main
-                        : theme.palette.success.main,
+                      width: 36,
+                      height: 36,
+                      borderRadius: 1,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      bgcolor: alpha(isFuture ? theme.palette.warning.main : theme.palette.success.main, 0.1),
+                      color: isFuture ? "warning.main" : "success.main",
+                      flexShrink: 0,
                     }}
-                  />
-                </Box>
-
-                {/* Título y estado */}
-                <Stack spacing={0.5} flex={1}>
-                  <Stack direction="row" spacing={1} alignItems="center">
-                    <Typography variant="h6" fontWeight={700}>
-                      {sprint.name}
+                  >
+                    <PlayArrowIcon fontSize="small" />
+                  </Box>
+                  <Stack spacing={0.25} sx={{ minWidth: 0 }}>
+                    <Typography variant="caption" color="text.secondary" fontWeight={800}>
+                      {isFuture ? "Sprint planificado" : "Sprint activo"}
                     </Typography>
-                    <Chip
-                      label={isFuture ? "FUTURO" : "ACTIVO"}
-                      size="small"
-                      color={isFuture ? "warning" : "success"}
-                      sx={{ fontWeight: 600 }}
-                    />
+                    <Typography variant="h6" fontWeight={800} noWrap>
+                      Sprint: {sprint.name}
+                    </Typography>
                   </Stack>
-                  {sprint.goal && (
-                    <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 600 }}>
-                      {sprint.goal}
-                    </Typography>
-                  )}
                 </Stack>
+                <Chip
+                  label={isFuture ? "FUTURO" : "ACTIVO"}
+                  size="small"
+                  color={isFuture ? "warning" : "success"}
+                  sx={{ fontWeight: 700 }}
+                />
               </Stack>
 
-              {/* Botón Iniciar Sprint (solo si es futuro y tiene tareas) */}
+              {shouldShowGoal && (
+                <Typography variant="body2" color="text.secondary">
+                  Objetivo: {sprint.goal}
+                </Typography>
+              )}
+
+              <Typography variant="body2" color="text.secondary">
+                Arrastra tareas del backlog a este panel para incluirlas en el sprint.
+              </Typography>
+
               {isFuture && onStartSprint && tasks.length > 0 && (
                 <Button
                   variant="contained"
@@ -105,8 +105,7 @@ const SprintDropZone = ({ sprint, tasks, onStartSprint }: SprintDropZoneProps) =
                   startIcon={<RocketLaunchIcon />}
                   onClick={() => onStartSprint(sprint.id)}
                   sx={{
-                    borderRadius: 2,
-                    px: 3,
+                    alignSelf: "flex-start",
                     fontWeight: 600,
                   }}
                 >
@@ -114,21 +113,28 @@ const SprintDropZone = ({ sprint, tasks, onStartSprint }: SprintDropZoneProps) =
                 </Button>
               )}
 
-              {/* Info del sprint */}
               <Stack direction="row" spacing={1} flexWrap="wrap">
                 <Chip
                   icon={<EventIcon />}
-                  label={`Inicia: ${format(new Date(sprint.start_date!), "dd MMM yyyy", {
-                    locale: es,
-                  })}`}
+                  label={
+                    sprint.start_date
+                      ? `Inicia: ${format(new Date(sprint.start_date), "dd MMM yyyy", {
+                          locale: es,
+                        })}`
+                      : "Sin inicio"
+                  }
                   size="small"
                   variant="outlined"
                 />
                 <Chip
                   icon={<FlagIcon />}
-                  label={`Termina: ${format(new Date(sprint.end_date!), "dd MMM yyyy", {
-                    locale: es,
-                  })}`}
+                  label={
+                    sprint.end_date
+                      ? `Termina: ${format(new Date(sprint.end_date), "dd MMM yyyy", {
+                          locale: es,
+                        })}`
+                      : "Sprint abierto"
+                  }
                   size="small"
                   variant="outlined"
                 />
@@ -141,27 +147,54 @@ const SprintDropZone = ({ sprint, tasks, onStartSprint }: SprintDropZoneProps) =
               </Stack>
             </Stack>
 
-            {/* Mensaje de instrucción cuando está vacío */}
-            {tasks.length === 0 && (
-              <Stack alignItems="center" py={2}>
-                {snapshot.isDraggingOver ? (
-                  <Typography
-                    variant="body1"
-                    fontWeight={600}
-                    sx={{ color: theme.palette.success.main }}
-                  >
-                    ↓ Soltar aquí para agregar al sprint
-                  </Typography>
-                ) : (
-                  <Typography variant="body2" color="text.secondary" textAlign="center">
-                    Arrastra tareas desde el backlog a esta zona para asignarlas al sprint
-                  </Typography>
-                )}
-              </Stack>
-            )}
+            <Box
+              sx={{
+                maxHeight: 560,
+                overflowY: "auto",
+                overflowX: "hidden",
+                scrollbarWidth: "none",
+                "&::-webkit-scrollbar": {
+                  display: "none",
+                },
+              }}
+            >
+              {snapshot.isDraggingOver ? (
+                <Box
+                  sx={{
+                    mb: 1,
+                    p: 1.25,
+                    borderRadius: 1,
+                    bgcolor: alpha(theme.palette.success.main, 0.12),
+                    color: "success.main",
+                    fontWeight: 800,
+                    textAlign: "center",
+                  }}
+                >
+                  Soltar aquí para agregar al sprint
+                </Box>
+              ) : null}
 
-            {/* Tabla de tareas */}
-            <SprintTasksTable tasks={tasks} />
+              {tasks.length === 0 ? (
+                <Box
+                  sx={{
+                    mt: 1,
+                    p: 2,
+                    borderRadius: 1,
+                    border: `1px dashed ${alpha(theme.palette.text.secondary, 0.28)}`,
+                    color: "text.secondary",
+                    textAlign: "center",
+                    cursor: "pointer"
+                  }}
+                >
+                  <PlayArrowIcon sx={{ mb: 0.5, color: "text.disabled" }} />
+                  <Typography variant="body2">
+                    Suelta aquí las tareas que quieras planificar.
+                  </Typography>
+                </Box>
+              ) : (
+                <SprintTasksTable tasks={tasks} />
+              )}
+            </Box>
           </Stack>
           {provided.placeholder}
         </Paper>

@@ -7,7 +7,7 @@ import {
   Container,
   Fade,
   IconButton,
-  Paper,
+  Snackbar,
   Stack,
   TextField,
   Typography,
@@ -21,11 +21,13 @@ import VisibilityOffIcon from "@mui/icons-material/VisibilityOff";
 import CloseIcon from "@mui/icons-material/Close";
 import FolderIcon from "@mui/icons-material/Folder";
 import { useEpicsTable } from "../../hooks/useEpicsTable";
-import { DataTable, DataTableHeader, DataTableToolbar } from "../../../../shared/ui/DataTable";
+import { DataTable, DataTableHeader } from "../../../../shared/ui/DataTable";
 import { createEpicsTableColumns } from "./columns";
 import { faLayerGroup } from "@fortawesome/free-solid-svg-icons";
 import { EmptyState } from "../../../../shared/ui/EmptyState";
+import { WorkTableShell, WorkTableToolbar } from "../../../../shared/ui/WorkTable";
 import { useProject } from "../../../../shared/contexts/ProjectContext";
+import ReadOnlyProjectNotice from "../../../../shared/ui/ReadOnlyProjectNotice";
 import {
   FilterMenu,
   SortMenu,
@@ -42,10 +44,25 @@ type EpicsTableProps = {
   userId: string;
 };
 
+type ConnectedTaskRef = {
+  id: string;
+};
+
+const isConnectedTaskRef = (value: unknown): value is ConnectedTaskRef =>
+  typeof value === "object" &&
+  value !== null &&
+  "id" in value &&
+  typeof value.id === "string";
+
 const EpicsTable = ({ userId }: EpicsTableProps) => {
   const theme = useTheme();
   const epic = useEpicsTable(userId);
   const { currentProject } = useProject();
+  const canEditProject = currentProject?.can_edit ?? true;
+  const currentConnectedTasks = epic.rows.find((r) => r.id === epic.taskSearchOpen)?.connectedTasks;
+  const connectedTaskIds = Array.isArray(currentConnectedTasks)
+    ? currentConnectedTasks.filter(isConnectedTaskRef).map((task) => task.id)
+    : [];
 
   const columns = createEpicsTableColumns({
     theme,
@@ -66,8 +83,10 @@ const EpicsTable = ({ userId }: EpicsTableProps) => {
     setTaskSearchOpen: epic.setTaskSearchOpen,
     setTaskSearchText: epic.setTaskSearchText,
     handleNameChange: epic.handleNameChange,
+    handleEpicDateChange: epic.handleEpicDateChange,
     handleDisconnectTask: epic.handleDisconnectTask,
     handleDeleteEpic: epic.handleDeleteEpic,
+    readOnly: !canEditProject,
   });
 
   if (epic.isLoading) {
@@ -83,7 +102,7 @@ const EpicsTable = ({ userId }: EpicsTableProps) => {
     );
   }
 
-    if (!currentProject) {
+  if (!currentProject) {
     return (
       <Container maxWidth={false}>
         <Stack spacing={4} alignItems="center" py={8}>
@@ -91,12 +110,12 @@ const EpicsTable = ({ userId }: EpicsTableProps) => {
             sx={{
               width: 120,
               height: 120,
-              borderRadius: 3,
+              borderRadius: 1,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
               bgcolor: alpha(theme.palette.primary.main, 0.1),
-              border: `2px dashed ${alpha(theme.palette.primary.main, 0.3)}`,
+              border: `1px dashed ${alpha(theme.palette.primary.main, 0.3)}`,
             }}
           >
             <FolderIcon sx={{ fontSize: 64, color: "primary.main", opacity: 0.6 }} />
@@ -123,156 +142,150 @@ const EpicsTable = ({ userId }: EpicsTableProps) => {
     );
   }
 
-  return (
-    <Container maxWidth={false}>
-      <Stack spacing={3}>
-        {/* Header */}
-        <DataTableHeader
-          title="Épicas"
-          subtitle="Gestiona las épicas de tu proyecto y conecta tareas relacionadas."
-          action={
-            <Button
-              variant="contained"
-              size="large"
-              startIcon={<AddIcon />}
-              onClick={epic.handleAddEpic}
-              sx={{
-                borderRadius: 2,
-                px: 3,
-                boxShadow: `0 4px 14px ${alpha(theme.palette.primary.main, 0.3)}`,
-                transition: "all 0.3s ease",
-                "&:hover": {
-                  transform: "translateY(-2px)",
-                  boxShadow: `0 6px 20px ${alpha(theme.palette.primary.main, 0.4)}`,
-                },
-              }}
-            >
-              Nueva Épica
-            </Button>
-          }
-        />
-
-        {/* Toolbar Container */}
-        <Paper
-          elevation={0}
+  const tableHeader = (
+    <DataTableHeader
+      title="Épicas"
+      subtitle="Gestiona las épicas de tu proyecto y conecta tareas relacionadas."
+      action={
+        <Button
+          variant="contained"
+          size="large"
+          startIcon={<AddIcon />}
+          onClick={epic.handleAddEpic}
+          disabled={!canEditProject}
           sx={{
-            p: 2,
-            borderRadius: 3,
-            border: `1px solid ${alpha(theme.palette.primary.main, 0.1)}`,
+            px: 3,
           }}
         >
-          <DataTableToolbar>
-            <Fade in={!epic.searchOpen}>
-              <Button
-                variant="outlined"
-                startIcon={<SearchIcon />}
-                onClick={() => epic.setSearchOpen(true)}
-                sx={{
-                  borderRadius: 2,
-                  borderColor: alpha(theme.palette.primary.main, 0.3),
-                }}
-              >
-                Buscar
-              </Button>
-            </Fade>
+          Nueva Épica
+        </Button>
+      }
+    />
+  );
 
-            {epic.searchOpen && (
-              <Fade in={epic.searchOpen}>
-                <TextField
+  const tableToolbar = (
+    <WorkTableToolbar>
+      <Fade in={!epic.searchOpen}>
+        <Button
+          variant="outlined"
+          startIcon={<SearchIcon />}
+          onClick={() => epic.setSearchOpen(true)}
+          sx={{
+            borderColor: alpha(theme.palette.primary.main, 0.3),
+          }}
+        >
+          Buscar
+        </Button>
+      </Fade>
+
+      {epic.searchOpen && (
+        <Fade in={epic.searchOpen}>
+          <TextField
+            size="small"
+            placeholder="Buscar épicas..."
+            value={epic.searchText}
+            onChange={(e) => epic.setSearchText(e.target.value)}
+            InputProps={{
+              startAdornment: <SearchIcon sx={{ mr: 1, color: "text.secondary" }} />,
+              endAdornment: (
+                <IconButton
                   size="small"
-                  placeholder="Buscar épicas..."
-                  value={epic.searchText}
-                  onChange={(e) => epic.setSearchText(e.target.value)}
-                  InputProps={{
-                    startAdornment: <SearchIcon sx={{ mr: 1, color: "text.secondary" }} />,
-                    endAdornment: (
-                      <IconButton
-                        size="small"
-                        onClick={() => {
-                          epic.setSearchOpen(false);
-                          epic.setSearchText("");
-                        }}
-                      >
-                        <CloseIcon />
-                      </IconButton>
-                    ),
+                  onClick={() => {
+                    epic.setSearchOpen(false);
+                    epic.setSearchText("");
                   }}
-                  sx={{
-                    width: 300,
-                    "& .MuiOutlinedInput-root": {
-                      borderRadius: 2,
-                      bgcolor: "background.paper",
-                    },
-                  }}
-                />
-              </Fade>
-            )}
+                >
+                  <CloseIcon />
+                </IconButton>
+              ),
+            }}
+            sx={{
+              width: 300,
+              "& .MuiOutlinedInput-root": {
+                bgcolor: "background.paper",
+              },
+            }}
+          />
+        </Fade>
+      )}
 
-            <Badge badgeContent={epic.activeFiltersCount} color="primary">
-              <Button
-                variant="outlined"
-                startIcon={<FilterListIcon />}
-                onClick={(e) => epic.setFilterAnchor(e.currentTarget)}
-                sx={{
-                  borderRadius: 2,
-                  borderColor:
-                    epic.activeFiltersCount > 0
-                      ? theme.palette.primary.main
-                      : alpha(theme.palette.primary.main, 0.3),
-                  bgcolor:
-                    epic.activeFiltersCount > 0
-                      ? alpha(theme.palette.primary.main, 0.08)
-                      : "transparent",
-                }}
-              >
-                Filtrar
-              </Button>
-            </Badge>
+      <Badge badgeContent={epic.activeFiltersCount} color="primary">
+        <Button
+          variant="outlined"
+          startIcon={<FilterListIcon />}
+          onClick={(e) => epic.setFilterAnchor(e.currentTarget)}
+          sx={{
+            borderColor:
+              epic.activeFiltersCount > 0
+                ? theme.palette.primary.main
+                : alpha(theme.palette.primary.main, 0.3),
+            bgcolor:
+              epic.activeFiltersCount > 0 ? alpha(theme.palette.primary.main, 0.08) : "transparent",
+          }}
+        >
+          Filtrar
+        </Button>
+      </Badge>
 
-            <Button
-              variant="outlined"
-              startIcon={<SortIcon />}
-              onClick={(e) => epic.setSortAnchor(e.currentTarget)}
-              sx={{
-                borderRadius: 2,
-                borderColor: alpha(theme.palette.primary.main, 0.3),
-              }}
-            >
-              Ordenar
-            </Button>
+      <Button
+        variant="outlined"
+        startIcon={<SortIcon />}
+        onClick={(e) => epic.setSortAnchor(e.currentTarget)}
+        sx={{
+          borderColor: alpha(theme.palette.primary.main, 0.3),
+        }}
+      >
+        Ordenar
+      </Button>
 
-            <Badge badgeContent={epic.hiddenEpics.length} color="secondary">
-              <Button
-                variant="outlined"
-                startIcon={<VisibilityOffIcon />}
-                onClick={(e) => epic.setHideAnchor(e.currentTarget)}
-                sx={{
-                  borderRadius: 2,
-                  borderColor: alpha(theme.palette.primary.main, 0.3),
-                }}
-              >
-                Ocultar
-              </Button>
-            </Badge>
-          </DataTableToolbar>
-        </Paper>
+      <Badge badgeContent={epic.hiddenEpics.length} color="secondary">
+        <Button
+          variant="outlined"
+          startIcon={<VisibilityOffIcon />}
+          onClick={(e) => epic.setHideAnchor(e.currentTarget)}
+          sx={{
+            borderColor: alpha(theme.palette.primary.main, 0.3),
+          }}
+        >
+          Ocultar
+        </Button>
+      </Badge>
+    </WorkTableToolbar>
+  );
 
+  return (
+    <>
+      <WorkTableShell
+        header={
+          <Stack spacing={2}>
+            {tableHeader}
+            {!canEditProject ? <ReadOnlyProjectNotice projectName={currentProject.title} /> : null}
+          </Stack>
+        }
+        toolbar={tableToolbar}
+      >
         {/* DataGrid */}
         {epic.rows.length === 0 ? (
           <EmptyState
             icon={faLayerGroup}
             title="No hay épicas"
             description="Crea tu primera épica para organizar grandes características o iniciativas de tu proyecto."
-            action={{
-              label: "Crear Primera Épica",
-              onClick: epic.handleAddEpic,
-            }}
+            action={
+              canEditProject
+                ? {
+                    label: "Crear Primera Épica",
+                    onClick: epic.handleAddEpic,
+                  }
+                : undefined
+            }
           />
         ) : (
           <DataTable 
             rows={epic.rows} 
             columns={columns}
-            disableRowSelectionOnClick // ✅ NUEVO
+            height="100%"
+            containerSx={{ height: "100%" }}
+            disableRowSelectionOnClick
             sx={{
               '& .MuiDataGrid-cell:focus': {
                 outline: 'none',
@@ -280,9 +293,10 @@ const EpicsTable = ({ userId }: EpicsTableProps) => {
               '& .MuiDataGrid-cell:focus-within': {
                 outline: 'none',
               },
-            } as any}
+            }}
           />
         )}
+      </WorkTableShell>
 
         {/* Menús */}
         <ColorMenu
@@ -360,10 +374,9 @@ const EpicsTable = ({ userId }: EpicsTableProps) => {
           open={epic.taskSearchOpen !== null}
           taskSearchText={epic.taskSearchText}
           taskOptions={epic.taskOptions}
-          connectedTaskIds={
-            epic.rows.find((r) => r.id === epic.taskSearchOpen)?.connectedTasks?.map((t: any) => t.id) ||
-            []
-          }
+          isLoading={epic.isTaskSearchLoading}
+          currentEpicId={epic.taskSearchOpen}
+          connectedTaskIds={connectedTaskIds}
           onClose={() => {
             epic.setTaskSearchOpen(null);
             epic.setTaskSearchText("");
@@ -389,8 +402,25 @@ const EpicsTable = ({ userId }: EpicsTableProps) => {
           }}
           onConfirm={epic.confirmDeleteEpic}
         />
-      </Stack>
-    </Container>
+
+        <Snackbar
+          open={Boolean(epic.notification)}
+          autoHideDuration={5000}
+          onClose={() => epic.setNotification(null)}
+          anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+        >
+          {epic.notification ? (
+            <Alert
+              severity={epic.notification.severity}
+              variant="filled"
+              onClose={() => epic.setNotification(null)}
+              sx={{ width: "100%" }}
+            >
+              {epic.notification.message}
+            </Alert>
+          ) : undefined}
+        </Snackbar>
+    </>
   );
 };
 

@@ -17,41 +17,25 @@ export const EmptyState = ({
     <Paper
       elevation={0}
       sx={{
-        p: 6,
-        borderRadius: 3,
+        p: 4,
+        borderRadius: 1,
         textAlign: "center",
-        background: `linear-gradient(135deg, 
-          ${alpha(theme.palette.primary.main, 0.03)} 0%, 
-          ${alpha(theme.palette.secondary.main, 0.02)} 100%)`,
-        border: `2px dashed ${alpha(theme.palette.primary.main, 0.2)}`,
+        bgcolor: "background.paper",
+        border: `1px dashed ${alpha(theme.palette.text.secondary, 0.28)}`,
         ...containerSx,
       }}
     >
-      <Stack spacing={3} alignItems="center">
-        {/* Icono con animación */}
+      <Stack spacing={2} alignItems="center">
         <Box
           sx={{
-            width: 140,
-            height: 140,
-            borderRadius: "50%",
+            width: 64,
+            height: 64,
+            borderRadius: 1,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            background: `linear-gradient(135deg, 
-              ${alpha(theme.palette.primary.main, 0.1)} 0%, 
-              ${alpha(theme.palette.secondary.main, 0.05)} 100%)`,
-            boxShadow: `0 8px 32px ${alpha(theme.palette.primary.main, 0.15)}`,
-            animation: "pulse 2s ease-in-out infinite",
-            "@keyframes pulse": {
-              "0%, 100%": {
-                transform: "scale(1)",
-                boxShadow: `0 8px 32px ${alpha(theme.palette.primary.main, 0.15)}`,
-              },
-              "50%": {
-                transform: "scale(1.05)",
-                boxShadow: `0 12px 40px ${alpha(theme.palette.primary.main, 0.25)}`,
-              },
-            },
+            bgcolor: alpha(theme.palette.primary.main, 0.08),
+            border: `1px solid ${alpha(theme.palette.primary.main, 0.14)}`,
           }}
         >
           <FontAwesomeIcon
@@ -64,23 +48,14 @@ export const EmptyState = ({
           />
         </Box>
 
-        {/* Título */}
         <Typography
           variant="h5"
           fontWeight={700}
-          sx={{
-            background: `linear-gradient(135deg, 
-              ${theme.palette.primary.main} 0%, 
-              ${theme.palette.secondary.main} 100%)`,
-            WebkitBackgroundClip: "text",
-            WebkitTextFillColor: "transparent",
-            backgroundClip: "text",
-          }}
+          color="text.primary"
         >
           {title}
         </Typography>
 
-        {/* Descripción */}
         {description && (
           <Typography
             variant="body1"
@@ -94,7 +69,6 @@ export const EmptyState = ({
           </Typography>
         )}
 
-        {/* Botón de acción */}
         {action && (
           <Button
             variant="contained"
@@ -107,17 +81,9 @@ export const EmptyState = ({
             onClick={action.onClick}
             sx={{
               mt: 2,
-              borderRadius: 2,
-              px: 4,
-              py: 1.5,
-              fontSize: "1rem",
+              px: 2.5,
+              py: 1,
               fontWeight: 600,
-              boxShadow: `0 4px 14px ${alpha(theme.palette.primary.main, 0.3)}`,
-              transition: "all 0.3s ease",
-              "&:hover": {
-                transform: "translateY(-2px)",
-                boxShadow: `0 6px 20px ${alpha(theme.palette.primary.main, 0.4)}`,
-              },
             }}
           >
             {action.label}

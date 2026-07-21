@@ -10,17 +10,18 @@ import {
   IconButton,
   Paper,
   Stack,
-  TextField,
   Tooltip,
   Typography,
+  Alert,
 } from "@mui/material";
 import HistoryIcon from "@mui/icons-material/History";
 import RestoreIcon from "@mui/icons-material/Restore";
 import DeleteIcon from "@mui/icons-material/Delete";
 import Quill from "quill";
 import "quill/dist/quill.snow.css";
+import { alpha, useTheme } from "@mui/material/styles";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { createBoard, fetchPrimaryBoard } from "../api/boardService";
+import { useProject } from "../../shared/contexts/ProjectContext";
 import {
   autoSaveNote,
   createSnapshot,
@@ -30,18 +31,23 @@ import {
   restoreSnapshot,
   type EditorNote,
 } from "../api/editorService";
+import { logError } from "../../shared/utils/errorHandling";
 
 type QuillEditorProps = {
   userId: string;
 };
 
-const QuillEditor = ({ userId }: QuillEditorProps) => {
+type QuillContents = Parameters<Quill["setContents"]>[0];
+
+const QuillEditor = ({ userId: _userId }: QuillEditorProps) => {
+  const theme = useTheme();
+  const { currentProject } = useProject();
   const editorRef = useRef<HTMLDivElement | null>(null);
   const quillRef = useRef<Quill | null>(null);
-  const [boardId, setBoardId] = useState<string | null>(null);
-  const [isLoadingBoard, setIsLoadingBoard] = useState(true);
-  const [isCreatingBoard, setIsCreatingBoard] = useState(false);
-  const [newBoardName, setNewBoardName] = useState("Mi Tablero");
+  const projectId = currentProject?.id ?? null;
+  const [hasDocument, setHasDocument] = useState(false);
+  const [isLoadingNote, setIsLoadingNote] = useState(true);
+  const [isCreatingDocument, setIsCreatingDocument] = useState(false);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
 
   // Auto-save estado
@@ -75,13 +81,11 @@ const QuillEditor = ({ userId }: QuillEditorProps) => {
     versionNumber: null,
   });
 
-  // Inicializar Quill cuando tengamos boardId
+  // Inicializar Quill cuando el proyecto tenga documento.
   useEffect(() => {
-    if (!editorRef.current || quillRef.current || !boardId) {
+    if (!editorRef.current || quillRef.current || !projectId || !hasDocument) {
       return;
     }
-
-    console.log("Inicializando Quill editor...");
 
     const toolbarOptions = [
       [{ header: [1, 2, 3, false] }],
@@ -102,11 +106,9 @@ const QuillEditor = ({ userId }: QuillEditorProps) => {
 
     quillRef.current = quill;
 
-    // Cargar nota activa
     void loadActiveNote();
     void loadSnapshots();
 
-    // Auto-save cada 3 segundos
     quill.on("text-change", () => {
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
@@ -122,106 +124,105 @@ const QuillEditor = ({ userId }: QuillEditorProps) => {
       }
       quill.off("text-change");
     };
-  }, [boardId]);
+  }, [hasDocument, projectId]);
 
-  // Cargar tablero
-  const loadBoardAndNote = useCallback(async () => {
-    setIsLoadingBoard(true);
-    try {
-      const board = await fetchPrimaryBoard(userId);
-
-      if (!board) {
-        setBoardId(null);
-        return;
-      }
-
-      console.log("Board encontrado:", board.id);
-      setBoardId(board.id);
-    } catch (error) {
-      console.error("Error cargando tablero:", error);
-    } finally {
-      setIsLoadingBoard(false);
-    }
-  }, [userId]);
-
-  useEffect(() => {
-    void loadBoardAndNote();
-  }, [loadBoardAndNote]);
-
-  // Cargar la nota activa
-  const loadActiveNote = async () => {
-    if (!boardId || !quillRef.current) {
+  // Cargar nota del proyecto activo.
+  const loadProjectNote = useCallback(async () => {
+    if (!projectId) {
+      setHasDocument(false);
+      setSnapshots([]);
+      setLastSaved(null);
+      setIsLoadingNote(false);
       return;
     }
 
+    setIsLoadingNote(true);
     try {
-      const note = await fetchActiveNote(boardId);
-
-      if (note && note.content) {
-        console.log("Nota activa encontrada");
-        quillRef.current.setContents(note.content as any);
-        setLastSaved(new Date(note.updated_at));
-      } else {
-        console.log("No hay nota activa");
-      }
-    } catch (error) {
-      console.error("Error cargando nota:", error);
-    }
-  };
-
-  // Cargar snapshots
-  const loadSnapshots = async () => {
-    if (!boardId) {
-      return;
-    }
-
-    try {
-      const allSnapshots = await fetchSnapshots(boardId);
+      const note = await fetchActiveNote(projectId);
+      setHasDocument(Boolean(note));
+      setLastSaved(note?.updated_at ? new Date(note.updated_at) : null);
+      const allSnapshots = await fetchSnapshots(projectId);
       setSnapshots(allSnapshots);
     } catch (error) {
-      console.error("Error cargando snapshots:", error);
+      logError("editor.loadProjectNote", error);
+      setHasDocument(false);
+    } finally {
+      setIsLoadingNote(false);
+    }
+  }, [projectId]);
+
+  useEffect(() => {
+    quillRef.current = null;
+    if (editorRef.current) {
+      editorRef.current.innerHTML = "";
+    }
+    void loadProjectNote();
+  }, [loadProjectNote]);
+
+  const loadActiveNote = async () => {
+    if (!projectId || !quillRef.current) {
+      return;
+    }
+
+    try {
+      const note = await fetchActiveNote(projectId);
+
+      if (note && note.content) {
+        quillRef.current.setContents(note.content as QuillContents);
+        setLastSaved(new Date(note.updated_at));
+      }
+    } catch (error) {
+      logError("editor.loadActiveNote", error);
     }
   };
 
-  // Auto-save (actualiza la nota activa)
+  const loadSnapshots = async () => {
+    if (!projectId) {
+      return;
+    }
+
+    try {
+      const allSnapshots = await fetchSnapshots(projectId);
+      setSnapshots(allSnapshots);
+    } catch (error) {
+      logError("editor.loadSnapshots", error);
+    }
+  };
+
   const handleAutoSave = async () => {
-    if (!boardId || !quillRef.current) {
+    if (!projectId || !quillRef.current) {
       return;
     }
 
     setIsSaving(true);
     try {
       const content = quillRef.current.getContents();
-      await autoSaveNote(boardId, content);
+      await autoSaveNote(projectId, content);
       setLastSaved(new Date());
-      console.log("✅ Auto-guardado");
     } catch (error) {
-      console.error("Error en auto-guardado:", error);
+      logError("editor.autoSave", error);
     } finally {
       setIsSaving(false);
     }
   };
 
-  // Crear snapshot manual
   const handleCreateSnapshot = async () => {
-    if (!boardId || !quillRef.current) {
+    if (!projectId || !quillRef.current) {
       return;
     }
 
     setIsCreatingSnapshot(true);
     try {
       const content = quillRef.current.getContents();
-      await createSnapshot(boardId, content);
+      await createSnapshot(projectId, content);
       await loadSnapshots();
-      console.log("✅ Snapshot creado");
     } catch (error) {
-      console.error("Error creando snapshot:", error);
+      logError("editor.createSnapshot", error);
     } finally {
       setIsCreatingSnapshot(false);
     }
   };
 
-  // Abrir diálogo de confirmación para cambiar versión
   const handleOpenRestoreDialog = (snapshotId: string, versionNumber: number) => {
     setConfirmDialog({
       open: true,
@@ -230,33 +231,27 @@ const QuillEditor = ({ userId }: QuillEditorProps) => {
     });
   };
 
-  // Cambiar a una versión específica
   const handleConfirmRestore = async () => {
     const { snapshotId } = confirmDialog;
     
-    if (!boardId || !quillRef.current || !snapshotId) {
+    if (!projectId || !quillRef.current || !snapshotId) {
       return;
     }
 
     try {
-      // Auto-guardar contenido actual antes de cambiar
       const currentContent = quillRef.current.getContents();
-      await autoSaveNote(boardId, currentContent);
+      await autoSaveNote(projectId, currentContent);
       
-      // Cargar la versión seleccionada
-      await restoreSnapshot(boardId, snapshotId);
+      await restoreSnapshot(projectId, snapshotId);
       await loadActiveNote();
       
       setConfirmDialog({ open: false, snapshotId: null, versionNumber: null });
       setIsHistoryOpen(false);
-      
-      console.log("✅ Cambiado a versión anterior");
     } catch (error) {
-      console.error("Error cambiando versión:", error);
+      logError("editor.restoreSnapshot", error);
     }
   };
 
-  // Abrir diálogo de confirmación para eliminar
   const handleOpenDeleteDialog = (snapshotId: string, versionNumber: number) => {
     setDeleteDialog({
       open: true,
@@ -265,7 +260,6 @@ const QuillEditor = ({ userId }: QuillEditorProps) => {
     });
   };
 
-  // Eliminar snapshot confirmado
   const handleConfirmDelete = async () => {
     const { snapshotId } = deleteDialog;
     
@@ -278,34 +272,29 @@ const QuillEditor = ({ userId }: QuillEditorProps) => {
       await loadSnapshots();
       
       setDeleteDialog({ open: false, snapshotId: null, versionNumber: null });
-      
-      console.log("✅ Snapshot eliminado");
     } catch (error) {
-      console.error("Error eliminando snapshot:", error);
+      logError("editor.deleteSnapshot", error);
     }
   };
 
-  // Crear tablero
-  const handleCreateBoard = async () => {
-    if (!newBoardName.trim()) {
+  const handleCreateDocument = async () => {
+    if (!projectId) {
       return;
     }
 
-    setIsCreatingBoard(true);
+    setIsCreatingDocument(true);
     try {
-      const result = await createBoard(userId, newBoardName);
-      if (result && result.board) {
-        setBoardId(result.board.id);
-        setIsLoadingBoard(false);
-      }
+      await autoSaveNote(projectId, { ops: [{ insert: "\n" }] });
+      setHasDocument(true);
+      setLastSaved(new Date());
+      await loadSnapshots();
     } catch (error) {
-      console.error("Error creando tablero:", error);
+      logError("editor.createDocument", error);
     } finally {
-      setIsCreatingBoard(false);
+      setIsCreatingDocument(false);
     }
   };
 
-  // Formatear fecha de forma humanizada
   const formatHumanDate = (dateString: string) => {
     const date = new Date(dateString);
     const now = new Date();
@@ -314,27 +303,22 @@ const QuillEditor = ({ userId }: QuillEditorProps) => {
     const diffInHours = Math.floor(diffInMinutes / 60);
     const diffInDays = Math.floor(diffInHours / 24);
 
-    // Hace menos de 1 minuto
     if (diffInSeconds < 60) {
       return "Hace unos segundos";
     }
 
-    // Hace menos de 1 hora
     if (diffInMinutes < 60) {
       return `Hace ${diffInMinutes} ${diffInMinutes === 1 ? "minuto" : "minutos"}`;
     }
 
-    // Hace menos de 24 horas
     if (diffInHours < 24) {
       return `Hace ${diffInHours} ${diffInHours === 1 ? "hora" : "horas"}`;
     }
 
-    // Hace menos de 7 días
     if (diffInDays < 7) {
       return `Hace ${diffInDays} ${diffInDays === 1 ? "día" : "días"}`;
     }
 
-    // Más de 7 días: mostrar fecha completa
     const months = [
       "enero", "febrero", "marzo", "abril", "mayo", "junio",
       "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"
@@ -355,64 +339,48 @@ const QuillEditor = ({ userId }: QuillEditorProps) => {
     if (seconds < 60) return "hace unos segundos";
     if (seconds < 3600) return `hace ${Math.floor(seconds / 60)} min`;
     if (seconds < 86400) return `hace ${Math.floor(seconds / 3600)} h`;
-    return formatHumanDate(date.toISOString()); // ✅ CORREGIDO
+    return formatHumanDate(date.toISOString());
   };
+  const editorBorder = theme.palette.divider;
+  const editorToolbarBg = theme.palette.action.selected;
+  const editorText = theme.palette.text.primary;
+  const editorMuted = theme.palette.text.secondary;
 
   return (
     <Stack spacing={2}>
-      <Stack spacing={0.5}>
-        <Typography variant="h5" fontWeight={700}>
-          Editor de notas
-        </Typography>
-        <Typography variant="body2" color="text.secondary">
-          Usa Quill para documentar tareas, acuerdos o descripciones.
-        </Typography>
-      </Stack>
 
       <Paper elevation={1} sx={{ p: 2, borderRadius: 3 }}>
         <Stack spacing={2}>
-          {isLoadingBoard && (
+          {!currentProject && (
+            <Alert severity="info">
+              Selecciona un proyecto desde el menú lateral para crear o editar sus notas.
+            </Alert>
+          )}
+
+          {currentProject && isLoadingNote && (
             <Box display="flex" justifyContent="center" py={4}>
               <CircularProgress />
             </Box>
           )}
 
-          {!boardId && !isLoadingBoard && (
-            <Stack spacing={2}>
+          {currentProject && !hasDocument && !isLoadingNote && (
+            <Stack spacing={2} alignItems="flex-start">
               <Typography color="text.secondary" variant="body2">
-                Necesitas vincular un tablero para usar el editor de notas.
+                Este proyecto todavía no tiene documento de notas.
               </Typography>
 
-              <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap">
-                <Button variant="outlined" size="small" onClick={loadBoardAndNote}>
-                  Buscar tablero existente
-                </Button>
-
-                <Typography variant="body2" color="text.secondary">
-                  o
-                </Typography>
-
-                <TextField
-                  size="small"
-                  label="Nombre del tablero"
-                  value={newBoardName}
-                  onChange={(e) => setNewBoardName(e.target.value)}
-                  sx={{ width: 200 }}
-                />
-
-                <Button
-                  variant="contained"
-                  size="small"
-                  onClick={handleCreateBoard}
-                  disabled={isCreatingBoard || !newBoardName.trim()}
-                >
-                  {isCreatingBoard ? "Creando..." : "Crear tablero"}
-                </Button>
-              </Stack>
+              <Button
+                variant="contained"
+                size="small"
+                onClick={handleCreateDocument}
+                disabled={isCreatingDocument}
+              >
+                {isCreatingDocument ? "Creando..." : "Crear documento"}
+              </Button>
             </Stack>
           )}
 
-          {boardId && (
+          {currentProject && hasDocument && (
             <>
               {/* Barra superior con estado y acciones */}
               <Stack
@@ -465,25 +433,36 @@ const QuillEditor = ({ userId }: QuillEditorProps) => {
                     overflowY: "auto",
                     fontSize: 16,
                     fontFamily: "'Inter', 'Roboto', sans-serif",
+                    color: editorText,
+                    backgroundColor: theme.palette.background.paper,
+                    "&.ql-blank::before": {
+                      color: editorMuted,
+                      opacity: 0.8,
+                    },
                   },
                   ".ql-container": {
                     borderBottomLeftRadius: 8,
                     borderBottomRightRadius: 8,
-                    borderColor: "#e2e8f0",
+                    borderColor: editorBorder,
+                    backgroundColor: theme.palette.background.paper,
                   },
                   ".ql-toolbar": {
                     borderTopLeftRadius: 8,
                     borderTopRightRadius: 8,
-                    backgroundColor: "#f8fafc",
-                    borderColor: "#e2e8f0",
+                    backgroundColor: editorToolbarBg,
+                    borderColor: editorBorder,
                   },
-                  ".ql-stroke": { stroke: "#475569" },
-                  ".ql-fill": { fill: "#475569" },
-                  ".ql-picker-label": { color: "#475569" },
-                  ".ql-toolbar button:hover .ql-stroke": { stroke: "#4f46e5" },
-                  ".ql-toolbar button:hover .ql-fill": { fill: "#4f46e5" },
-                  ".ql-toolbar button.ql-active .ql-stroke": { stroke: "#4f46e5" },
-                  ".ql-toolbar button.ql-active .ql-fill": { fill: "#4f46e5" },
+                  ".ql-stroke": { stroke: editorMuted },
+                  ".ql-fill": { fill: editorMuted },
+                  ".ql-picker-label": { color: editorMuted },
+                  ".ql-picker-options": {
+                    backgroundColor: theme.palette.background.paper,
+                    borderColor: editorBorder,
+                  },
+                  ".ql-toolbar button:hover .ql-stroke": { stroke: theme.palette.primary.main },
+                  ".ql-toolbar button:hover .ql-fill": { fill: theme.palette.primary.main },
+                  ".ql-toolbar button.ql-active .ql-stroke": { stroke: theme.palette.primary.main },
+                  ".ql-toolbar button.ql-active .ql-fill": { fill: theme.palette.primary.main },
                 }}
               />
             </>
@@ -526,13 +505,13 @@ const QuillEditor = ({ userId }: QuillEditorProps) => {
                   sx={{
                     p: 2,
                     border: "2px solid",
-                    borderColor: "#e2e8f0",
+                    borderColor: "divider",
                     borderRadius: 2,
                     cursor: "pointer",
                     transition: "all 0.2s",
                     "&:hover": {
-                      borderColor: "#4f46e5",
-                      backgroundColor: "#f8fafc",
+                      borderColor: "primary.main",
+                      backgroundColor: "action.hover",
                     },
                   }}
                 >
@@ -612,8 +591,8 @@ const QuillEditor = ({ userId }: QuillEditorProps) => {
             <Paper
               sx={{
                 p: 2,
-                backgroundColor: "#f8fafc",
-                borderLeft: "4px solid #4f46e5",
+                backgroundColor: alpha(theme.palette.primary.main, 0.1),
+                borderLeft: `4px solid ${theme.palette.primary.main}`,
               }}
             >
               <Typography variant="body2" color="text.secondary">
@@ -659,8 +638,8 @@ const QuillEditor = ({ userId }: QuillEditorProps) => {
             <Paper
               sx={{
                 p: 2,
-                backgroundColor: "#fef2f2",
-                borderLeft: "4px solid #ef4444",
+                backgroundColor: alpha(theme.palette.error.main, 0.1),
+                borderLeft: `4px solid ${theme.palette.error.main}`,
               }}
             >
               <Typography variant="body2" color="error.dark">

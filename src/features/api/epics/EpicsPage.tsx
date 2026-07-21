@@ -18,12 +18,15 @@ import {
   fetchPointValues,
   type PointValue,
 } from "../../api/catalogService";
+import { useProject } from "../../../shared/contexts/ProjectContext";
+import { logError } from "../../../shared/utils/errorHandling";
 
 type EpicsPageProps = {
   userId: string;
 };
 
 const EpicsPage = ({ userId }: EpicsPageProps) => {
+  const { currentProject } = useProject();
   const [epics, setEpics] = useState<EpicWithDetails[]>([]);
   const [phases, setPhases] = useState<EpicPhase[]>([]);
   const [pointValues, setPointValues] = useState<PointValue[]>([]);
@@ -36,7 +39,7 @@ const EpicsPage = ({ userId }: EpicsPageProps) => {
 
     try {
       const [epicsData, phasesData, pointSystem] = await Promise.all([
-        fetchEpics(userId),
+        fetchEpics(userId, currentProject?.id ?? null),
         fetchEpicPhases(),
         fetchDefaultPointSystem(),
       ]);
@@ -49,7 +52,7 @@ const EpicsPage = ({ userId }: EpicsPageProps) => {
         setPointValues(points);
       }
     } catch (err) {
-      console.error("Error cargando datos:", err);
+      logError("epicsPage.load", err);
       setError("No se pudieron cargar las épicas. Intenta recargar la página.");
     } finally {
       setIsLoading(false);
@@ -58,14 +61,16 @@ const EpicsPage = ({ userId }: EpicsPageProps) => {
 
   useEffect(() => {
     void loadData();
-  }, [userId]);
+  }, [userId, currentProject]);
 
   const handleAddEpic = async () => {
+    if (!currentProject) return;
+
     try {
-      await createEpic(userId, { name: "Nueva épica" });
+      await createEpic(userId, { name: "Nueva épica", project_id: currentProject.id });
       await loadData();
     } catch (err) {
-      console.error("Error creando épica:", err);
+      logError("epicsPage.create", err);
       setError("No se pudo crear la épica.");
     }
   };

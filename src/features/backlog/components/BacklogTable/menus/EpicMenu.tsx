@@ -2,6 +2,7 @@ import { Menu, MenuItem, ListItemText, CircularProgress } from "@mui/material";
 import { useState, useEffect } from "react";
 import { fetchEpics } from "../../../../api/epicService";
 import type { Epic } from "../../../../api/epicService";
+import { logError } from "../../../../../shared/utils/errorHandling";
 
 type EpicMenuProps = {
   anchorEl: HTMLElement | null;
@@ -26,13 +27,9 @@ export const EpicMenu = ({
   useEffect(() => {
     if (anchorEl && projectId) {
       setLoading(true);
-      fetchEpics(userId)
-        .then((data) => {
-          // Filtrar épicas del proyecto actual
-          const filtered = data.filter((epic) => epic.project_id === projectId);
-          setEpics(filtered);
-        })
-        .catch((error) => console.error("Error loading epics:", error))
+      fetchEpics(userId, projectId)
+        .then((data) => setEpics(data))
+        .catch((error) => logError("backlog.epicMenu.load", error))
         .finally(() => setLoading(false));
     }
   }, [anchorEl, projectId, userId]);

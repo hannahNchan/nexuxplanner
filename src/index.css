@@ -1,3 +1,48 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+html,
+body,
+#root {
+  height: 100%;
+  max-width: 100vw;
+  overflow: hidden;
+}
+
+* {
+  scrollbar-width: none;
+}
+
+*::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+.roadmap-dependency-flow,
+.roadmap-dependency-flow .react-flow__renderer,
+.roadmap-dependency-flow .react-flow__pane,
+.roadmap-dependency-flow .react-flow__viewport,
+.roadmap-dependency-flow .react-flow__nodes,
+.roadmap-dependency-flow .react-flow__node,
+.roadmap-dependency-flow .react-flow__connectionline {
+  pointer-events: none !important;
+}
+
+.roadmap-dependency-flow .react-flow__edges,
+.roadmap-dependency-flow .react-flow__edge {
+  pointer-events: auto;
+}
+
+.roadmap-dependency-flow .react-flow__edge-path {
+  pointer-events: none;
+}
+
+.roadmap-dependency-flow .roadmap-dependency-hit-path {
+  pointer-events: stroke !important;
+}
+
+.roadmap-dependency-flow .roadmap-edge-action {
+  pointer-events: auto !important;
+}

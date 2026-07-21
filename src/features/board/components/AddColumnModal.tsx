@@ -10,6 +10,7 @@ import {
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import { useState } from "react";
+import { logError } from "../../../shared/utils/errorHandling";
 
 type AddColumnModalProps = {
   open: boolean;
@@ -29,7 +30,6 @@ const AddColumnModal = ({ open, onClose, onSave }: AddColumnModalProps) => {
   };
 
   const handleSave = async () => {
-    // Validación
     if (!columnName.trim()) {
       setError("El nombre de la columna es obligatorio");
       return;
@@ -47,7 +47,7 @@ const AddColumnModal = ({ open, onClose, onSave }: AddColumnModalProps) => {
       await onSave(columnName.trim());
       handleClose();
     } catch (err) {
-      console.error("Error creando columna:", err);
+      logError("board.addColumn", err);
       setError("No se pudo crear la columna. Intenta de nuevo.");
     } finally {
       setIsSaving(false);

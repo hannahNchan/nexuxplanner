@@ -12,6 +12,9 @@ import {
   Grid,
   Alert,
   Divider,
+  Avatar,
+  ToggleButton,
+  ToggleButtonGroup,
 } from "@mui/material";
 import { alpha, useTheme } from "@mui/material/styles";
 import AddIcon from "@mui/icons-material/Add";
@@ -24,6 +27,9 @@ import {
   isValidTag,
 } from "../../../shared/utils/tagHelpers";
 import type { ProjectWithTags } from "../../api/projectService";
+import type { Organization } from "../../api/organizationService";
+import { logError } from "../../../shared/utils/errorHandling";
+import OrganizationLogoCropDialog from "../../../shared/ui/OrganizationLogoCropDialog";
 
 type CreateProjectModalProps = {
   open: boolean;
@@ -33,9 +39,12 @@ type CreateProjectModalProps = {
     description: string,
     tags: string[],
     projectKey: string,
-    projectId?: string
+    projectId?: string,
+    organizationDraft?: { name: string; logoFile: File | null },
+    visibility?: ProjectWithTags["visibility"]
   ) => Promise<void>;
   editingProject?: ProjectWithTags | null;
+  activeOrganization?: Organization | null;
 };
 
 const CreateProjectModal = ({
@@ -43,6 +52,7 @@ const CreateProjectModal = ({
   onClose,
   onSave,
   editingProject = null,
+  activeOrganization = null,
 }: CreateProjectModalProps) => {
   const theme = useTheme();
   const [title, setTitle] = useState("");
@@ -50,13 +60,18 @@ const CreateProjectModal = ({
   const [projectKey, setProjectKey] = useState("");
   const [tags, setTags] = useState<string[]>([]);
   const [currentTagInput, setCurrentTagInput] = useState("");
+  const [organizationName, setOrganizationName] = useState("");
+  const [organizationLogoFile, setOrganizationLogoFile] = useState<File | null>(null);
+  const [organizationLogoPreview, setOrganizationLogoPreview] = useState("");
+  const [logoCropSourceFile, setLogoCropSourceFile] = useState<File | null>(null);
+  const [visibility, setVisibility] = useState<ProjectWithTags["visibility"]>("organization");
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [keyError, setKeyError] = useState<string | null>(null);
 
   const isEditing = !!editingProject;
+  const shouldCreateOrganization = !isEditing && !activeOrganization;
 
-  // Cargar datos del proyecto en modo edición
   useEffect(() => {
     if (editingProject) {
       setTitle(editingProject.title);
@@ -68,13 +83,17 @@ const CreateProjectModal = ({
       setDescription("");
       setProjectKey("");
       setTags([]);
+      setOrganizationName("");
+      setOrganizationLogoFile(null);
+      setOrganizationLogoPreview("");
+      setLogoCropSourceFile(null);
+      setVisibility("organization");
     }
     setCurrentTagInput("");
     setError(null);
     setKeyError(null);
   }, [editingProject, open]);
 
-  // Auto-generar sugerencia de siglas basada en el título
   const suggestedKey = useMemo(() => {
     if (!title || projectKey) return "";
 
@@ -96,7 +115,6 @@ const CreateProjectModal = ({
     return words[0].slice(0, 5);
   }, [title, projectKey]);
 
-  // Validar siglas del proyecto
   const validateProjectKey = (key: string): boolean => {
     if (!key) {
       setKeyError("Las siglas son obligatorias");
@@ -117,7 +135,6 @@ const CreateProjectModal = ({
     return true;
   };
 
-  // Memoizar los tags
   const memoizedTags = useMemo(() => {
     return tags.map((tag) => ({
       text: tag,
@@ -132,6 +149,11 @@ const CreateProjectModal = ({
     setProjectKey("");
     setTags([]);
     setCurrentTagInput("");
+    setOrganizationName("");
+    setOrganizationLogoFile(null);
+    setOrganizationLogoPreview("");
+    setLogoCropSourceFile(null);
+    setVisibility("organization");
     setError(null);
     setKeyError(null);
     onClose();
@@ -183,6 +205,36 @@ const CreateProjectModal = ({
     }
   };
 
+  const handleOrganizationLogoChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      setError("Selecciona una imagen válida para el logo.");
+      return;
+    }
+
+    if (file.size > 2 * 1024 * 1024) {
+      setError("El logo debe pesar menos de 2MB.");
+      return;
+    }
+
+    setError(null);
+    setLogoCropSourceFile(file);
+    event.target.value = "";
+  };
+
+  const handleOrganizationLogoCrop = (croppedFile: File) => {
+    if (organizationLogoPreview) {
+      URL.revokeObjectURL(organizationLogoPreview);
+    }
+
+    setOrganizationLogoFile(croppedFile);
+    setOrganizationLogoPreview(URL.createObjectURL(croppedFile));
+    setLogoCropSourceFile(null);
+    setError(null);
+  };
+
   const handleSave = async () => {
     if (!title.trim()) {
       setError("El nombre del proyecto es obligatorio");
@@ -190,6 +242,11 @@ const CreateProjectModal = ({
     }
 
     if (!validateProjectKey(projectKey)) {
+      return;
+    }
+
+    if (shouldCreateOrganization && !organizationName.trim()) {
+      setError("El nombre de la organización es obligatorio");
       return;
     }
 
@@ -207,11 +264,15 @@ const CreateProjectModal = ({
         description.trim(),
         tags,
         projectKey.trim(),
-        editingProject?.id
+        editingProject?.id,
+        shouldCreateOrganization
+          ? { name: organizationName.trim(), logoFile: organizationLogoFile }
+          : undefined,
+        visibility
       );
       handleClose();
     } catch (err) {
-      console.error("Error guardando proyecto:", err);
+      logError("projects.saveModal", err);
       setError("No se pudo guardar el proyecto. Intenta de nuevo.");
     } finally {
       setIsSaving(false);
@@ -230,7 +291,6 @@ const CreateProjectModal = ({
         },
       }}
     >
-      {/* Título mejorado */}
       <DialogTitle
         sx={{
           pb: 2,
@@ -281,6 +341,45 @@ const CreateProjectModal = ({
               </Typography>
 
               <Stack spacing={2.5}>
+                {!isEditing ? (
+                  shouldCreateOrganization ? (
+                    <Box>
+                      <Typography variant="subtitle2" fontWeight={800} gutterBottom>
+                        Organización
+                      </Typography>
+                      <Stack direction="row" spacing={2} alignItems="center">
+                        <Avatar
+                          src={organizationLogoPreview || undefined}
+                          variant="rounded"
+                          sx={{ width: 56, height: 56, fontWeight: 900, bgcolor: "primary.main" }}
+                        >
+                          {(organizationName || "OR").slice(0, 2).toUpperCase()}
+                        </Avatar>
+                        <Stack spacing={1} sx={{ flex: 1 }}>
+                          <TextField
+                            fullWidth
+                            label="Organización"
+                            placeholder="Ej: Lufthansa"
+                            value={organizationName}
+                            onChange={(event) => setOrganizationName(event.target.value)}
+                          />
+                          <Button variant="outlined" component="label" size="small" sx={{ alignSelf: "flex-start" }}>
+                            Subir logo
+                            <input type="file" hidden accept="image/*" onChange={handleOrganizationLogoChange} />
+                          </Button>
+                          <Typography variant="caption" color="text.secondary">
+                            Sube cualquier imagen y recortala en el cuadro para crear el logo.
+                          </Typography>
+                        </Stack>
+                      </Stack>
+                    </Box>
+                  ) : (
+                    <Alert severity="info">
+                      Este proyecto se creará dentro de <strong>{activeOrganization?.name}</strong>.
+                    </Alert>
+                  )
+                ) : null}
+
                 <TextField
                   autoFocus
                   fullWidth
@@ -320,6 +419,37 @@ const CreateProjectModal = ({
                     },
                   }}
                 />
+
+                {!isEditing ? (
+                  <Box>
+                    <Typography variant="subtitle2" fontWeight={800} gutterBottom>
+                      Visibilidad
+                    </Typography>
+                    <ToggleButtonGroup
+                      exclusive
+                      value={visibility}
+                      onChange={(_, nextVisibility) => {
+                        if (nextVisibility) {
+                          setVisibility(nextVisibility);
+                        }
+                      }}
+                      size="small"
+                      fullWidth
+                    >
+                      <ToggleButton value="organization">
+                        Visible para la organización
+                      </ToggleButton>
+                      <ToggleButton value="private">
+                        Privado
+                      </ToggleButton>
+                    </ToggleButtonGroup>
+                    <Typography variant="caption" color="text.secondary" sx={{ mt: 0.75, display: "block" }}>
+                      {visibility === "organization"
+                        ? "Todos los miembros de la organización pueden verlo; solo colaboradores del proyecto pueden editar."
+                        : "Solo colaboradores agregados al proyecto pueden verlo."}
+                    </Typography>
+                  </Box>
+                ) : null}
 
                 {suggestedKey && !projectKey && (
                   <Button
@@ -447,14 +577,15 @@ const CreateProjectModal = ({
                           size="small"
                           sx={{
                             bgcolor: tag.color,
-                            color: "#fff",
+                            color: theme.palette.getContrastText(tag.color),
                             fontWeight: 600,
                             border: `2px solid ${tag.color}`,
                             "& .MuiChip-deleteIcon": {
-                              color: "#fff",
+                              color: "inherit",
                               fontSize: "1rem",
+                              opacity: 0.85,
                               "&:hover": {
-                                color: "rgba(255, 255, 255, 0.8)",
+                                opacity: 1,
                               },
                             },
                           }}
@@ -492,7 +623,11 @@ const CreateProjectModal = ({
           variant="contained"
           onClick={handleSave}
           disabled={
-            isSaving || !title.trim() || !projectKey.trim() || !!keyError
+            isSaving ||
+            !title.trim() ||
+            !projectKey.trim() ||
+            !!keyError ||
+            (shouldCreateOrganization && !organizationName.trim())
           }
           startIcon={isEditing ? <EditIcon /> : <AddIcon />}
           sx={{
@@ -513,6 +648,13 @@ const CreateProjectModal = ({
             : "Crear proyecto"}
         </Button>
       </DialogActions>
+      <OrganizationLogoCropDialog
+        open={Boolean(logoCropSourceFile)}
+        file={logoCropSourceFile}
+        title="Recortar logo de organizacion"
+        onCancel={() => setLogoCropSourceFile(null)}
+        onCrop={handleOrganizationLogoCrop}
+      />
     </Dialog>
   );
 };
