@@ -22,6 +22,7 @@ import VisibilityOffIcon from "@mui/icons-material/VisibilityOff";
 import CloseIcon from "@mui/icons-material/Close";
 import FolderIcon from "@mui/icons-material/Folder";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
+import HistoryIcon from "@mui/icons-material/History";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import { faClipboardList } from "@fortawesome/free-solid-svg-icons";
 
@@ -31,6 +32,8 @@ import { EmptyState } from "../../../../shared/ui/EmptyState";
 import { WorkTableToolbar } from "../../../../shared/ui/WorkTable";
 import { useProject } from "../../../../shared/contexts/ProjectContext";
 import ReadOnlyProjectNotice from "../../../../shared/ui/ReadOnlyProjectNotice";
+import { getSprintDurationDays } from "../../../sprints/utils/sprintDates";
+import type { Sprint } from "../../../sprints/types/sprint";
 
 import BacklogTaskRow from "./BacklogTaskRow";
 import TaskEditorModal from "../../../board/components/TaskEditorModal";
@@ -56,10 +59,41 @@ const BacklogTable = ({ userId }: BacklogTableProps) => {
   const backlog = useBacklogTable(userId);
   const { currentProject } = useProject();
   const canEditProject = currentProject?.can_edit ?? true;
-  const sprintTarget =
-    backlog.sprintManager.activeSprint ||
-    backlog.sprintManager.sprints.find((s) => s.status === "future") ||
-    null;
+  const activeSprints = backlog.sprintManager.sprints.filter((sprint) => sprint.status === "active");
+  const futureSprints = backlog.sprintManager.sprints.filter((sprint) => sprint.status === "future");
+  const closedSprints = backlog.sprintManager.sprints.filter((sprint) => sprint.status === "closed");
+  const hasSprintPlanning = backlog.sprintManager.sprints.length > 0;
+  const canStartFutureSprint = activeSprints.length === 0;
+
+  const getTaskPointsTotal = (sprintId: string) =>
+    (backlog.sprintManager.sprintTasksById[sprintId] ?? []).reduce((total, task) => {
+      const points = Number(task.story_points);
+      return total + (Number.isFinite(points) ? points : 0);
+    }, 0);
+
+  const historicalPointsPerDay = (() => {
+    const samples = closedSprints
+      .map((sprint) => {
+        const durationDays = getSprintDurationDays(sprint.start_date, sprint.end_date);
+        if (!durationDays) return null;
+
+        const points = getTaskPointsTotal(sprint.id);
+        return points > 0 ? points / durationDays : null;
+      })
+      .filter((sample): sample is number => sample !== null);
+
+    if (samples.length === 0) return null;
+    return samples.reduce((total, sample) => total + sample, 0) / samples.length;
+  })();
+
+  const getSuggestedCapacity = (sprint: Sprint) => {
+    if (historicalPointsPerDay === null) return null;
+
+    const durationDays = getSprintDurationDays(sprint.start_date, sprint.end_date);
+    if (!durationDays) return null;
+
+    return Math.max(1, Math.round(historicalPointsPerDay * durationDays));
+  };
 
   if (!backlog.catalogsLoaded) {
     return (
@@ -191,7 +225,7 @@ const BacklogTable = ({ userId }: BacklogTableProps) => {
             flex: 1,
             minHeight: 0,
             display: "grid",
-            gridTemplateColumns: { xs: "1fr", lg: sprintTarget ? "minmax(0, 7fr) minmax(420px, 3fr)" : "1fr" },
+            gridTemplateColumns: { xs: "1fr", lg: hasSprintPlanning ? "minmax(0, 7fr) minmax(420px, 3fr)" : "1fr" },
             gap: 2,
             overflow: "hidden",
           }}
@@ -475,15 +509,127 @@ const BacklogTable = ({ userId }: BacklogTableProps) => {
             </Box>
           </Stack>
 
-          {sprintTarget ? (
-            <Box sx={{ minHeight: 0, overflow: "hidden", display: "flex", alignItems: "flex-start" }}>
-              <SprintDropZone
-                sprint={sprintTarget}
-                tasks={backlog.sprintManager.sprintTasks}
-                onStartSprint={async (sprintId) => {
-                  await backlog.sprintManager.startSprint(sprintId);
+          {hasSprintPlanning ? (
+            <Box sx={{ minHeight: 0, overflow: "hidden", display: "flex", alignItems: "stretch" }}>
+              <Paper
+                elevation={0}
+                sx={{
+                  width: "100%",
+                  minHeight: 0,
+                  borderRadius: 1,
+                  border: `1px solid ${theme.palette.divider}`,
+                  bgcolor: "background.paper",
+                  display: "flex",
+                  flexDirection: "column",
+                  overflow: "hidden",
                 }}
-              />
+              >
+                <Stack spacing={0.25} sx={{ p: 2, borderBottom: `1px solid ${theme.palette.divider}` }}>
+                  <Typography variant="subtitle1" fontWeight={900}>
+                    Planificación de Sprints
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Organiza el sprint activo, los próximos sprints y el histórico cerrado.
+                  </Typography>
+                </Stack>
+
+                <Stack
+                  spacing={2}
+                  sx={{
+                    flex: 1,
+                    minHeight: 0,
+                    overflowY: "auto",
+                    p: 2,
+                    scrollbarWidth: "none",
+                    "&::-webkit-scrollbar": {
+                      display: "none",
+                    },
+                  }}
+                >
+                  {activeSprints.length > 1 ? (
+                    <Alert severity="warning" variant="outlined">
+                      Hay más de un sprint activo en este proyecto. NexusPlanner usará el más reciente; completa uno antes de iniciar otro.
+                    </Alert>
+                  ) : null}
+
+                  <Stack spacing={1}>
+                    <Typography variant="caption" color="text.secondary" fontWeight={900}>
+                      SPRINT ACTIVO
+                    </Typography>
+                    {activeSprints.length === 0 ? (
+                      <Alert severity="info" variant="outlined">
+                        No hay sprint activo. Puedes iniciar un sprint futuro cuando estés lista.
+                      </Alert>
+                    ) : (
+                      activeSprints.map((sprint) => (
+                        <SprintDropZone
+                          key={sprint.id}
+                          sprint={sprint}
+                          tasks={backlog.sprintManager.sprintTasksById[sprint.id] ?? []}
+                          capacityPoints={getSuggestedCapacity(sprint)}
+                          capacitySourceLabel="Basada en sprints cerrados"
+                        />
+                      ))
+                    )}
+                  </Stack>
+
+                  <Stack spacing={1}>
+                    <Typography variant="caption" color="text.secondary" fontWeight={900}>
+                      PRÓXIMOS SPRINTS
+                    </Typography>
+                    {futureSprints.length === 0 ? (
+                      <Typography variant="body2" color="text.secondary">
+                        No hay sprints planificados.
+                      </Typography>
+                    ) : (
+                      futureSprints.map((sprint) => (
+                        <SprintDropZone
+                          key={sprint.id}
+                          sprint={sprint}
+                          tasks={backlog.sprintManager.sprintTasksById[sprint.id] ?? []}
+                          capacityPoints={getSuggestedCapacity(sprint)}
+                          capacitySourceLabel="Basada en sprints cerrados"
+                          compact
+                          canStartSprint={canStartFutureSprint}
+                          onStartSprint={async (sprintId) => {
+                            try {
+                              await backlog.sprintManager.startSprint(sprintId);
+                            } catch (error) {
+                              backlog.showError("backlog.startSprint", error, "No se pudo iniciar el sprint.");
+                            }
+                          }}
+                        />
+                      ))
+                    )}
+                  </Stack>
+
+                  <Stack spacing={1}>
+                    <Stack direction="row" spacing={1} alignItems="center">
+                      <HistoryIcon fontSize="small" color="disabled" />
+                      <Typography variant="caption" color="text.secondary" fontWeight={900}>
+                        SPRINTS CERRADOS
+                      </Typography>
+                    </Stack>
+                    {closedSprints.length === 0 ? (
+                      <Typography variant="body2" color="text.secondary">
+                        Todavía no hay sprints cerrados.
+                      </Typography>
+                    ) : (
+                      closedSprints.slice(0, 5).map((sprint) => (
+                        <SprintDropZone
+                          key={sprint.id}
+                          sprint={sprint}
+                          tasks={backlog.sprintManager.sprintTasksById[sprint.id] ?? []}
+                          capacityPoints={getSuggestedCapacity(sprint)}
+                          capacitySourceLabel="Basada en sprints cerrados"
+                          compact
+                          canAcceptTasks={false}
+                        />
+                      ))
+                    )}
+                  </Stack>
+                </Stack>
+              </Paper>
             </Box>
           ) : null}
         </Box>
@@ -585,6 +731,7 @@ const BacklogTable = ({ userId }: BacklogTableProps) => {
             currentUserId={userId}
             defaultDestination="backlog"
             disableDestinationSelector={true}
+            presentation={backlog.taskEditorPresentation}
             onClose={() => {
               backlog.setIsTaskModalOpen(false);
               backlog.setSelectedBacklogTask(null);

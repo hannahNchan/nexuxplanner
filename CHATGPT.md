@@ -179,6 +179,13 @@ Layout scroll rule:
 - The footer lives in the sidebar, not below the main content, so it never reduces the route workspace height.
 - Scrollbars should remain visually hidden while preserving wheel/trackpad scrolling.
 
+Task editor rule:
+
+- `TaskEditorModal` supports two presentations. New task creation should open as a centered modal. Opening an existing ticket reference/card should open as a right-side drawer/panel, similar to Jira issue detail.
+- The main pane focuses on title, subtitle, and rich description.
+- The side pane holds task properties such as destination, assignee, status, type, priority, story points, and destructive actions.
+- Keep save/delete behavior compatible with both Board and Backlog callers.
+
 ## Core Contexts
 
 ### `ProjectContext`
@@ -375,7 +382,7 @@ Rules:
 - A new user starts with no organizations and can create an organization plus one or more projects.
 - A user can belong to many organizations.
 - Users cannot see organizations created by other users unless they are invited and accept.
-- Organization owner/admin can invite registered NexusPlanner users to the organization.
+- Organization owner/admin can invite registered NexusPlanner users to the organization by exact email address.
 - The user menu shows pending organization invitations in real time and lets the invited user accept or reject.
 - Accepting an organization invitation calls `accept_organization_invitation`, which atomically marks the invitation accepted and inserts the user into `organization_members` as `member`.
 - Once accepted, the user can see all `organization` visibility projects in that organization.
@@ -477,10 +484,14 @@ Important fields:
 Rules:
 
 - Backlog can create future sprints.
+- Sprint duration is fixed by product rule: 1 week is exactly 7 days, 15 days is exactly 15 days, and 1 month ends on the same calendar day of the next month. The UI must not create open-ended or custom-range sprints.
+- A project must have at most one active sprint. UI/service code should block starting a future sprint while another sprint is active, and the database keeps a partial unique index on active sprints per project.
 - Board shows only the active sprint. Future sprints stay in Backlog/Sprint planning until they are started.
+- Board header shows the active sprint status and days remaining from the normalized sprint end date.
 - Tasks are assigned to a sprint through `tasks.sprint_id`.
 - Starting a sprint sets `status = active`.
-- Closing a sprint sets `status = closed`.
+- Closing/completing a sprint sets `status = closed`.
+- Completing a sprint opens a decision modal for incomplete tasks. Each incomplete task can be moved to backlog, moved to an existing future sprint, or moved to a newly created future sprint.
 
 ### Epic-Task Relationship
 
@@ -613,7 +624,8 @@ Rules:
 - New users with no organization create one from the project creation modal or user settings.
 - Creating a project while an organization is active uses that organization and does not let the user switch organization inside the project modal.
 - Users with more than one organization can switch from the account menu.
-- Owner/admin can invite registered users to the organization from user settings.
+- Owner/admin can invite registered users to the organization from user settings by exact email address. Do not list all registered users or search globally by name.
+- Project settings includes an `Organización` section for the active organization. It shows organization members, pending invitations, role changes, member removal, and email-based organization invites.
 - Invited users receive a pending organization notification in the account menu; accepting adds them to the organization.
 - Organization members can view organization-visible projects by default, but they cannot change project data unless they are added as project members.
 - Project owners add organization members to a project from the Board collaborators control.
@@ -745,9 +757,12 @@ Responsibilities:
 
 Product rules:
 
-- Sprints can be fixed-range or open-ended.
-- If a sprint is open-ended, `start_date` is set and `end_date` can be null.
-- If it is fixed-range, the UI should clearly show the end date.
+- Sprints are fixed-duration only: 7 exact days, 15 exact days, or 1 exact month.
+- `CreateSprintModal` calculates `end_date` automatically from `start_date` and the selected duration; users should not enter arbitrary end dates.
+- Legacy sprints with invalid/custom end dates may be displayed using the closest valid duration, but new UI-created sprints should always store an exact allowed range.
+- Board sprint actions show days remaining, status, and a complete action that closes the active sprint.
+- Backlog shows sprint planning as a right-side panel grouped into active sprint, upcoming future sprints, and recently closed sprints. Future sprints can hold planned tasks before they start; closed sprints are read-only and do not accept drag-and-drop.
+- Story points are human estimates and should not change automatically when roadmap dates or sprint duration change. Sprint cards can use story points for planning summaries: planned points, suggested capacity, available points, or overload. Suggested capacity is derived from closed sprint history when available; without history the UI should say that no historical capacity exists instead of inventing a default.
 
 ### Roadmap
 

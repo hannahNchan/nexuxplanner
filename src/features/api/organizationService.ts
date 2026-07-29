@@ -222,6 +222,27 @@ export const fetchOrganizationMembers = async (
   });
 };
 
+export const updateOrganizationMemberRole = async (
+  memberId: string,
+  role: OrganizationMemberWithProfile["role"]
+): Promise<void> => {
+  const { error } = await supabase
+    .from("organization_members")
+    .update({ role })
+    .eq("id", memberId);
+
+  if (error) throw error;
+};
+
+export const removeOrganizationMember = async (memberId: string): Promise<void> => {
+  const { error } = await supabase
+    .from("organization_members")
+    .delete()
+    .eq("id", memberId);
+
+  if (error) throw error;
+};
+
 export const createOrganizationInvitation = async (
   organizationId: string,
   inviteeId: string
@@ -251,6 +272,24 @@ export const createOrganizationInvitation = async (
     }
     throw error;
   }
+};
+
+export const createOrganizationInvitationByEmail = async (
+  organizationId: string,
+  email: string
+): Promise<void> => {
+  const normalizedEmail = email.trim().toLowerCase();
+
+  if (!normalizedEmail) {
+    throw new Error("El correo es obligatorio.");
+  }
+
+  const { error } = await supabase.rpc("create_organization_invitation_by_email", {
+    p_organization_id: organizationId,
+    p_email: normalizedEmail,
+  });
+
+  if (error) throw error;
 };
 
 export const fetchOrganizationPendingInvitations = async (

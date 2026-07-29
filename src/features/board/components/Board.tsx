@@ -228,6 +228,7 @@ const Board = ({ userId, userEmail, header }: BoardProps) => {
         priorities={board.priorities}
         pointValues={board.pointValues}
         currentUserId={userId}
+        presentation={board.taskEditorPresentation}
         onClose={() => board.setIsModalOpen(false)}
         onSave={board.handleSaveTask}
         onDelete={board.handleDeleteTask}

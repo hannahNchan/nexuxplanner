@@ -1,8 +1,10 @@
 import {
   Box,
   Button,
+  Divider,
   Dialog,
   DialogContent,
+  Drawer,
   FormControl,
   IconButton,
   InputLabel,
@@ -14,6 +16,7 @@ import {
   Typography,
   Chip,
   Alert,
+  Tooltip,
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import DeleteIcon from "@mui/icons-material/Delete";
@@ -22,7 +25,8 @@ import ListAltIcon from "@mui/icons-material/ListAlt";
 import DashboardIcon from "@mui/icons-material/Dashboard";
 import ImageIcon from "@mui/icons-material/Image";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { alpha, useTheme } from "@mui/material/styles";
+import { useTheme } from "@mui/material/styles";
+import useMediaQuery from "@mui/material/useMediaQuery";
 import type { IssueType, Priority, PointValue } from "../../api/catalogService";
 import IconRenderer from "../../../shared/ui/IconRenderer";
 import UserAvatar from "../../../shared/ui/UserAvatar";
@@ -52,6 +56,7 @@ type TaskEditorModalProps = {
   currentUserId: string;
   defaultDestination?: "backlog" | "scrum";
   disableDestinationSelector?: boolean;
+  presentation?: "drawer" | "modal";
   onClose: () => void;
   onSave: (taskId: string, updates: {
     title: string;
@@ -80,11 +85,13 @@ const TaskEditorModal = ({
   currentUserId,
   defaultDestination = "scrum",
   disableDestinationSelector = false,
+  presentation = "drawer",
   onClose,
   onSave,
   onDelete,
 }: TaskEditorModalProps) => {
   const theme = useTheme();
+  const isCompact = useMediaQuery(theme.breakpoints.down("md"));
   const descriptionEditorRef = useRef<TaskDescriptionEditorHandle | null>(null);
 
   const [title, setTitle] = useState("");
@@ -200,17 +207,302 @@ const TaskEditorModal = ({
     }
   };
 
+  if (presentation === "modal") {
+    return (
+      <>
+        <Dialog
+          open={open}
+          onClose={onClose}
+          maxWidth="md"
+          fullWidth
+          PaperProps={{
+            sx: {
+              minHeight: "78vh",
+              maxHeight: "90vh",
+            },
+          }}
+        >
+          <Box
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 2,
+              p: 2,
+              borderBottom: "1px solid",
+              borderColor: "divider",
+            }}
+          >
+            <Stack direction="row" spacing={1.25} alignItems="center" sx={{ minWidth: 0 }}>
+              <Tooltip title="Cerrar">
+                <IconButton onClick={onClose} size="small">
+                  <CloseIcon />
+                </IconButton>
+              </Tooltip>
+              <Box sx={{ minWidth: 0 }}>
+                <Typography variant="caption" color="text.secondary" fontWeight={800}>
+                  Crear tarea
+                </Typography>
+                <Typography variant="subtitle1" fontWeight={900} noWrap>
+                  {title || "Nueva tarea"}
+                </Typography>
+              </Box>
+            </Stack>
+
+            <Stack direction="row" spacing={1}>
+              {isUploadingImage ? (
+                <Chip icon={<ImageIcon />} label="Subiendo imagen..." size="small" color="info" />
+              ) : null}
+
+              <Button
+                variant="contained"
+                size="small"
+                startIcon={<SaveIcon />}
+                onClick={handleSave}
+                disabled={isSaving || !task || isUploadingImage}
+              >
+                {isSaving ? "Guardando..." : "Crear"}
+              </Button>
+            </Stack>
+          </Box>
+
+          <DialogContent sx={{ p: 3 }}>
+            <Stack spacing={3}>
+              {errorMessage ? <Alert severity="error">{errorMessage}</Alert> : null}
+
+              <TextField
+                fullWidth
+                variant="outlined"
+                label="Título de la tarea"
+                placeholder="Escribe el título..."
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                InputProps={{
+                  sx: {
+                    fontSize: 20,
+                    fontWeight: 700,
+                  },
+                }}
+              />
+
+              <TextField
+                fullWidth
+                variant="outlined"
+                label="Subtítulo (opcional)"
+                placeholder="Añade un breve resumen..."
+                value={subtitle}
+                onChange={(e) => setSubtitle(e.target.value)}
+              />
+
+              <Paper
+                elevation={0}
+                sx={{
+                  p: 2,
+                  borderRadius: 1,
+                  border: `1px solid ${theme.palette.divider}`,
+                  bgcolor: "background.paper",
+                }}
+              >
+                <Stack spacing={2}>
+                  <FormControl fullWidth disabled={disableDestinationSelector}>
+                    <InputLabel>Destino</InputLabel>
+                    <Select
+                      value={destination}
+                      label="Destino"
+                      onChange={(e) => setDestination(e.target.value as "backlog" | "scrum")}
+                    >
+                      <MenuItem value="backlog">
+                        <Stack direction="row" spacing={1} alignItems="center">
+                          <ListAltIcon fontSize="small" />
+                          <Box>
+                            <Typography variant="body2" fontWeight={700}>
+                              Backlog
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              Pendiente de planificación
+                            </Typography>
+                          </Box>
+                        </Stack>
+                      </MenuItem>
+                      <MenuItem value="scrum">
+                        <Stack direction="row" spacing={1} alignItems="center">
+                          <DashboardIcon fontSize="small" />
+                          <Box>
+                            <Typography variant="body2" fontWeight={700}>
+                              Tablero Scrum
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              Trabajo activo
+                            </Typography>
+                          </Box>
+                        </Stack>
+                      </MenuItem>
+                    </Select>
+                  </FormControl>
+
+                  {disableDestinationSelector ? (
+                    <Alert severity="info" variant="outlined">
+                      Esta tarea se creará en el Backlog. Planifícala en un sprint cuando esté lista.
+                    </Alert>
+                  ) : null}
+                </Stack>
+              </Paper>
+
+              <Stack direction={{ xs: "column", md: "row" }} spacing={2}>
+                <FormControl fullWidth>
+                  <InputLabel>Asignado a</InputLabel>
+                  <Select
+                    value={assigneeId}
+                    label="Asignado a"
+                    onChange={(e) => setAssigneeId(e.target.value)}
+                  >
+                    <MenuItem value="">
+                      <em>Sin asignar</em>
+                    </MenuItem>
+                    {projectMembers.map((member) => (
+                      <MenuItem key={member.user_id} value={member.user_id}>
+                        <Stack direction="row" spacing={1} alignItems="center">
+                          <UserAvatar userId={member.user_id} size={24} />
+                          <span>{member.user_profiles?.full_name || "Sin nombre"}</span>
+                          {member.user_id === currentUserId ? (
+                            <Chip label="Tú" size="small" color="primary" />
+                          ) : null}
+                        </Stack>
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+
+                <FormControl fullWidth disabled={destination === "backlog"}>
+                  <InputLabel>Estado</InputLabel>
+                  <Select
+                    value={columnId}
+                    label="Estado"
+                    onChange={(e) => setColumnId(e.target.value)}
+                  >
+                    {destination === "backlog" ? (
+                      <MenuItem value="">
+                        <em>No aplica para Backlog</em>
+                      </MenuItem>
+                    ) : (
+                      columns.map((column) => (
+                        <MenuItem key={column.id} value={column.id}>
+                          {column.title}
+                        </MenuItem>
+                      ))
+                    )}
+                  </Select>
+                </FormControl>
+              </Stack>
+
+              <Stack direction={{ xs: "column", md: "row" }} spacing={2}>
+                <FormControl fullWidth>
+                  <InputLabel>Tipo</InputLabel>
+                  <Select
+                    value={issueTypeId}
+                    label="Tipo"
+                    onChange={(e) => setIssueTypeId(e.target.value)}
+                  >
+                    <MenuItem value="">
+                      <em>Sin asignar</em>
+                    </MenuItem>
+                    {taskIssueTypes.map((type) => (
+                      <MenuItem key={type.id} value={type.id}>
+                        <Stack direction="row" spacing={1} alignItems="center">
+                          <IconRenderer icon={type.icon} />
+                          <span>{type.name}</span>
+                        </Stack>
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+
+                <FormControl fullWidth>
+                  <InputLabel>Prioridad</InputLabel>
+                  <Select
+                    value={priorityId}
+                    label="Prioridad"
+                    onChange={(e) => setPriorityId(e.target.value)}
+                  >
+                    <MenuItem value="">
+                      <em>Sin asignar</em>
+                    </MenuItem>
+                    {priorities.map((priority) => (
+                      <MenuItem key={priority.id} value={priority.id}>
+                        <Stack direction="row" spacing={1} alignItems="center">
+                          <Box
+                            sx={{
+                              width: 12,
+                              height: 12,
+                              borderRadius: "50%",
+                              backgroundColor: priority.color || theme.palette.action.disabledBackground,
+                            }}
+                          />
+                          <span>{priority.name}</span>
+                        </Stack>
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+
+                <FormControl fullWidth>
+                  <InputLabel>Story points</InputLabel>
+                  <Select
+                    value={storyPoints}
+                    label="Story points"
+                    onChange={(e) => setStoryPoints(e.target.value)}
+                  >
+                    <MenuItem value="">
+                      <em>Sin estimar</em>
+                    </MenuItem>
+                    {pointValues.map((point) => (
+                      <MenuItem key={point.id} value={point.value}>
+                        {point.value}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Stack>
+
+              <TaskDescriptionEditor
+                ref={descriptionEditorRef}
+                open={open}
+                initialDescription={task?.description ?? ""}
+                onError={setErrorMessage}
+                onUploadingChange={setIsUploadingImage}
+              />
+            </Stack>
+          </DialogContent>
+        </Dialog>
+
+        <TaskDeleteDialog
+          open={deleteDialogOpen}
+          taskTitle={task?.title}
+          isDeleting={isDeleting}
+          onClose={() => setDeleteDialogOpen(false)}
+          onConfirm={handleConfirmDelete}
+        />
+      </>
+    );
+  }
+
   return (
     <>
-      <Dialog
+      <Drawer
+        anchor="right"
         open={open}
         onClose={onClose}
-        maxWidth="md"
-        fullWidth
         PaperProps={{
           sx: {
-            minHeight: "85vh",
-            maxHeight: "90vh",
+            width: {
+              xs: "100vw",
+              md: "min(1120px, calc(100vw - 72px))",
+            },
+            maxWidth: "100vw",
+            height: "100vh",
+            bgcolor: "background.default",
+            display: "flex",
+            flexDirection: "column",
           },
         }}
       >
@@ -219,14 +511,30 @@ const TaskEditorModal = ({
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
-            p: 2,
+            gap: 2,
+            px: { xs: 2, md: 3 },
+            py: 1.5,
             borderBottom: "1px solid",
             borderColor: "divider",
+            bgcolor: "background.paper",
+            flexShrink: 0,
           }}
         >
-          <IconButton onClick={onClose} size="small">
-            <CloseIcon />
-          </IconButton>
+          <Stack direction="row" spacing={1.25} alignItems="center" sx={{ minWidth: 0 }}>
+            <Tooltip title="Cerrar">
+              <IconButton onClick={onClose} size="small">
+                <CloseIcon />
+              </IconButton>
+            </Tooltip>
+            <Box sx={{ minWidth: 0 }}>
+              <Typography variant="caption" color="text.secondary" fontWeight={800}>
+                {destination === "backlog" ? "Backlog" : "Tablero Scrum"}
+              </Typography>
+              <Typography variant="subtitle1" fontWeight={900} noWrap>
+                {task ? title || task.title : "Editar tarea"}
+              </Typography>
+            </Box>
+          </Stack>
 
           <Stack direction="row" spacing={1}>
             {isUploadingImage && (
@@ -237,17 +545,6 @@ const TaskEditorModal = ({
                 color="info"
               />
             )}
-            
-            <Button
-              variant="outlined"
-              color="error"
-              size="small"
-              startIcon={<DeleteIcon />}
-              onClick={handleOpenDeleteDialog}
-              disabled={!task}
-            >
-              Eliminar
-            </Button>
 
             <Button
               variant="contained"
@@ -261,215 +558,307 @@ const TaskEditorModal = ({
           </Stack>
         </Box>
 
-        <DialogContent sx={{ p: 3 }}>
-          <Stack spacing={3}>
-            {errorMessage ? <Alert severity="error">{errorMessage}</Alert> : null}
+        <Box
+          sx={{
+            flex: 1,
+            minHeight: 0,
+            overflow: "auto",
+            scrollbarWidth: "none",
+            "&::-webkit-scrollbar": {
+              display: "none",
+            },
+          }}
+        >
+          <Box
+            sx={{
+              display: "grid",
+              gridTemplateColumns: { xs: "1fr", md: "minmax(0, 1fr) 340px" },
+              gap: { xs: 2, md: 3 },
+              p: { xs: 2, md: 3 },
+              alignItems: "start",
+            }}
+          >
+            <Stack spacing={2.5} sx={{ minWidth: 0 }}>
+              {errorMessage ? <Alert severity="error">{errorMessage}</Alert> : null}
 
-            <TextField
-              fullWidth
-              variant="outlined"
-              label="Título de la tarea"
-              placeholder="Escribe el título..."
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              InputProps={{
-                sx: {
-                  fontSize: 20,
-                  fontWeight: 600,
-                },
-              }}
-            />
+              <Paper
+                elevation={0}
+                sx={{
+                  p: { xs: 2, md: 2.5 },
+                  borderRadius: 1,
+                  border: `1px solid ${theme.palette.divider}`,
+                  bgcolor: "background.paper",
+                }}
+              >
+                <Stack spacing={2}>
+                  <TextField
+                    fullWidth
+                    variant="standard"
+                    placeholder="Escribe el título..."
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    InputProps={{
+                      disableUnderline: true,
+                      sx: {
+                        fontSize: { xs: 24, md: 30 },
+                        fontWeight: 900,
+                        lineHeight: 1.15,
+                      },
+                    }}
+                  />
 
-            <TextField
-              fullWidth
-              variant="outlined"
-              label="Subtítulo (opcional)"
-              placeholder="Añade un breve resumen..."
-              value={subtitle}
-              onChange={(e) => setSubtitle(e.target.value)}
-              InputProps={{
-                sx: {
-                  fontSize: 16,
-                },
-              }}
-            />
+                  <TextField
+                    fullWidth
+                    variant="standard"
+                    placeholder="Añade un breve resumen..."
+                    value={subtitle}
+                    onChange={(e) => setSubtitle(e.target.value)}
+                    InputProps={{
+                      disableUnderline: true,
+                      sx: {
+                        fontSize: 16,
+                        color: "text.secondary",
+                      },
+                    }}
+                  />
+                </Stack>
+              </Paper>
+
+              <Paper
+                elevation={0}
+                sx={{
+                  p: { xs: 2, md: 2.5 },
+                  borderRadius: 1,
+                  border: `1px solid ${theme.palette.divider}`,
+                  bgcolor: "background.paper",
+                }}
+              >
+                <Stack spacing={1.5}>
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <Typography variant="subtitle2" fontWeight={900}>
+                      Descripción
+                    </Typography>
+                    {isUploadingImage ? (
+                      <Chip
+                        icon={<ImageIcon />}
+                        label="Subiendo imagen"
+                        size="small"
+                        color="info"
+                      />
+                    ) : null}
+                  </Stack>
+
+                  <TaskDescriptionEditor
+                    ref={descriptionEditorRef}
+                    open={open}
+                    initialDescription={task?.description ?? ""}
+                    onError={setErrorMessage}
+                    onUploadingChange={setIsUploadingImage}
+                  />
+                </Stack>
+              </Paper>
+            </Stack>
 
             <Paper
+              elevation={0}
               sx={{
+                position: { md: "sticky" },
+                top: { md: 24 },
                 p: 2,
-                borderRadius: 2,
-                bgcolor: alpha(theme.palette.info.main, 0.05),
-                border: `1px solid ${alpha(theme.palette.info.main, 0.2)}`,
+                borderRadius: 1,
+                border: `1px solid ${theme.palette.divider}`,
+                bgcolor: "background.paper",
               }}
             >
-              <FormControl fullWidth disabled={disableDestinationSelector}>
-                <InputLabel>Destino de la tarea</InputLabel>
-                <Select
-                  value={destination}
-                  label="Destino de la tarea"
-                  onChange={(e) => setDestination(e.target.value as "backlog" | "scrum")}
-                >
-                  <MenuItem value="backlog">
-                    <Stack direction="row" spacing={1} alignItems="center">
-                      <ListAltIcon fontSize="small" />
-                      <Box>
-                        <Typography variant="body2" fontWeight={600}>
-                          Backlog
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          Tareas pendientes sin asignar al tablero
-                        </Typography>
-                      </Box>
-                    </Stack>
-                  </MenuItem>
-                  <MenuItem value="scrum">
-                    <Stack direction="row" spacing={1} alignItems="center">
-                      <DashboardIcon fontSize="small" />
-                      <Box>
-                        <Typography variant="body2" fontWeight={600}>
-                          Tablero Scrum
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          Tareas activas en columnas del tablero
-                        </Typography>
-                      </Box>
-                    </Stack>
-                  </MenuItem>
-                </Select>
-              </FormControl>
+              <Stack spacing={2}>
+                <Stack spacing={0.5}>
+                  <Typography variant="subtitle2" fontWeight={900}>
+                    Propiedades
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Ajusta estado, asignación y estimación sin perder de vista la descripción.
+                  </Typography>
+                </Stack>
 
-              {disableDestinationSelector && (
-                <Alert severity="info" sx={{ mt: 2 }}>
-                  Esta tarea se creará en el Backlog. Muévela al Tablero Scrum cuando esté lista.
-                </Alert>
-              )}
-            </Paper>
+                <Divider />
 
-<FormControl fullWidth>
-  <InputLabel>Asignado a</InputLabel>
-  <Select
-    value={assigneeId}
-    label="Asignado a"
-    onChange={(e) => setAssigneeId(e.target.value)}
-  >
-    <MenuItem value="">
-      <em>Sin asignar</em>
-    </MenuItem>
-    {projectMembers.map((member) => (
-      <MenuItem key={member.user_id} value={member.user_id}>
-        <Stack direction="row" spacing={1} alignItems="center">
-          <UserAvatar userId={member.user_id} size={24} />
-          <span>{member.user_profiles?.full_name || "Sin nombre"}</span>
-          {member.user_id === currentUserId && (
-            <Chip label="Tú" size="small" color="primary" />
-          )}
-        </Stack>
-      </MenuItem>
-    ))}
-  </Select>
-</FormControl>
-
-            <Stack direction="row" spacing={2}>
-              <FormControl fullWidth>
-                <InputLabel>Tipo de Issue</InputLabel>
-                <Select
-                  value={issueTypeId}
-                  label="Tipo de Issue"
-                  onChange={(e) => setIssueTypeId(e.target.value)}
-                >
-                  <MenuItem value="">
-                    <em>Sin asignar</em>
-                  </MenuItem>
-                  {taskIssueTypes.map((type) => (
-                    <MenuItem key={type.id} value={type.id}>
+                <FormControl fullWidth size={isCompact ? "medium" : "small"} disabled={disableDestinationSelector}>
+                  <InputLabel>Destino</InputLabel>
+                  <Select
+                    value={destination}
+                    label="Destino"
+                    onChange={(e) => setDestination(e.target.value as "backlog" | "scrum")}
+                  >
+                    <MenuItem value="backlog">
                       <Stack direction="row" spacing={1} alignItems="center">
-                        <IconRenderer icon={type.icon} />
-                        <span>{type.name}</span>
+                        <ListAltIcon fontSize="small" />
+                        <Box>
+                          <Typography variant="body2" fontWeight={700}>
+                            Backlog
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            Pendiente de planificación
+                          </Typography>
+                        </Box>
                       </Stack>
                     </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-              <FormControl fullWidth>
-                <InputLabel>Prioridad</InputLabel>
-                <Select
-                  value={priorityId}
-                  label="Prioridad"
-                  onChange={(e) => setPriorityId(e.target.value)}
-                >
-                  <MenuItem value="">
-                    <em>Sin asignar</em>
-                  </MenuItem>
-                  {priorities.map((priority) => (
-                    <MenuItem key={priority.id} value={priority.id}>
+                    <MenuItem value="scrum">
                       <Stack direction="row" spacing={1} alignItems="center">
-                        <Box
-                          sx={{
-                            width: 12,
-                            height: 12,
-                            borderRadius: "50%",
-                            backgroundColor: priority.color || theme.palette.action.disabledBackground,
-                          }}
-                        />
-                        <span>{priority.name}</span>
+                        <DashboardIcon fontSize="small" />
+                        <Box>
+                          <Typography variant="body2" fontWeight={700}>
+                            Tablero Scrum
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            Trabajo activo
+                          </Typography>
+                        </Box>
                       </Stack>
                     </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Stack>
+                  </Select>
+                </FormControl>
 
-            <Stack direction="row" spacing={2}>
-              <FormControl fullWidth disabled={destination === "backlog"}>
-                <InputLabel>Estado</InputLabel>
-                <Select
-                  value={columnId}
-                  label="Estado"
-                  onChange={(e) => setColumnId(e.target.value)}
-                >
-                  {destination === "backlog" ? (
+                {disableDestinationSelector ? (
+                  <Alert severity="info" variant="outlined">
+                    Esta tarea vive en el Backlog hasta que la planifiques en un sprint.
+                  </Alert>
+                ) : null}
+
+                <FormControl fullWidth size={isCompact ? "medium" : "small"}>
+                  <InputLabel>Asignado a</InputLabel>
+                  <Select
+                    value={assigneeId}
+                    label="Asignado a"
+                    onChange={(e) => setAssigneeId(e.target.value)}
+                  >
                     <MenuItem value="">
-                      <em>No aplica para Backlog</em>
+                      <em>Sin asignar</em>
                     </MenuItem>
-                  ) : (
-                    columns.map((column) => (
-                      <MenuItem key={column.id} value={column.id}>
-                        {column.title}
+                    {projectMembers.map((member) => (
+                      <MenuItem key={member.user_id} value={member.user_id}>
+                        <Stack direction="row" spacing={1} alignItems="center">
+                          <UserAvatar userId={member.user_id} size={24} />
+                          <span>{member.user_profiles?.full_name || "Sin nombre"}</span>
+                          {member.user_id === currentUserId && (
+                            <Chip label="Tú" size="small" color="primary" />
+                          )}
+                        </Stack>
                       </MenuItem>
-                    ))
-                  )}
-                </Select>
-              </FormControl>
+                    ))}
+                  </Select>
+                </FormControl>
 
-              <FormControl fullWidth>
-                <InputLabel>Story Points</InputLabel>
-                <Select
-                  value={storyPoints}
-                  label="Story Points"
-                  onChange={(e) => setStoryPoints(e.target.value)}
-                >
-                  <MenuItem value="">
-                    <em>Sin estimar</em>
-                  </MenuItem>
-                  {pointValues.map((point) => (
-                    <MenuItem key={point.id} value={point.value}>
-                      {point.value}
+                <FormControl fullWidth size={isCompact ? "medium" : "small"}>
+                  <InputLabel>Estado</InputLabel>
+                  <Select
+                    value={columnId}
+                    label="Estado"
+                    disabled={destination === "backlog"}
+                    onChange={(e) => setColumnId(e.target.value)}
+                  >
+                    {destination === "backlog" ? (
+                      <MenuItem value="">
+                        <em>No aplica para Backlog</em>
+                      </MenuItem>
+                    ) : (
+                      columns.map((column) => (
+                        <MenuItem key={column.id} value={column.id}>
+                          {column.title}
+                        </MenuItem>
+                      ))
+                    )}
+                  </Select>
+                </FormControl>
+
+                <Divider />
+
+                <FormControl fullWidth size={isCompact ? "medium" : "small"}>
+                  <InputLabel>Tipo</InputLabel>
+                  <Select
+                    value={issueTypeId}
+                    label="Tipo"
+                    onChange={(e) => setIssueTypeId(e.target.value)}
+                  >
+                    <MenuItem value="">
+                      <em>Sin asignar</em>
                     </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Stack>
+                    {taskIssueTypes.map((type) => (
+                      <MenuItem key={type.id} value={type.id}>
+                        <Stack direction="row" spacing={1} alignItems="center">
+                          <IconRenderer icon={type.icon} />
+                          <span>{type.name}</span>
+                        </Stack>
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
 
-            <TaskDescriptionEditor
-              ref={descriptionEditorRef}
-              open={open}
-              initialDescription={task?.description ?? ""}
-              onError={setErrorMessage}
-              onUploadingChange={setIsUploadingImage}
-            />
-          </Stack>
-        </DialogContent>
-      </Dialog>
+                <FormControl fullWidth size={isCompact ? "medium" : "small"}>
+                  <InputLabel>Prioridad</InputLabel>
+                  <Select
+                    value={priorityId}
+                    label="Prioridad"
+                    onChange={(e) => setPriorityId(e.target.value)}
+                  >
+                    <MenuItem value="">
+                      <em>Sin asignar</em>
+                    </MenuItem>
+                    {priorities.map((priority) => (
+                      <MenuItem key={priority.id} value={priority.id}>
+                        <Stack direction="row" spacing={1} alignItems="center">
+                          <Box
+                            sx={{
+                              width: 12,
+                              height: 12,
+                              borderRadius: "50%",
+                              backgroundColor: priority.color || theme.palette.action.disabledBackground,
+                            }}
+                          />
+                          <span>{priority.name}</span>
+                        </Stack>
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+
+                <FormControl fullWidth size={isCompact ? "medium" : "small"}>
+                  <InputLabel>Story points</InputLabel>
+                  <Select
+                    value={storyPoints}
+                    label="Story points"
+                    onChange={(e) => setStoryPoints(e.target.value)}
+                  >
+                    <MenuItem value="">
+                      <em>Sin estimar</em>
+                    </MenuItem>
+                    {pointValues.map((point) => (
+                      <MenuItem key={point.id} value={point.value}>
+                        {point.value}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+
+                <Divider />
+
+                <Button
+                  variant="text"
+                  color="error"
+                  startIcon={<DeleteIcon />}
+                  onClick={handleOpenDeleteDialog}
+                  disabled={!task}
+                  sx={{
+                    justifyContent: "flex-start",
+                    fontWeight: 800,
+                  }}
+                >
+                  Eliminar tarea
+                </Button>
+              </Stack>
+            </Paper>
+          </Box>
+        </Box>
+      </Drawer>
 
       <TaskDeleteDialog
         open={deleteDialogOpen}

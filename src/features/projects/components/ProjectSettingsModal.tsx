@@ -21,6 +21,7 @@ import {
   Alert,
   ToggleButton,
   ToggleButtonGroup,
+  MenuItem,
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import AddIcon from "@mui/icons-material/Add";
@@ -39,7 +40,14 @@ import { uploadProjectBanner, removeProjectBanner, fetchProjectById } from "../.
 import {
   uploadOrganizationLogo,
   updateOrganization,
+  fetchOrganizationMembers,
+  fetchOrganizationPendingInvitations,
+  createOrganizationInvitationByEmail,
+  updateOrganizationMemberRole,
+  removeOrganizationMember,
   type Organization,
+  type OrganizationInvitation,
+  type OrganizationMemberWithProfile,
 } from "../../../features/api/organizationService";
 import type { IssueType, Priority, EpicPhase } from "../../../features/api/catalogService";
 import { logError } from "../../../shared/utils/errorHandling";
@@ -58,7 +66,7 @@ type ProjectSettingsModalProps = {
   onUpdateProjectVisibility: (projectId: string, value: "organization" | "private") => Promise<void>;
 };
 
-type Section = "general" | "tasks" | "epics";
+type Section = "general" | "organization" | "tasks" | "epics";
 
 const ProjectSettingsModal = ({ 
   open, 
@@ -86,6 +94,12 @@ const ProjectSettingsModal = ({
   const [visibility, setVisibility] = useState<"organization" | "private">(projectVisibility);
   const [logoError, setLogoError] = useState("");
   const [logoCropSourceFile, setLogoCropSourceFile] = useState<File | null>(null);
+  const [organizationMembers, setOrganizationMembers] = useState<OrganizationMemberWithProfile[]>([]);
+  const [pendingOrganizationInvitations, setPendingOrganizationInvitations] = useState<OrganizationInvitation[]>([]);
+  const [organizationInviteEmail, setOrganizationInviteEmail] = useState("");
+  const [organizationAccessError, setOrganizationAccessError] = useState("");
+  const [loadingOrganizationAccess, setLoadingOrganizationAccess] = useState(false);
+  const [savingOrganizationAccess, setSavingOrganizationAccess] = useState(false);
 
   const [editingIssueTypes, setEditingIssueTypes] = useState<Record<string, Partial<IssueType>>>({});
   const [editingPriorities, setEditingPriorities] = useState<Record<string, Partial<Priority>>>({});
@@ -100,10 +114,16 @@ const ProjectSettingsModal = ({
       setVisibility(projectVisibility);
       setLogoError("");
       setLogoCropSourceFile(null);
+      setOrganizationAccessError("");
+      setOrganizationInviteEmail("");
       void catalogs.refetch();
       void loadProjectData();
+      void loadOrganizationAccess();
     }
-  }, [open, initialAllowBoardTaskCreation, organization?.name, projectVisibility]);
+  }, [open, initialAllowBoardTaskCreation, organization?.id, organization?.name, projectVisibility]);
+
+  const canManageOrganization =
+    organization?.role === "owner" || organization?.role === "admin";
 
   const loadProjectData = async () => {
     try {
@@ -213,6 +233,84 @@ const ProjectSettingsModal = ({
       logError("projectSettings.updateVisibility", error);
       setVisibility(projectVisibility);
       setLogoError("No se pudo actualizar la visibilidad del proyecto.");
+    }
+  };
+
+  const loadOrganizationAccess = async () => {
+    if (!organization) {
+      setOrganizationMembers([]);
+      setPendingOrganizationInvitations([]);
+      return;
+    }
+
+    try {
+      setLoadingOrganizationAccess(true);
+      setOrganizationAccessError("");
+      const [members, invitations] = await Promise.all([
+        fetchOrganizationMembers(organization.id),
+        fetchOrganizationPendingInvitations(organization.id),
+      ]);
+      setOrganizationMembers(members);
+      setPendingOrganizationInvitations(invitations);
+    } catch (error) {
+      logError("projectSettings.loadOrganizationAccess", error);
+      setOrganizationAccessError("No se pudieron cargar los miembros de la organización.");
+    } finally {
+      setLoadingOrganizationAccess(false);
+    }
+  };
+
+  const handleInviteOrganizationMember = async () => {
+    if (!organization) return;
+
+    const email = organizationInviteEmail.trim().toLowerCase();
+    if (!email) {
+      setOrganizationAccessError("Escribe el correo de la persona que quieres invitar.");
+      return;
+    }
+
+    try {
+      setSavingOrganizationAccess(true);
+      setOrganizationAccessError("");
+      await createOrganizationInvitationByEmail(organization.id, email);
+      setOrganizationInviteEmail("");
+      await loadOrganizationAccess();
+    } catch (error) {
+      logError("projectSettings.inviteOrganizationMember", error);
+      setOrganizationAccessError(error instanceof Error ? error.message : "No se pudo enviar la invitación.");
+    } finally {
+      setSavingOrganizationAccess(false);
+    }
+  };
+
+  const handleOrganizationMemberRoleChange = async (
+    memberId: string,
+    role: OrganizationMemberWithProfile["role"]
+  ) => {
+    try {
+      setSavingOrganizationAccess(true);
+      setOrganizationAccessError("");
+      await updateOrganizationMemberRole(memberId, role);
+      await loadOrganizationAccess();
+    } catch (error) {
+      logError("projectSettings.updateOrganizationMemberRole", error);
+      setOrganizationAccessError("No se pudo actualizar el rol del miembro.");
+    } finally {
+      setSavingOrganizationAccess(false);
+    }
+  };
+
+  const handleRemoveOrganizationMember = async (member: OrganizationMemberWithProfile) => {
+    try {
+      setSavingOrganizationAccess(true);
+      setOrganizationAccessError("");
+      await removeOrganizationMember(member.id);
+      await loadOrganizationAccess();
+    } catch (error) {
+      logError("projectSettings.removeOrganizationMember", error);
+      setOrganizationAccessError("No se pudo quitar al miembro de la organización.");
+    } finally {
+      setSavingOrganizationAccess(false);
     }
   };
 
@@ -467,6 +565,169 @@ const ProjectSettingsModal = ({
             </Typography>
           </Stack>
         </Stack>
+      </Box>
+    </Stack>
+  );
+
+  const renderOrganizationSettings = () => (
+    <Stack spacing={4}>
+      <Box>
+        <Typography variant="h6" fontWeight={600} gutterBottom>
+          Miembros de la Organización
+        </Typography>
+        <Typography variant="body2" color="text.secondary" paragraph>
+          Administra quién pertenece a {organization?.name ?? "la organización"}. Los miembros pueden ver proyectos visibles de la organización; para editar un proyecto también deben agregarse como colaboradores del proyecto.
+        </Typography>
+
+        <Paper
+          elevation={0}
+          sx={{
+            p: 2,
+            mb: 3,
+            border: `1px solid ${theme.palette.divider}`,
+            bgcolor: "background.default",
+          }}
+        >
+          <Typography variant="subtitle2" fontWeight={800} gutterBottom>
+            Roles de la organización
+          </Typography>
+          <Stack
+            component="ul"
+            spacing={0.75}
+            sx={{ m: 0, pl: 2.5, color: "text.secondary" }}
+          >
+            <Typography component="li" variant="body2">
+              <strong>Owner:</strong> administra la organización completa, cambia roles, quita miembros, edita logo/nombre y controla proyectos. No se puede quitar desde esta pantalla.
+            </Typography>
+            <Typography component="li" variant="body2">
+              <strong>Admin:</strong> invita miembros, cambia roles entre admin/member, quita miembros y administra accesos de proyectos. No puede modificar ni quitar al owner.
+            </Typography>
+            <Typography component="li" variant="body2">
+              <strong>Member:</strong> ve proyectos visibles de la organización y puede recibir asignaciones. No puede invitar usuarios, cambiar roles ni editar ajustes de organización.
+            </Typography>
+          </Stack>
+        </Paper>
+
+        {organizationAccessError ? (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            {organizationAccessError}
+          </Alert>
+        ) : null}
+
+        {canManageOrganization ? (
+          <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} sx={{ mb: 3 }}>
+            <TextField
+              label="Correo del usuario"
+              type="email"
+              value={organizationInviteEmail}
+              onChange={(event) => setOrganizationInviteEmail(event.target.value)}
+              placeholder="persona@empresa.com"
+              disabled={savingOrganizationAccess}
+              sx={{ flex: 1 }}
+            />
+            <Button
+              variant="outlined"
+              onClick={handleInviteOrganizationMember}
+              disabled={savingOrganizationAccess || !organizationInviteEmail.trim()}
+            >
+              {savingOrganizationAccess ? "Enviando..." : "Enviar invitación"}
+            </Button>
+          </Stack>
+        ) : (
+          <Alert severity="info" variant="outlined" sx={{ mb: 3 }}>
+            Solo owner/admin pueden invitar, cambiar roles o quitar miembros.
+          </Alert>
+        )}
+
+        {loadingOrganizationAccess ? (
+          <Stack alignItems="center" py={4}>
+            <CircularProgress size={24} />
+          </Stack>
+        ) : (
+          <Stack spacing={1}>
+            {organizationMembers.length === 0 ? (
+              <Typography variant="body2" color="text.secondary">
+                No hay miembros en esta organización.
+              </Typography>
+            ) : (
+              organizationMembers.map((member) => (
+                <Paper
+                  key={member.id}
+                  elevation={0}
+                  sx={{
+                    p: 1.5,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 1.5,
+                    border: `1px solid ${theme.palette.divider}`,
+                    bgcolor: "background.paper",
+                  }}
+                >
+                  <Avatar src={member.user_profiles.avatar_url ?? undefined} sx={{ width: 36, height: 36 }}>
+                    {(member.user_profiles.full_name ?? "U").slice(0, 1)}
+                  </Avatar>
+                  <Box sx={{ flex: 1, minWidth: 0 }}>
+                    <Typography variant="body2" fontWeight={700} noWrap>
+                      {member.user_profiles.full_name ?? "Usuario sin perfil"}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Miembro de la organización
+                    </Typography>
+                  </Box>
+                  <TextField
+                    select
+                    size="small"
+                    label="Rol"
+                    value={member.role}
+                    disabled={!canManageOrganization || member.role === "owner" || savingOrganizationAccess}
+                    onChange={(event) =>
+                      void handleOrganizationMemberRoleChange(
+                        member.id,
+                        event.target.value as OrganizationMemberWithProfile["role"]
+                      )
+                    }
+                    sx={{ width: 150 }}
+                  >
+                    <MenuItem value="owner">owner</MenuItem>
+                    <MenuItem value="admin">admin</MenuItem>
+                    <MenuItem value="member">member</MenuItem>
+                  </TextField>
+                  <IconButton
+                    size="small"
+                    color="error"
+                    disabled={!canManageOrganization || member.role === "owner" || savingOrganizationAccess}
+                    onClick={() => void handleRemoveOrganizationMember(member)}
+                  >
+                    <DeleteIcon fontSize="small" />
+                  </IconButton>
+                </Paper>
+              ))
+            )}
+          </Stack>
+        )}
+      </Box>
+
+      <Divider />
+
+      <Box>
+        <Typography variant="h6" fontWeight={600} gutterBottom>
+          Invitaciones pendientes
+        </Typography>
+        {pendingOrganizationInvitations.length === 0 ? (
+          <Typography variant="body2" color="text.secondary">
+            No hay invitaciones pendientes.
+          </Typography>
+        ) : (
+          <Stack direction="row" spacing={1} flexWrap="wrap" gap={1}>
+            {pendingOrganizationInvitations.map((invitation) => (
+              <Chip
+                key={invitation.id}
+                color="warning"
+                label={`${invitation.invitee_id.slice(0, 8)} · pendiente`}
+              />
+            ))}
+          </Stack>
+        )}
       </Box>
     </Stack>
   );
@@ -985,6 +1246,25 @@ const ProjectSettingsModal = ({
             </ListItemButton>
 
             <ListItemButton
+              selected={selectedSection === "organization"}
+              onClick={() => setSelectedSection("organization")}
+              sx={{
+                py: 2,
+                "&.Mui-selected": {
+                  bgcolor: alpha(theme.palette.primary.main, 0.1),
+                  borderRight: `3px solid ${theme.palette.primary.main}`,
+                },
+              }}
+            >
+              <ListItemText
+                primary="Organización"
+                primaryTypographyProps={{
+                  fontWeight: selectedSection === "organization" ? 600 : 400,
+                }}
+              />
+            </ListItemButton>
+
+            <ListItemButton
               selected={selectedSection === "tasks"}
               onClick={() => setSelectedSection("tasks")}
               sx={{
@@ -1038,6 +1318,7 @@ const ProjectSettingsModal = ({
           ) : (
             <>
               {selectedSection === "general" && renderGeneralSettings()}
+              {selectedSection === "organization" && renderOrganizationSettings()}
               {selectedSection === "tasks" && renderTasksSettings()}
               {selectedSection === "epics" && renderEpicsSettings()}
             </>

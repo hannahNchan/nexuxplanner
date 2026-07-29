@@ -25,6 +25,8 @@ import { useProject } from "../../../shared/contexts/ProjectContext";
 import { useSprintManager } from "../../sprints/hooks/useSprintManager";
 import { getErrorMessage, logError } from "../../../shared/utils/errorHandling";
 
+const BOARD_DRAFT_TASK_ID = "__draft_board_task__";
+
 export const useBoardManager = (userId: string) => {
   const { currentProject } = useProject();
   const canEditProject = currentProject?.can_edit ?? true;
@@ -45,6 +47,7 @@ export const useBoardManager = (userId: string) => {
 
   // Modals
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [taskEditorPresentation, setTaskEditorPresentation] = useState<"drawer" | "modal">("drawer");
   const [isAddColumnModalOpen, setIsAddColumnModalOpen] = useState(false);
   const [selectedTask, setSelectedTask] = useState<{
     id: string;
@@ -240,57 +243,22 @@ export const useBoardManager = (userId: string) => {
     }
 
     setCreatingTaskColumnId(columnId);
-    try {
-      const column = data.columns[columnId];
-      const position = column.taskIds.length;
-      const created = await createTask(columnId, "Nueva tarea", position, false, currentProject.id);
-
-      setData((previous) => {
-        if (!previous) return previous;
-
-        return {
-          ...previous,
-          tasks: {
-            ...previous.tasks,
-            [created.id]: {
-              id: created.id,
-              title: created.title,
-              subtitle: created.subtitle ?? undefined,
-              description: created.description ?? undefined,
-              issue_type_id: created.issue_type_id ?? undefined,
-              priority_id: created.priority_id ?? undefined,
-              story_points: created.story_points ?? undefined,
-              assignee_id: created.assignee_id ?? undefined,
-            },
-          },
-          columns: {
-            ...previous.columns,
-            [columnId]: {
-              ...previous.columns[columnId],
-              taskIds: [...previous.columns[columnId].taskIds, created.id],
-            },
-          },
-        };
-      });
-
-      setSelectedTask({
-        id: created.id,
-        title: created.title,
-        description: created.description ?? undefined,
-        column_id: created.column_id,
-        issue_type_id: created.issue_type_id,
-        priority_id: created.priority_id,
-        story_points: created.story_points,
-        assignee_id: created.assignee_id,
-      });
-      setIsModalOpen(true);
-      setErrorMessage(null);
-    } catch (error) {
-      logError("board.createTask", error);
-      setErrorMessage(getErrorMessage(error, "No se pudo crear la tarea."));
-    } finally {
-      setCreatingTaskColumnId(null);
-    }
+    setSelectedTask({
+      id: BOARD_DRAFT_TASK_ID,
+      project_id: currentProject.id,
+      title: "Nueva tarea",
+      subtitle: "",
+      description: "",
+      column_id: columnId,
+      issue_type_id: null,
+      priority_id: null,
+      story_points: null,
+      assignee_id: null,
+    });
+    setTaskEditorPresentation("modal");
+    setIsModalOpen(true);
+    setErrorMessage(null);
+    setCreatingTaskColumnId(null);
   };
 
   const handleTaskClick = (task: Task) => {
@@ -316,6 +284,7 @@ export const useBoardManager = (userId: string) => {
       story_points: task.story_points ?? null,
       assignee_id: task.assignee_id ?? null,
     });
+    setTaskEditorPresentation("drawer");
     setIsModalOpen(true);
   };
 
@@ -340,6 +309,64 @@ export const useBoardManager = (userId: string) => {
     }
 
     try {
+      if (taskId === BOARD_DRAFT_TASK_ID) {
+        const destinationColumnId = updates.destination === "scrum"
+          ? updates.column_id ?? selectedTask?.column_id ?? data.columnOrder[0]
+          : currentProject.id;
+        const position = updates.destination === "scrum" && updates.column_id
+          ? data.columns[updates.column_id]?.taskIds.length ?? 0
+          : 0;
+        const created = await createTask(
+          destinationColumnId,
+          updates.title,
+          position,
+          updates.destination === "backlog",
+          currentProject.id,
+          {
+            subtitle: updates.subtitle,
+            description: updates.description,
+            issue_type_id: updates.issue_type_id,
+            priority_id: updates.priority_id,
+            story_points: updates.story_points,
+            assignee_id: updates.assignee_id,
+          }
+        );
+
+        if (updates.destination === "scrum" && created.column_id) {
+          setData((previous) => {
+            if (!previous || !created.column_id) return previous;
+
+            return {
+              ...previous,
+              tasks: {
+                ...previous.tasks,
+                [created.id]: {
+                  id: created.id,
+                  title: created.title,
+                  task_id_display: created.task_id_display ?? undefined,
+                  subtitle: created.subtitle ?? undefined,
+                  description: created.description ?? undefined,
+                  issue_type_id: created.issue_type_id ?? undefined,
+                  priority_id: created.priority_id ?? undefined,
+                  story_points: created.story_points ?? undefined,
+                  assignee_id: created.assignee_id ?? undefined,
+                },
+              },
+              columns: {
+                ...previous.columns,
+                [created.column_id]: {
+                  ...previous.columns[created.column_id],
+                  taskIds: [...previous.columns[created.column_id].taskIds, created.id],
+                },
+              },
+            };
+          });
+        }
+
+        void loadBoard(false);
+        return;
+      }
+
       const { destination, ...dbUpdates } = updates;
       const in_backlog = destination === "backlog";
 
@@ -618,9 +645,11 @@ export const useBoardManager = (userId: string) => {
 
     // Modals
     isModalOpen,
+    taskEditorPresentation,
     isAddColumnModalOpen,
     selectedTask,
     setIsModalOpen,
+    setTaskEditorPresentation,
     setIsAddColumnModalOpen,
     setSelectedTask,
 

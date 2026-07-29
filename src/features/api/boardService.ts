@@ -17,7 +17,7 @@ type ColumnRecord = {
 
 type TaskRecord = {
   id: string;
-  column_id: string;
+  column_id: string | null;
   title: string;
   task_id_display: string | null;
   subtitle: string | null;
@@ -34,10 +34,16 @@ type TaskRecord = {
 
 type CreateTaskInsert = {
   title: string;
+  subtitle?: string | null;
+  description?: string | null;
   position: number;
   in_backlog: boolean;
   project_id: string;
   column_id: string | null;
+  issue_type_id?: string | null;
+  priority_id?: string | null;
+  story_points?: string | null;
+  assignee_id?: string | null;
 };
 
 type TaskUpdatePayload = {
@@ -266,7 +272,15 @@ export const createTask = async (
   title: string,
   position: number,
   isBacklog = false,
-  expectedProjectId?: string
+  expectedProjectId?: string,
+  details: {
+    subtitle?: string | null;
+    description?: string | null;
+    issue_type_id?: string | null;
+    priority_id?: string | null;
+    story_points?: string | null;
+    assignee_id?: string | null;
+  } = {}
 ): Promise<TaskRecord> => {
 
   let projectId: string | null = null;
@@ -289,10 +303,16 @@ export const createTask = async (
 
   const taskData: CreateTaskInsert = {
     title,
+    subtitle: details.subtitle ?? null,
+    description: details.description ?? null,
     position,
     in_backlog: isBacklog,
     project_id: projectId,
     column_id: isBacklog ? null : columnIdOrProjectId,
+    issue_type_id: details.issue_type_id ?? null,
+    priority_id: details.priority_id ?? null,
+    story_points: details.story_points ?? null,
+    assignee_id: details.assignee_id ?? null,
   };
 
   const { data, error } = await supabase
@@ -398,6 +418,10 @@ export const toBoardState = (
   });
 
   const tasksByColumn = tasks.reduce<Record<string, TaskRecord[]>>((acc, task) => {
+    if (!task.column_id) {
+      return acc;
+    }
+
     if (!acc[task.column_id]) {
       acc[task.column_id] = [];
     }

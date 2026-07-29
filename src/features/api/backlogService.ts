@@ -162,6 +162,7 @@ export const createBacklogTask = async (
     priority_id?: string | null;
     story_points?: string | null;
     epic_id?: string | null;
+    issue_type_id?: string | null;
     github_link?: string | null;
   }
 ): Promise<BacklogTask> => {
@@ -180,6 +181,7 @@ export const createBacklogTask = async (
       priority_id: data.priority_id || null,
       story_points: data.story_points || null,
       epic_id: data.epic_id || null,
+      issue_type_id: data.issue_type_id || null,
       github_link: data.github_link || null,
       in_backlog: true,
       column_id: null,
