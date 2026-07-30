@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import type { DropResult } from "@hello-pangea/dnd";
 import { supabase } from "../../../lib/supabase";
 import type { BoardState, Task } from "../../../shared/types/board";
@@ -24,6 +24,11 @@ import {
 import { useProject } from "../../../shared/contexts/ProjectContext";
 import { useSprintManager } from "../../sprints/hooks/useSprintManager";
 import { getErrorMessage, logError } from "../../../shared/utils/errorHandling";
+import {
+  createDebouncedRealtimeCallback,
+  createRealtimeChannelName,
+  removeRealtimeChannel,
+} from "../../../shared/realtime/realtimeChannels";
 
 const BOARD_DRAFT_TASK_ID = "__draft_board_task__";
 
@@ -37,7 +42,6 @@ export const useBoardManager = (userId: string) => {
   const [boardId, setBoardId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const boardReloadTimerRef = useRef<number | null>(null);
 
   // Catalogs
   const [issueTypes, setIssueTypes] = useState<IssueType[]>([]);
@@ -157,9 +161,18 @@ export const useBoardManager = (userId: string) => {
     }
 
     let channel: ReturnType<typeof supabase.channel> | null = null;
+    const reloadBoard = createDebouncedRealtimeCallback(() => {
+      void loadBoard(false);
+    });
+
     const subscriptionDelay = window.setTimeout(() => {
       channel = supabase
-        .channel(`board-tasks:${currentProject.id}`)
+        .channel(createRealtimeChannelName({
+          scope: "project",
+          scopeId: currentProject.id,
+          topic: "board-tasks",
+          subtopic: sprintManager.activeSprint?.id,
+        }))
         .on(
           "postgres_changes",
           {
@@ -168,29 +181,15 @@ export const useBoardManager = (userId: string) => {
             table: "tasks",
             filter: `project_id=eq.${currentProject.id}`,
           },
-          () => {
-            if (boardReloadTimerRef.current) {
-              window.clearTimeout(boardReloadTimerRef.current);
-            }
-
-            boardReloadTimerRef.current = window.setTimeout(() => {
-              void loadBoard(false);
-              boardReloadTimerRef.current = null;
-            }, 300);
-          }
+          reloadBoard.run
         )
         .subscribe();
     }, 1200);
 
     return () => {
       window.clearTimeout(subscriptionDelay);
-      if (boardReloadTimerRef.current) {
-        window.clearTimeout(boardReloadTimerRef.current);
-        boardReloadTimerRef.current = null;
-      }
-      if (channel) {
-        void supabase.removeChannel(channel);
-      }
+      reloadBoard.cancel();
+      removeRealtimeChannel(channel);
     };
   }, [currentProject?.id, sprintManager.activeSprint?.id, loadBoard]);
 
@@ -329,6 +328,7 @@ export const useBoardManager = (userId: string) => {
             priority_id: updates.priority_id,
             story_points: updates.story_points,
             assignee_id: updates.assignee_id,
+            sprint_id: updates.destination === "scrum" ? sprintManager.activeSprint?.id ?? null : null,
           }
         );
 
@@ -459,6 +459,85 @@ export const useBoardManager = (userId: string) => {
     } catch (error) {
       logError("board.updateTask", error);
       setErrorMessage(getErrorMessage(error, "No se pudo actualizar la tarea."));
+      throw error;
+    }
+  };
+
+  const handleMoveTaskColumn = async (taskId: string, columnId: string) => {
+    if (!currentProject || !data) return;
+    if (!canEditProject) {
+      setErrorMessage("Solo puedes mover tareas en proyectos donde eres colaborador.");
+      return;
+    }
+
+    const previousData = data;
+    const previousSelectedTask = selectedTask;
+    const oldColumnId = Object.keys(data.columns).find((colId) =>
+      data.columns[colId].taskIds.includes(taskId)
+    );
+
+    if (oldColumnId === columnId) {
+      return;
+    }
+
+    try {
+      setData((previous) => {
+        if (!previous || !oldColumnId || !previous.columns[columnId]) return previous;
+
+        return {
+          ...previous,
+          columns: {
+            ...previous.columns,
+            [oldColumnId]: {
+              ...previous.columns[oldColumnId],
+              taskIds: previous.columns[oldColumnId].taskIds.filter((id) => id !== taskId),
+            },
+            [columnId]: {
+              ...previous.columns[columnId],
+              taskIds: [...previous.columns[columnId].taskIds.filter((id) => id !== taskId), taskId],
+            },
+          },
+        };
+      });
+
+      setSelectedTask((previous) =>
+        previous?.id === taskId ? { ...previous, column_id: columnId } : previous
+      );
+
+      const updated = await updateTask(currentProject.id, taskId, {
+        column_id: columnId,
+        in_backlog: false,
+      });
+
+      setData((previous) => {
+        if (!previous || !previous.tasks[taskId]) return previous;
+
+        return {
+          ...previous,
+          tasks: {
+            ...previous.tasks,
+            [taskId]: {
+              ...previous.tasks[taskId],
+              id: updated.id,
+              title: updated.title,
+              task_id_display: updated.task_id_display ?? previous.tasks[taskId].task_id_display,
+              subtitle: updated.subtitle ?? undefined,
+              description: updated.description ?? undefined,
+              issue_type_id: updated.issue_type_id ?? undefined,
+              priority_id: updated.priority_id ?? undefined,
+              story_points: updated.story_points ?? undefined,
+              assignee_id: updated.assignee_id ?? undefined,
+            },
+          },
+        };
+      });
+
+      void loadBoard(false);
+    } catch (error) {
+      logError("board.moveTaskColumn", error);
+      setData(previousData);
+      setSelectedTask(previousSelectedTask);
+      setErrorMessage(getErrorMessage(error, "No se pudo cambiar el estado de la tarea."));
       throw error;
     }
   };
@@ -664,6 +743,7 @@ export const useBoardManager = (userId: string) => {
     handleCreateTask,
     handleTaskClick,
     handleSaveTask,
+    handleMoveTaskColumn,
     handleDeleteTask,
     onDragEnd,
   };

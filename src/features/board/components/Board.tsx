@@ -231,6 +231,7 @@ const Board = ({ userId, userEmail, header }: BoardProps) => {
         presentation={board.taskEditorPresentation}
         onClose={() => board.setIsModalOpen(false)}
         onSave={board.handleSaveTask}
+        onStatusChange={board.handleMoveTaskColumn}
         onDelete={board.handleDeleteTask}
       />
 

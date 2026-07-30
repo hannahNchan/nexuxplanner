@@ -69,11 +69,14 @@ type TaskEditorModalProps = {
     story_points: string | null;
     assignee_id: string | null;
   }) => Promise<void>;
+  onStatusChange?: (taskId: string, columnId: string) => Promise<void>;
   onDelete: (taskId: string) => Promise<void>;
 };
 
 const isEpicIssueType = (type?: IssueType | null) =>
   type?.name.trim().toLowerCase() === "epic";
+
+const EXPLICIT_UNASSIGNED_ASSIGNEE = "__explicit_unassigned__";
 
 const TaskEditorModal = ({
   open,
@@ -88,6 +91,7 @@ const TaskEditorModal = ({
   presentation = "drawer",
   onClose,
   onSave,
+  onStatusChange,
   onDelete,
 }: TaskEditorModalProps) => {
   const theme = useTheme();
@@ -112,6 +116,7 @@ const TaskEditorModal = ({
     () => issueTypes.filter((type) => !isEpicIssueType(type)),
     [issueTypes]
   );
+  const isCreateModal = presentation === "modal";
 
   useEffect(() => {
     if (!task) {
@@ -155,6 +160,31 @@ const TaskEditorModal = ({
       return;
     }
 
+    if (isCreateModal && !title.trim()) {
+      setErrorMessage("Escribe un título para crear la tarea.");
+      return;
+    }
+
+    if (isCreateModal && !assigneeId) {
+      setErrorMessage("Elige quién tomará la tarea o marca explícitamente Sin asignar.");
+      return;
+    }
+
+    if (isCreateModal && taskIssueTypes.length > 0 && !issueTypeId) {
+      setErrorMessage("Selecciona el tipo de tarea.");
+      return;
+    }
+
+    if (isCreateModal && priorities.length > 0 && !priorityId) {
+      setErrorMessage("Selecciona la prioridad de la tarea.");
+      return;
+    }
+
+    if (isCreateModal && pointValues.length > 0 && !storyPoints) {
+      setErrorMessage("Selecciona los story points de la tarea.");
+      return;
+    }
+
     if (destination === "scrum" && !columnId) {
       setErrorMessage("Selecciona una columna para el Tablero Scrum.");
       return;
@@ -174,12 +204,40 @@ const TaskEditorModal = ({
         issue_type_id: issueTypeId || null,
         priority_id: priorityId || null,
         story_points: storyPoints || null,
-        assignee_id: assigneeId || null,
+        assignee_id: assigneeId === EXPLICIT_UNASSIGNED_ASSIGNEE ? null : assigneeId || null,
       });
       onClose();
     } catch (error) {
       logError("taskEditor.save", error);
       setErrorMessage(getErrorMessage(error, "No se pudo guardar la tarea."));
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleColumnChange = async (nextColumnId: string) => {
+    const previousColumnId = columnId;
+    setColumnId(nextColumnId);
+
+    if (
+      !task ||
+      !onStatusChange ||
+      presentation !== "drawer" ||
+      destination === "backlog" ||
+      !nextColumnId ||
+      nextColumnId === previousColumnId
+    ) {
+      return;
+    }
+
+    setErrorMessage("");
+    setIsSaving(true);
+    try {
+      await onStatusChange(task.id, nextColumnId);
+    } catch (error) {
+      logError("taskEditor.statusChange", error);
+      setColumnId(previousColumnId);
+      setErrorMessage(getErrorMessage(error, "No se pudo cambiar el estado de la tarea."));
     } finally {
       setIsSaving(false);
     }
@@ -275,6 +333,7 @@ const TaskEditorModal = ({
                 variant="outlined"
                 label="Título de la tarea"
                 placeholder="Escribe el título..."
+                required
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 InputProps={{
@@ -349,14 +408,17 @@ const TaskEditorModal = ({
               </Paper>
 
               <Stack direction={{ xs: "column", md: "row" }} spacing={2}>
-                <FormControl fullWidth>
+                <FormControl fullWidth required>
                   <InputLabel>Asignado a</InputLabel>
                   <Select
                     value={assigneeId}
                     label="Asignado a"
                     onChange={(e) => setAssigneeId(e.target.value)}
                   >
-                    <MenuItem value="">
+                    <MenuItem value="" disabled>
+                      Elige responsable
+                    </MenuItem>
+                    <MenuItem value={EXPLICIT_UNASSIGNED_ASSIGNEE}>
                       <em>Sin asignar</em>
                     </MenuItem>
                     {projectMembers.map((member) => (
@@ -373,12 +435,12 @@ const TaskEditorModal = ({
                   </Select>
                 </FormControl>
 
-                <FormControl fullWidth disabled={destination === "backlog"}>
+                <FormControl fullWidth disabled={destination === "backlog"} required={destination === "scrum"}>
                   <InputLabel>Estado</InputLabel>
                   <Select
                     value={columnId}
                     label="Estado"
-                    onChange={(e) => setColumnId(e.target.value)}
+                    onChange={(e) => void handleColumnChange(e.target.value)}
                   >
                     {destination === "backlog" ? (
                       <MenuItem value="">
@@ -396,15 +458,15 @@ const TaskEditorModal = ({
               </Stack>
 
               <Stack direction={{ xs: "column", md: "row" }} spacing={2}>
-                <FormControl fullWidth>
+                <FormControl fullWidth required={taskIssueTypes.length > 0}>
                   <InputLabel>Tipo</InputLabel>
                   <Select
                     value={issueTypeId}
                     label="Tipo"
                     onChange={(e) => setIssueTypeId(e.target.value)}
                   >
-                    <MenuItem value="">
-                      <em>Sin asignar</em>
+                    <MenuItem value="" disabled>
+                      Elige tipo
                     </MenuItem>
                     {taskIssueTypes.map((type) => (
                       <MenuItem key={type.id} value={type.id}>
@@ -417,15 +479,15 @@ const TaskEditorModal = ({
                   </Select>
                 </FormControl>
 
-                <FormControl fullWidth>
+                <FormControl fullWidth required={priorities.length > 0}>
                   <InputLabel>Prioridad</InputLabel>
                   <Select
                     value={priorityId}
                     label="Prioridad"
                     onChange={(e) => setPriorityId(e.target.value)}
                   >
-                    <MenuItem value="">
-                      <em>Sin asignar</em>
+                    <MenuItem value="" disabled>
+                      Elige prioridad
                     </MenuItem>
                     {priorities.map((priority) => (
                       <MenuItem key={priority.id} value={priority.id}>
@@ -445,15 +507,15 @@ const TaskEditorModal = ({
                   </Select>
                 </FormControl>
 
-                <FormControl fullWidth>
+                <FormControl fullWidth required={pointValues.length > 0}>
                   <InputLabel>Story points</InputLabel>
                   <Select
                     value={storyPoints}
                     label="Story points"
                     onChange={(e) => setStoryPoints(e.target.value)}
                   >
-                    <MenuItem value="">
-                      <em>Sin estimar</em>
+                    <MenuItem value="" disabled>
+                      Elige puntos
                     </MenuItem>
                     {pointValues.map((point) => (
                       <MenuItem key={point.id} value={point.value}>
@@ -463,6 +525,10 @@ const TaskEditorModal = ({
                   </Select>
                 </FormControl>
               </Stack>
+
+              <Alert severity="info" variant="outlined">
+                Estos campos se guardan en el evento de creación para que las automatizaciones puedan distinguir tareas sin asignar, prioridad, tipo y estimación.
+              </Alert>
 
               <TaskDescriptionEditor
                 ref={descriptionEditorRef}
@@ -754,7 +820,7 @@ const TaskEditorModal = ({
                     value={columnId}
                     label="Estado"
                     disabled={destination === "backlog"}
-                    onChange={(e) => setColumnId(e.target.value)}
+                    onChange={(e) => void handleColumnChange(e.target.value)}
                   >
                     {destination === "backlog" ? (
                       <MenuItem value="">

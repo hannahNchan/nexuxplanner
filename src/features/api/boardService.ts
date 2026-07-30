@@ -1,6 +1,7 @@
 import { supabase } from "../../lib/supabase";
 import type { BoardState, Column, Task } from "../../shared/types/board";
 import { logError } from "../../shared/utils/errorHandling";
+import { assignTaskCommand, createTaskCommand, moveTaskColumnCommand } from "./taskCommandService";
 
 type BoardRecord = {
   id: string;
@@ -30,20 +31,6 @@ type TaskRecord = {
   epic_id?: string | null;
   epic_name?: string | null;
   epic_color?: string | null;
-};
-
-type CreateTaskInsert = {
-  title: string;
-  subtitle?: string | null;
-  description?: string | null;
-  position: number;
-  in_backlog: boolean;
-  project_id: string;
-  column_id: string | null;
-  issue_type_id?: string | null;
-  priority_id?: string | null;
-  story_points?: string | null;
-  assignee_id?: string | null;
 };
 
 type TaskUpdatePayload = {
@@ -280,6 +267,7 @@ export const createTask = async (
     priority_id?: string | null;
     story_points?: string | null;
     assignee_id?: string | null;
+    sprint_id?: string | null;
   } = {}
 ): Promise<TaskRecord> => {
 
@@ -301,29 +289,20 @@ export const createTask = async (
     throw new Error("La tarea debe pertenecer al proyecto activo.");
   }
 
-  const taskData: CreateTaskInsert = {
+  const data = await createTaskCommand({
+    project_id: projectId,
     title,
     subtitle: details.subtitle ?? null,
     description: details.description ?? null,
-    position,
-    in_backlog: isBacklog,
-    project_id: projectId,
+    destination: isBacklog ? "backlog" : "scrum",
     column_id: isBacklog ? null : columnIdOrProjectId,
+    sprint_id: details.sprint_id ?? null,
+    position,
     issue_type_id: details.issue_type_id ?? null,
     priority_id: details.priority_id ?? null,
     story_points: details.story_points ?? null,
     assignee_id: details.assignee_id ?? null,
-  };
-
-  const { data, error } = await supabase
-    .from("tasks")
-    .insert(taskData)
-    .select("id, column_id, title, task_id_display, subtitle, description, position, issue_type_id, priority_id, story_points, assignee_id")
-    .single();
-
-  if (error) {
-    throw error;
-  }
+  });
 
   return data;
 };
@@ -348,25 +327,63 @@ export const updateTask = async (
     await assertColumnBelongsToProject(updates.column_id, projectId);
   }
 
+  const shouldUpdateAssignee = Object.prototype.hasOwnProperty.call(updates, "assignee_id");
+  const shouldMoveColumn =
+    Object.prototype.hasOwnProperty.call(updates, "column_id") &&
+    updates.in_backlog !== true &&
+    Boolean(updates.column_id);
+  const nextAssigneeId = updates.assignee_id ?? null;
+  const nonAssigneeUpdates = { ...updates };
+  delete nonAssigneeUpdates.assignee_id;
+  delete nonAssigneeUpdates.column_id;
+
   const updateData: TaskUpdatePayload = {
-    ...updates,
+    ...nonAssigneeUpdates,
     updated_at: new Date().toISOString(),
   };
 
   if (updates.in_backlog === true) {
     updateData.column_id = null;
+  } else if (shouldMoveColumn) {
+    delete updateData.in_backlog;
   }
 
-  const { data, error } = await supabase
-    .from("tasks")
-    .update(updateData)
-    .eq("id", taskId)
-    .eq("project_id", projectId)
-    .select("id, column_id, title, task_id_display, subtitle, description, position, issue_type_id, priority_id, story_points, assignee_id")
-    .single();
+  let data: Task | null = null;
 
-  if (error) {
-    throw error;
+  if (Object.keys(updateData).length > 1) {
+    const { data: updatedTask, error } = await supabase
+      .from("tasks")
+      .update(updateData)
+      .eq("id", taskId)
+      .eq("project_id", projectId)
+      .select("id, column_id, title, task_id_display, subtitle, description, position, issue_type_id, priority_id, story_points, assignee_id")
+      .single();
+
+    if (error) {
+      throw error;
+    }
+
+    data = updatedTask;
+  }
+
+  if (shouldUpdateAssignee) {
+    data = await assignTaskCommand({
+      project_id: projectId,
+      task_id: taskId,
+      assignee_id: nextAssigneeId,
+    });
+  }
+
+  if (shouldMoveColumn && updates.column_id) {
+    data = await moveTaskColumnCommand({
+      project_id: projectId,
+      task_id: taskId,
+      column_id: updates.column_id,
+    });
+  }
+
+  if (!data) {
+    throw new Error("No hubo cambios para guardar en la tarea.");
   }
 
   return data;

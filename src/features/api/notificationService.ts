@@ -1,14 +1,25 @@
 import { supabase } from "../../lib/supabase";
+import { createRealtimeChannelName } from "../../shared/realtime/realtimeChannels";
 
 export type UserNotification = {
   id: string;
   user_id: string;
   actor_id: string | null;
+  organization_id: string | null;
   project_id: string | null;
   task_id: string | null;
-  type: "task_assigned";
+  type:
+    | "task_assigned"
+    | "project_member_added"
+    | "organization_member_added"
+    | "sprint_completed"
+    | "sprint_due_soon"
+    | "sprint_overdue"
+    | "automation_rule";
   title: string;
   message: string;
+  payload: Record<string, unknown>;
+  dedupe_key: string | null;
   read_at: string | null;
   created_at: string;
 };
@@ -46,7 +57,11 @@ export const subscribeToUserNotifications = (
   onChange: () => void
 ) =>
   supabase
-    .channel(`user-notifications:${userId}`)
+    .channel(createRealtimeChannelName({
+      scope: "user",
+      scopeId: userId,
+      topic: "notifications",
+    }))
     .on(
       "postgres_changes",
       {

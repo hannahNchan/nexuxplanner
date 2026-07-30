@@ -34,6 +34,11 @@ import NotificationsIcon from "@mui/icons-material/Notifications";
 import BusinessIcon from "@mui/icons-material/Business";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { supabase } from "../lib/supabase";
+import {
+  createDebouncedRealtimeCallback,
+  createRealtimeChannelName,
+  removeRealtimeChannel,
+} from "../shared/realtime/realtimeChannels";
 import { THEME_LABELS, useThemeMode, type ThemeMode } from "./ThemeContext";
 import { nexusDensity, nexusRadii } from "./visualTokens";
 import { useState, useEffect, useRef, useCallback } from "react";
@@ -226,9 +231,23 @@ const Layout = ({ providerAvatarUrl = null }: LayoutProps) => {
       return;
     }
 
+    const reloadProjectInvitations = createDebouncedRealtimeCallback(() => {
+      void loadPendingInvitations();
+    });
+    const reloadOrganizationInvitations = createDebouncedRealtimeCallback(() => {
+      void loadPendingOrganizationInvitations();
+    });
+    const reloadTaskNotifications = createDebouncedRealtimeCallback(() => {
+      void loadTaskNotifications();
+    });
+
     const subscriptionDelay = window.setTimeout(() => {
       const channel = supabase
-        .channel(`user-activity:${userId}`)
+        .channel(createRealtimeChannelName({
+          scope: "user",
+          scopeId: userId,
+          topic: "activity",
+        }))
         .on(
           "postgres_changes",
           {
@@ -237,9 +256,7 @@ const Layout = ({ providerAvatarUrl = null }: LayoutProps) => {
             table: "project_invitations",
             filter: `invitee_id=eq.${userId}`,
           },
-          () => {
-            void loadPendingInvitations();
-          }
+          reloadProjectInvitations.run
         )
         .on(
           "postgres_changes",
@@ -249,9 +266,7 @@ const Layout = ({ providerAvatarUrl = null }: LayoutProps) => {
             table: "organization_invitations",
             filter: `invitee_id=eq.${userId}`,
           },
-          () => {
-            void loadPendingOrganizationInvitations();
-          }
+          reloadOrganizationInvitations.run
         )
         .on(
           "postgres_changes",
@@ -261,9 +276,7 @@ const Layout = ({ providerAvatarUrl = null }: LayoutProps) => {
             table: "user_notifications",
             filter: `user_id=eq.${userId}`,
           },
-          () => {
-            void loadTaskNotifications();
-          }
+          reloadTaskNotifications.run
         )
         .subscribe();
 
@@ -272,8 +285,11 @@ const Layout = ({ providerAvatarUrl = null }: LayoutProps) => {
 
     return () => {
       window.clearTimeout(subscriptionDelay);
+      reloadProjectInvitations.cancel();
+      reloadOrganizationInvitations.cancel();
+      reloadTaskNotifications.cancel();
       if (activeNotificationChannelRef.current) {
-        void supabase.removeChannel(activeNotificationChannelRef.current);
+        removeRealtimeChannel(activeNotificationChannelRef.current);
         activeNotificationChannelRef.current = null;
       }
     };

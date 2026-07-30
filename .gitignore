@@ -13,6 +13,9 @@ dist
 # vite cache
 .vite
 
+# Supabase CLI local state
+supabase/.temp/
+
 # logs
 npm-debug.log*
 yarn-debug.log*

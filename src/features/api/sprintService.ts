@@ -1,5 +1,6 @@
 import { supabase } from "../../lib/supabase";
 import type { Sprint, SprintWithStats, CreateSprintData } from "../../features/sprints/types/sprint";
+import { completeSprintCommand } from "./taskCommandService";
 
 const assertSprintBelongsToProject = async (projectId: string, sprintId: string): Promise<void> => {
   const { data, error } = await supabase
@@ -181,19 +182,7 @@ export const startSprint = async (projectId: string, sprintId: string): Promise<
 
 // Cerrar sprint (cambiar a closed)
 export const closeSprint = async (projectId: string, sprintId: string): Promise<Sprint> => {
-  const { data, error } = await supabase
-    .from("sprints")
-    .update({
-      status: "closed",
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", sprintId)
-    .eq("project_id", projectId)
-    .select()
-    .single();
-
-  if (error) throw error;
-  return data;
+  return completeSprintCommand(projectId, sprintId, []);
 };
 
 // Eliminar sprint
@@ -363,19 +352,6 @@ export const fetchSprintTasks = async (
   }));
 };
 
-const fetchFirstProjectColumnId = async (projectId: string): Promise<string | null> => {
-  const { data, error } = await supabase
-    .from("columns")
-    .select("id")
-    .eq("project_id", projectId)
-    .order("position", { ascending: true })
-    .limit(1)
-    .maybeSingle();
-
-  if (error) throw error;
-  return data?.id ?? null;
-};
-
 export const fetchSprintCompletionSummary = async (
   projectId: string,
   sprintId: string
@@ -417,79 +393,5 @@ export const closeSprintWithTaskDisposition = async (
   sprintId: string,
   dispositions: SprintTaskDisposition[]
 ): Promise<Sprint> => {
-  await assertSprintBelongsToProject(projectId, sprintId);
-
-  const backlogTaskIds = dispositions
-    .filter((disposition) => disposition.destination === "backlog")
-    .map((disposition) => disposition.taskId);
-
-  const sprintDispositions = dispositions.filter(
-    (disposition) => disposition.destination === "sprint" && disposition.sprintId
-  );
-
-  if (backlogTaskIds.length > 0) {
-    const { error } = await supabase
-      .from("tasks")
-      .update({
-        sprint_id: null,
-        in_backlog: true,
-        column_id: null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("project_id", projectId)
-      .eq("sprint_id", sprintId)
-      .in("id", backlogTaskIds);
-
-    if (error) throw error;
-  }
-
-  if (sprintDispositions.length > 0) {
-    const firstColumnId = await fetchFirstProjectColumnId(projectId);
-    if (!firstColumnId) {
-      throw new Error("No se encontró una columna inicial para mover tareas al siguiente sprint.");
-    }
-
-    const targetSprintIds = [
-      ...new Set(sprintDispositions.map((disposition) => disposition.sprintId).filter(Boolean)),
-    ] as string[];
-
-    const { data: targetSprints, error: targetSprintsError } = await supabase
-      .from("sprints")
-      .select("id")
-      .eq("project_id", projectId)
-      .eq("status", "future")
-      .in("id", targetSprintIds);
-
-    if (targetSprintsError) throw targetSprintsError;
-
-    const validTargetSprintIds = new Set((targetSprints ?? []).map((sprint) => sprint.id));
-    const invalidTarget = targetSprintIds.find((targetSprintId) => !validTargetSprintIds.has(targetSprintId));
-    if (invalidTarget) {
-      throw new Error("Solo puedes mover tareas incompletas a sprints futuros del proyecto activo.");
-    }
-
-    const dispositionsBySprint = sprintDispositions.reduce<Record<string, string[]>>((grouped, disposition) => {
-      if (!disposition.sprintId) return grouped;
-      grouped[disposition.sprintId] = [...(grouped[disposition.sprintId] ?? []), disposition.taskId];
-      return grouped;
-    }, {});
-
-    for (const [targetSprintId, taskIds] of Object.entries(dispositionsBySprint)) {
-      const { error } = await supabase
-        .from("tasks")
-        .update({
-          sprint_id: targetSprintId,
-          in_backlog: false,
-          column_id: firstColumnId,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("project_id", projectId)
-        .eq("sprint_id", sprintId)
-        .in("id", taskIds);
-
-      if (error) throw error;
-    }
-  }
-
-  return closeSprint(projectId, sprintId);
+  return completeSprintCommand(projectId, sprintId, dispositions);
 };

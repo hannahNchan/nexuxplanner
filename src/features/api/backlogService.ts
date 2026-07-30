@@ -1,4 +1,5 @@
 import { supabase } from "../../lib/supabase";
+import { assignTaskCommand, createTaskCommand } from "./taskCommandService";
 
 export type BacklogTask = {
   id: string;
@@ -170,27 +171,21 @@ export const createBacklogTask = async (
     await assertEpicBelongsToProject(projectId, data.epic_id);
   }
 
-  const { data: task, error } = await supabase
-    .from("tasks")
-    .insert({
+  const task = await createTaskCommand({
       project_id: projectId,
       title: data.title,
       subtitle: data.subtitle || null,
       description: data.description || null,
+      destination: "backlog",
+      column_id: null,
+      position: 0,
       assignee_id: data.assignee_id || null,
       priority_id: data.priority_id || null,
       story_points: data.story_points || null,
       epic_id: data.epic_id || null,
       issue_type_id: data.issue_type_id || null,
       github_link: data.github_link || null,
-      in_backlog: true,
-      column_id: null,
-      position: 0,
-    })
-    .select()
-    .single();
-
-  if (error) throw error;
+  });
   
   return {
     ...task,
@@ -216,18 +211,33 @@ export const updateBacklogTask = async (
     await assertEpicBelongsToProject(projectId, updates.epic_id);
   }
 
+  const shouldUpdateAssignee = Object.prototype.hasOwnProperty.call(updates, "assignee_id");
+  const nextAssigneeId = updates.assignee_id ?? null;
+  const nonAssigneeUpdates = { ...updates };
+  delete nonAssigneeUpdates.assignee_id;
+
   const updateData: BacklogTaskUpdate = {
-    ...updates,
+    ...nonAssigneeUpdates,
     updated_at: new Date().toISOString(),
   };
 
-  const { error } = await supabase
-    .from("tasks")
-    .update(updateData)
-    .eq("id", taskId)
-    .eq("project_id", projectId);
+  if (Object.keys(updateData).length > 1) {
+    const { error } = await supabase
+      .from("tasks")
+      .update(updateData)
+      .eq("id", taskId)
+      .eq("project_id", projectId);
 
-  if (error) throw error;
+    if (error) throw error;
+  }
+
+  if (shouldUpdateAssignee) {
+    await assignTaskCommand({
+      project_id: projectId,
+      task_id: taskId,
+      assignee_id: nextAssigneeId,
+    });
+  }
 };
 
 export const deleteBacklogTask = async (projectId: string, taskId: string): Promise<void> => {

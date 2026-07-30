@@ -182,8 +182,10 @@ Layout scroll rule:
 Task editor rule:
 
 - `TaskEditorModal` supports two presentations. New task creation should open as a centered modal. Opening an existing ticket reference/card should open as a right-side drawer/panel, similar to Jira issue detail.
+- New task creation requires explicit decisions for title, assignee state, issue type, priority, and story points when those catalogs are available. `Sin asignar` is allowed, but it must be chosen explicitly so task-created automations can tell intentional unassigned work from an unfinished form (`src/features/board/components/TaskEditorModal.tsx:119`, `src/features/board/components/TaskEditorModal.tsx:163`, `src/features/board/components/TaskEditorModal.tsx:168`, `src/features/board/components/TaskEditorModal.tsx:173`, `src/features/board/components/TaskEditorModal.tsx:178`, `src/features/board/components/TaskEditorModal.tsx:183`).
 - The main pane focuses on title, subtitle, and rich description.
 - The side pane holds task properties such as destination, assignee, status, type, priority, story points, and destructive actions.
+- In the board drawer, changing the `Estado` selector persists immediately through `move_task_column_command` and moves the card locally; users should not need to press Guardar for a pure status change.
 - Keep save/delete behavior compatible with both Board and Backlog callers.
 
 ## Core Contexts
@@ -234,6 +236,10 @@ Important tables used by the app:
 - `project_members`
 - `project_invitations`
 - `user_notifications`
+- `activity_events`
+- `command_jobs`
+- `automation_rules`
+- `automation_runs`
 - `project_tags`
 - `boards`
 - `columns`
@@ -251,6 +257,7 @@ Important tables used by the app:
 - `point_systems`
 - `point_values`
 - `editor_notes`
+- `sprint_reports`
 
 Important storage buckets used by code:
 
@@ -327,6 +334,24 @@ Use `src/shared/utils/errorHandling.ts` for Supabase-facing errors:
 
 Feature hooks and components should not call Supabase tables/storage directly. Put database-backed reads and writes in `src/features/api/*Service.ts`, then import those service functions from hooks/components. Auth-only surfaces such as `AuthGate`, `AuthForm`, and app shell account handling may use the auth client directly, but product data should stay behind services.
 
+Critical product commands have a stricter boundary. Creating tasks, assigning task owners, moving tasks between board columns/statuses, completing sprints, creating organizations, creating projects, inviting users, accepting/declining invitations, and changing organization/project membership must go through backend commands, not through ad hoc frontend write sequences. Task/sprint commands live in `src/features/api/taskCommandService.ts`, and workspace commands live in `src/features/api/workspaceCommandService.ts`.
+
+These RPCs validate project edit access, related project ownership, task assignment membership, sprint status, incomplete sprint task disposition, visible task ID generation, organization admin rights, project owner rights, membership invariants, activity events, and command outbox/queue handoff. The Edge Functions under `supabase/functions/task-commands`, `supabase/functions/sprint-commands`, and `supabase/functions/workspace-commands` are HTTP wrappers over the same RPCs; they must not duplicate or drift from the database rules.
+
+SQL permissions are centralized in the `centralized_sql_permissions` migration. New authorization checks should be expressed as canonical permission functions such as `current_organization_role`, `current_project_role`, `can_view_organization`, `can_manage_organization`, `can_create_project_in_organization`, `can_view_project`, `can_mutate_project`, `can_manage_project`, `can_add_project_member`, `can_invite_to_organization`, `can_invite_to_project`, and `can_assign_project_user`, then consumed by policies and commands (`supabase/migrations/20260730034117_centralized_sql_permissions.sql:1`, `supabase/migrations/20260730034117_centralized_sql_permissions.sql:15`, `supabase/migrations/20260730034117_centralized_sql_permissions.sql:29`, `supabase/migrations/20260730034117_centralized_sql_permissions.sql:39`, `supabase/migrations/20260730034117_centralized_sql_permissions.sql:49`, `supabase/migrations/20260730034117_centralized_sql_permissions.sql:59`, `supabase/migrations/20260730034117_centralized_sql_permissions.sql:80`, `supabase/migrations/20260730034117_centralized_sql_permissions.sql:90`, `supabase/migrations/20260730034117_centralized_sql_permissions.sql:100`, `supabase/migrations/20260730034117_centralized_sql_permissions.sql:130`, `supabase/migrations/20260730034117_centralized_sql_permissions.sql:140`, `supabase/migrations/20260730034117_centralized_sql_permissions.sql:153`). Legacy helpers like `is_organization_member`, `is_organization_admin`, `is_project_member`, `is_project_owner`, and `can_edit_project` are compatibility wrappers over the canonical functions, not places to fork business rules (`supabase/migrations/20260730034117_centralized_sql_permissions.sql:172`, `supabase/migrations/20260730034117_centralized_sql_permissions.sql:182`, `supabase/migrations/20260730034117_centralized_sql_permissions.sql:192`, `supabase/migrations/20260730034117_centralized_sql_permissions.sql:202`, `supabase/migrations/20260730034117_centralized_sql_permissions.sql:212`).
+
+Activity logging is centralized. New backend commands should call `record_activity_event` instead of inserting ad hoc rows into `activity_events`; existing direct inserts are guarded by `normalize_activity_event_before_insert`, which normalizes `event_type`, infers organization/project scope from related project/task/sprint rows, requires an actor, validates cross-entity consistency, and supports optional idempotency through `event_key` (`supabase/migrations/20260730035602_centralize_activity_events.sql:4`, `supabase/migrations/20260730035602_centralize_activity_events.sql:14`, `supabase/migrations/20260730035602_centralize_activity_events.sql:128`, `supabase/migrations/20260730035602_centralize_activity_events.sql:134`). Clients must not write activity events directly; `record_activity_event` is not executable by `anon` or `authenticated`, and RLS exposes project events through `can_view_project` plus organization-only events through `can_view_organization` (`supabase/migrations/20260730035602_centralize_activity_events.sql:183`, `supabase/migrations/20260730035602_centralize_activity_events.sql:187`).
+
+Async work is centralized behind the command job outbox. Commands enqueue durable work with `enqueue_command_job`; `command_job_worker_foundation` adds idempotent `job_key`, worker locks, retry attempts, claim/complete/fail/reset RPCs, and keeps those worker RPCs closed to `anon`/`authenticated` (`supabase/migrations/20260730045659_command_job_worker_foundation.sql:1`, `supabase/migrations/20260730045659_command_job_worker_foundation.sql:24`, `supabase/migrations/20260730045659_command_job_worker_foundation.sql:73`, `supabase/migrations/20260730045659_command_job_worker_foundation.sql:118`, `supabase/migrations/20260730045659_command_job_worker_foundation.sql:158`, `supabase/migrations/20260730045659_command_job_worker_foundation.sql:200`, `supabase/migrations/20260730045659_command_job_worker_foundation.sql:114`, `supabase/migrations/20260730045659_command_job_worker_foundation.sql:154`, `supabase/migrations/20260730045659_command_job_worker_foundation.sql:196`, `supabase/migrations/20260730045659_command_job_worker_foundation.sql:227`). `supabase/functions/job-worker` is the server-side consumer for queued emails, reports, and processing jobs; it uses the service role key, requires `JOB_WORKER_SECRET`/`x-job-worker-secret`, resets stale locks, claims jobs, completes success, and retries failures (`supabase/functions/job-worker/index.ts:53`, `supabase/functions/job-worker/index.ts:54`, `supabase/functions/job-worker/index.ts:72`, `supabase/functions/job-worker/index.ts:83`, `supabase/functions/job-worker/index.ts:91`, `supabase/functions/job-worker/index.ts:107`, `supabase/functions/job-worker/index.ts:120`). Future feature: replace the underlying queue transport with a self-hosted open source Kafka-compatible broker. Keep the app contract as command -> outbox/event -> worker so React services do not learn broker topics, producer credentials, or consumer semantics.
+
+Scheduled maintenance uses Supabase `pg_cron` for SQL-only jobs. `scheduled_maintenance_cron` creates `run_command_job_maintenance`, which calls `reset_stale_command_jobs`, creates `scan_sprint_deadlines`, which notifies project members about sprints due tomorrow or overdue, and schedules `nexusplanner-command-job-maintenance` every five minutes plus `nexusplanner-sprint-deadline-scan` daily (`supabase/migrations/20260730053934_scheduled_maintenance_cron.sql:1`, `supabase/migrations/20260730053934_scheduled_maintenance_cron.sql:19`, `supabase/migrations/20260730053934_scheduled_maintenance_cron.sql:45`, `supabase/migrations/20260730053934_scheduled_maintenance_cron.sql:179`, `supabase/migrations/20260730053934_scheduled_maintenance_cron.sql:185`). Deadline cron creates `sprint_due_soon` and `sprint_overdue` notifications through `create_user_notification`, and `allow_sprint_deadline_notification_types` updates that function's allowlist while keeping execution revoked from `PUBLIC`, `anon`, and `authenticated` (`supabase/migrations/20260730053934_scheduled_maintenance_cron.sql:80`, `supabase/migrations/20260730053934_scheduled_maintenance_cron.sql:123`, `supabase/migrations/20260730054111_allow_sprint_deadline_notification_types.sql:42`, `supabase/migrations/20260730054111_allow_sprint_deadline_notification_types.sql:126`). Cron does not close overdue sprints; completion still belongs to `complete_sprint_command` so incomplete-task decisions and reports stay transactional.
+
+Premium automations are server-side rules, not frontend conditionals. `automation_rules` stores one project-scoped rule per row with `trigger_event`, JSONB `conditions`, JSONB `actions`, `enabled`, creator and `last_run_at`; `automation_runs` stores execution history, counters and result/error (`supabase/migrations/20260730055853_premium_automation_rules.sql:1`, `supabase/migrations/20260730055853_premium_automation_rules.sql:21`). Project Settings renders a monday/Jira-inspired builder with `Cuando`, `Si` and `Entonces`, but it only calls `automationService` to create/update/delete rules and read runs (`src/features/projects/components/ProjectSettingsModal.tsx:631`, `src/features/projects/components/ProjectSettingsModal.tsx:765`, `src/features/projects/components/ProjectSettingsModal.tsx:872`, `src/features/projects/components/ProjectSettingsModal.tsx:957`, `src/features/api/automationService.ts:79`, `src/features/api/automationService.ts:112`). Execution happens after inserts in `activity_events`: `evaluate_automation_rules_after_activity_event` matches enabled rules with `automation_rule_matches_event`, inserts `automation_runs`, then `execute_automation_action` creates notifications or enqueues `automation.email`/`automation.webhook` jobs (`supabase/migrations/20260730055853_premium_automation_rules.sql:201`, `supabase/migrations/20260730055853_premium_automation_rules.sql:239`, `supabase/migrations/20260730055853_premium_automation_rules.sql:347`, `supabase/migrations/20260730055853_premium_automation_rules.sql:462`). `task.created` payload includes assignment, `is_unassigned`, issue type, priority, story points, column, sprint, epic and backlog state, so automation conditions can reason about the task's creation state without querying mutable task rows later (`supabase/migrations/20260730061644_enrich_task_created_event_payload.sql:172`, `supabase/migrations/20260730061644_enrich_task_created_event_payload.sql:177`, `supabase/migrations/20260730061644_enrich_task_created_event_payload.sql:180`, `supabase/migrations/20260730061644_enrich_task_created_event_payload.sql:181`, `supabase/migrations/20260730061644_enrich_task_created_event_payload.sql:182`, `supabase/migrations/20260730061644_enrich_task_created_event_payload.sql:183`, `supabase/migrations/20260730061644_enrich_task_created_event_payload.sql:184`). Do not add task-mutating automation actions without anti-loop and idempotency design, because automations are fed by `activity_events`.
+
+Sprint reports are backend snapshots. `sprint_reports` stores totals, completion rates, story points, task/status snapshots and incomplete-task dispositions; authenticated users can only `select` rows they can view through project RLS (`supabase/migrations/20260730052854_backend_sprint_reports.sql:1`, `supabase/migrations/20260730052854_backend_sprint_reports.sql:22`, `supabase/migrations/20260730052854_backend_sprint_reports.sql:41`, `supabase/migrations/20260730052854_backend_sprint_reports.sql:50`). `complete_sprint_command` calls `generate_sprint_report` before moving incomplete tasks out of the sprint, then enqueues `report.sprint_completed` with an idempotent `job_key` for later export/email work (`supabase/migrations/20260730052854_backend_sprint_reports.sql:68`, `supabase/migrations/20260730052854_backend_sprint_reports.sql:455`, `supabase/migrations/20260730052854_backend_sprint_reports.sql:552`, `supabase/migrations/20260730052854_backend_sprint_reports.sql:554`). `normalize_sprint_report_before_write` sets persisted sprint report status to `closed` when `closed_at` exists, because the task snapshot is captured before `sprints.status` changes (`supabase/migrations/20260730053303_fix_sprint_report_closed_status.sql:1`, `supabase/migrations/20260730053303_fix_sprint_report_closed_status.sql:9`, `supabase/migrations/20260730053303_fix_sprint_report_closed_status.sql:10`). Frontend report screens should read `reportService`, not rebuild historical reports from mutable `tasks` rows (`src/features/api/reportService.ts:96`, `src/features/api/reportService.ts:107`).
+
+Realtime channels are centralized in `src/shared/realtime/realtimeChannels.ts`. New frontend subscriptions should use `createRealtimeChannelName` for a scoped channel name, `createDebouncedRealtimeCallback` when a change causes a reload, and `removeRealtimeChannel` during cleanup. React-mounted channels should keep the default unique suffix to avoid reusing a subscribed Supabase topic; filters must stay scoped by `project_id`, `organization_id`, `user_id`, or `invitee_id` rather than listening to full tables.
+
 ## Data Model Notes
 
 ### Projects
@@ -358,7 +383,7 @@ Creating a project also:
   - `Hecho`
 - persists column order in `column_order`
 
-Project creation must be all-or-nothing. The frontend service should call `create_project_with_defaults`, which creates the project, owner membership, tags, default columns, and `column_order` inside one Postgres transaction. If the RPC is not available in an environment, the fallback path must delete the partially created project when any setup step fails.
+Project creation must be all-or-nothing. The frontend service should call `createProjectCommand`, which calls `create_project_command`; that SQL command creates the project, owner membership, tags, default columns, `column_order`, activity event, and outbox job inside one Postgres transaction. Do not reintroduce the old frontend fallback that inserted `projects`, `project_members`, tags and columns in separate requests.
 
 The project key is important because ticket IDs are displayed as `<KEY>-<N>`, such as `ALGOR-2`.
 
@@ -390,7 +415,7 @@ Rules:
 - Adding a user to a project is not a new invitation flow; it is an owner action that adds an existing organization member to `project_members`.
 - Project members can be assigned to tickets.
 - Private projects (`projects.visibility = 'private'`) are visible only to explicit project members.
-- Membership RLS uses `is_project_member(project_id)`, `is_project_owner(project_id)`, `is_organization_member(organization_id)`, `is_organization_admin(organization_id)`, and `can_view_project(project_id)` helpers to avoid recursive policies and separate read access from edit access.
+- Membership RLS and commands should use the centralized SQL permission layer. Canonical helpers are `can_view_project(project_id)` for read access, `can_mutate_project(project_id)` for edit access, `can_manage_project(project_id)` for owner-level project administration, `can_manage_organization(organization_id)` for owner/admin organization administration, and `can_add_project_member(project_id, user_id)` / `can_assign_project_user(project_id, user_id)` for membership-sensitive actions (`supabase/migrations/20260730034117_centralized_sql_permissions.sql:59`, `supabase/migrations/20260730034117_centralized_sql_permissions.sql:80`, `supabase/migrations/20260730034117_centralized_sql_permissions.sql:90`, `supabase/migrations/20260730034117_centralized_sql_permissions.sql:39`, `supabase/migrations/20260730034117_centralized_sql_permissions.sql:100`, `supabase/migrations/20260730034117_centralized_sql_permissions.sql:153`). Older helpers such as `is_project_member(project_id)`, `is_project_owner(project_id)`, `is_organization_member(organization_id)`, `is_organization_admin(organization_id)`, and `can_edit_project(project_id)` delegate to that layer (`supabase/migrations/20260730034117_centralized_sql_permissions.sql:192`, `supabase/migrations/20260730034117_centralized_sql_permissions.sql:202`, `supabase/migrations/20260730034117_centralized_sql_permissions.sql:172`, `supabase/migrations/20260730034117_centralized_sql_permissions.sql:182`, `supabase/migrations/20260730034117_centralized_sql_permissions.sql:212`).
 - `project_invitations` may still exist for legacy compatibility, but the intended product flow is organization invitation first, project membership second.
 - Do not use browser alerts for invitation feedback; use MUI menu/alert surfaces.
 
@@ -436,6 +461,11 @@ Rules:
 
 - Backlog tasks have `in_backlog = true` and usually `column_id = null`.
 - Board tasks have `in_backlog = false` and a `column_id`.
+- New tasks should be created through `create_task_command`, which owns `task_id_display` generation by incrementing `projects.task_sequence`.
+- Assignments should be changed through `assign_task_command`, which keeps assignment validation, activity events, queue handoff, and notification triggers centralized.
+- Board status changes from the task editor should be changed through `move_task_column_command`, which validates edit access, validates the destination column, updates `column_id`, clears backlog state, recalculates position when needed, and records `task.moved`.
+- User notifications are created server-side through `create_user_notification` and trigger functions, not by React components. The database creates notifications for task assignment, project membership added, organization membership added, and sprint completion; `dedupe_key` prevents duplicate delivery for idempotent events (`supabase/migrations/20260730041047_server_side_notifications.sql:4`, `supabase/migrations/20260730041047_server_side_notifications.sql:36`, `supabase/migrations/20260730041047_server_side_notifications.sql:158`, `supabase/migrations/20260730041047_server_side_notifications.sql:198`, `supabase/migrations/20260730041047_server_side_notifications.sql:229`, `supabase/migrations/20260730041047_server_side_notifications.sql:272`, `supabase/migrations/20260730041047_server_side_notifications.sql:315`).
+- Sprint deadline notifications are also server-side. `scan_sprint_deadlines` creates `sprint_due_soon` for active sprints ending tomorrow and `sprint_overdue` for active sprints past `end_date`; these are notification-only events and must not close the sprint (`supabase/migrations/20260730053934_scheduled_maintenance_cron.sql:45`, `supabase/migrations/20260730053934_scheduled_maintenance_cron.sql:80`, `supabase/migrations/20260730053934_scheduled_maintenance_cron.sql:123`).
 - Roadmap task bars use `planned_start_date`/`planned_end_date` when present.
 - If roadmap child scheduling is enabled and a task has no planned dates, the UI may fall back to sprint dates or visual default dates.
 - Tasks are connected to epics only by `tasks.epic_id`. Do not reintroduce a join table for task-epic assignment.
@@ -490,8 +520,8 @@ Rules:
 - Board header shows the active sprint status and days remaining from the normalized sprint end date.
 - Tasks are assigned to a sprint through `tasks.sprint_id`.
 - Starting a sprint sets `status = active`.
-- Closing/completing a sprint sets `status = closed`.
-- Completing a sprint opens a decision modal for incomplete tasks. Each incomplete task can be moved to backlog, moved to an existing future sprint, or moved to a newly created future sprint.
+- Closing/completing a sprint sets `status = closed` through `complete_sprint_command`.
+- Completing a sprint opens a decision modal for incomplete tasks. Each incomplete task can be moved to backlog, moved to an existing future sprint, or moved to a newly created future sprint. The RPC requires a disposition for every incomplete task and applies all moves plus sprint closure in one transaction.
 
 ### Epic-Task Relationship
 
@@ -691,9 +721,11 @@ Responsibilities:
 Important behavior:
 
 - If there is an active sprint, board loads tasks for that sprint.
+- Tasks created from the board must pass the active sprint id to the task command so they remain in the active board after reload.
 - If there is no active sprint, board shows an empty state and directs the user to Backlog to create or start a sprint.
 - If no sprint is provided to the board service, it filters board tasks with `sprint_id is null`. Do not use fake UUID sentinel values for missing sprints.
 - In the Board screen, the title/actions header and the board toolbar are fixed. Only the columns area scrolls vertically/horizontally.
+- Board realtime subscriptions use the shared realtime helper with unique channel names per mount/project/sprint. Reusing a channel topic and adding `postgres_changes` callbacks after subscription can throw Supabase's `cannot add postgres_changes callbacks after subscribe()` error.
 
 ### Backlog
 
@@ -714,6 +746,7 @@ Responsibilities:
 Product rule:
 
 - Backlog task creation should not include epic as an issue type option. Epics are created in the Epics section.
+- Backlog task creation should use the task command, even when the UI opens a draft modal. The database should not receive a real task until the user confirms creation.
 
 ### Epics
 
@@ -1106,6 +1139,7 @@ Manual checks by feature:
 ## Known Risks and Technical Debt
 
 - Some older files contain debug `console.log` calls and comments with emojis. Clean carefully in scoped refactors only.
+- Some non-command task movement paths still update `tasks` directly for drag ordering and backlog-to-sprint planning; do not expand that pattern into create/assign/status/complete flows.
 - Board sprint filtering uses `sprint_id is null` when no sprint is selected. Keep missing-sprint state represented as `null`, not as a fake UUID.
 - Task-epic assignment is intentionally single-source through `tasks.epic_id`.
 - Dependency cycles are blocked in the service layer and database triggers. Keep both layers in sync when changing dependency behavior.
