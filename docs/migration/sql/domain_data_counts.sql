@@ -1,0 +1,34 @@
+select 'auth.users' as table_name, count(*)::bigint as rows from auth.users
+union all select 'auth.identities', count(*)::bigint from auth.identities
+union all select 'storage.buckets', count(*)::bigint from storage.buckets
+union all select 'storage.objects', count(*)::bigint from storage.objects
+union all select 'public.organizations', count(*)::bigint from public.organizations
+union all select 'public.organization_members', count(*)::bigint from public.organization_members
+union all select 'public.organization_invitations', count(*)::bigint from public.organization_invitations
+union all select 'public.projects', count(*)::bigint from public.projects
+union all select 'public.project_members', count(*)::bigint from public.project_members
+union all select 'public.project_invitations', count(*)::bigint from public.project_invitations
+union all select 'public.user_profiles', count(*)::bigint from public.user_profiles
+union all select 'public.boards', count(*)::bigint from public.boards
+union all select 'public.columns', count(*)::bigint from public.columns
+union all select 'public.column_order', count(*)::bigint from public.column_order
+union all select 'public.tasks', count(*)::bigint from public.tasks
+union all select 'public.epics', count(*)::bigint from public.epics
+union all select 'public.sprints', count(*)::bigint from public.sprints
+union all select 'public.epic_dependencies', count(*)::bigint from public.epic_dependencies
+union all select 'public.task_dependencies', count(*)::bigint from public.task_dependencies
+union all select 'public.roadmap_settings', count(*)::bigint from public.roadmap_settings
+union all select 'public.editor_notes', count(*)::bigint from public.editor_notes
+union all select 'public.activity_events', count(*)::bigint from public.activity_events
+union all select 'public.user_notifications', count(*)::bigint from public.user_notifications
+union all select 'public.command_jobs', count(*)::bigint from public.command_jobs
+union all select 'public.automation_rules', count(*)::bigint from public.automation_rules
+union all select 'public.automation_runs', count(*)::bigint from public.automation_runs
+union all select 'public.sprint_reports', count(*)::bigint from public.sprint_reports
+union all select 'public.issue_types', count(*)::bigint from public.issue_types
+union all select 'public.priorities', count(*)::bigint from public.priorities
+union all select 'public.epic_phases', count(*)::bigint from public.epic_phases
+union all select 'public.point_systems', count(*)::bigint from public.point_systems
+union all select 'public.point_values', count(*)::bigint from public.point_values
+union all select 'public.project_tags', count(*)::bigint from public.project_tags
+order by table_name;

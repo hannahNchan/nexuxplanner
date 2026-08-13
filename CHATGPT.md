@@ -108,6 +108,8 @@ NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=
 
 Client setup lives in `src/lib/supabase.ts`.
 
+In Vite builds, `VITE_*` variables intentionally take precedence over `NEXT_PUBLIC_*` variables. This lets `.env.local` point a local session to the Raspberry Supabase instance even if `.env` still contains Cloud `NEXT_PUBLIC_*` fallbacks.
+
 OAuth redirect setup:
 
 - `VITE_AUTH_REDIRECT_URL` is the public browser URL used by Google/Supabase OAuth after sign-in.
@@ -1146,6 +1148,22 @@ Manual checks by feature:
 - Roadmap dependency routing is custom and visual. Test with multiple rows between source and target before changing route math.
 - `react-archer` remains in dependencies but roadmap now uses `@xyflow/react`.
 - Some UI labels are English in Roadmap settings while most app copy is Spanish.
+
+## Raspberry Supabase Migration
+
+The Raspberry self-hosted Supabase migration is documented under `docs/migration`; start with `docs/migration/README.md`. Do not run the repo migrations directly against an empty Raspberry database: the repo is missing the earliest production migrations that created the base NexusPlanner tables. The detailed order is `raspberry-supabase-inventory.md`, `raspberry-supabase-baseline-runbook.md`, `raspberry-supabase-data-runbook.md`, `raspberry-supabase-storage-runbook.md`, and `raspberry-frontend-cutover-runbook.md`.
+
+Current migration rule: schema parity must be proven before data import, and data integrity must be proven before frontend cutover. The SQL checks in `docs/migration/sql` are the reusable gates for extension readiness, schema object parity, domain row counts and relationship integrity.
+
+`supabase db dump` requires a reachable Docker daemon where the command runs. If Docker Desktop is unavailable on Windows, use `docs/migration/scripts/export-cloud-baseline-on-raspberry.ps1` and `docs/migration/scripts/export-cloud-data-on-raspberry.ps1`; those wrappers run the dump from the Raspberry and copy the ignored export files back. Baseline schema must apply `cloud_schema_public.sql` plus `cloud_storage_policies.sql`, not a full `storage` schema dump, because self-hosted Supabase already owns internal Storage tables, types and functions.
+
+Raspberry data export intentionally excludes volatile/internal Auth and Storage tables such as sessions, refresh tokens, one-time tokens, MFA transient rows, schema migrations, multipart uploads and Storage analytics/vector internals. The data migration target is preserved Auth users/identities, NexusPlanner public rows, Storage buckets and Storage object metadata; actual object bytes are migrated in the dedicated Storage phase.
+
+Storage byte migration uses `docs/migration/scripts/migrate-storage-bytes-on-raspberry.ps1`. It runs on the Raspberry, reads the local `SERVICE_ROLE_KEY` from `supabase status -o env` without printing it, downloads the six public production objects, uploads them to the local Storage API with `x-upsert: true`, and verifies public byte counts through `http://127.0.0.1:54321/storage/v1/object/public/...`.
+
+Realtime and Cron do not come from the schema/data dumps. Apply `docs/migration/scripts/configure-raspberry-realtime-cron.ps1` after data import; it adds `activity_events`, `automation_rules`, `automation_runs`, `organization_invitations`, `project_invitations`, `tasks`, and `user_notifications` to `supabase_realtime`, then schedules command-job maintenance every five minutes and sprint deadline scanning daily at 08:15.
+
+Raspberry Auth URLs are configured through `docs/migration/scripts/configure-raspberry-auth.ps1`. The script sets `site_url`, `auth.external_url`, and allowed app redirect URLs for LAN testing; it only enables Google OAuth when `NEXUS_GOOGLE_CLIENT_ID` and `NEXUS_GOOGLE_CLIENT_SECRET` are present in the current shell. Do not hardcode provider secrets in repo files or migration docs.
 
 ## How To Add A Feature Safely
 
