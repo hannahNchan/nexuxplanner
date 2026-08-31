@@ -1,7 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.110.7";
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 
-type TaskCommandAction = "create_task" | "assign_task";
+type TaskCommandAction = "create_task" | "assign_task" | "move_task_column" | "schedule_task";
 
 type TaskCommandRequest = {
   action: TaskCommandAction;
@@ -46,6 +46,24 @@ Deno.serve(async (req) => {
     if (body.action === "assign_task") {
       const { data, error } = await supabase
         .rpc("assign_task_command", body.payload)
+        .single();
+
+      if (error) throw error;
+      return jsonResponse({ data });
+    }
+
+    if (body.action === "move_task_column") {
+      const { data, error } = await supabase
+        .rpc("move_task_column_command", body.payload)
+        .single();
+
+      if (error) throw error;
+      return jsonResponse({ data });
+    }
+
+    if (body.action === "schedule_task") {
+      const { data, error } = await supabase
+        .rpc("schedule_task_command", body.payload)
         .single();
 
       if (error) throw error;

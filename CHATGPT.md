@@ -78,6 +78,28 @@ Combined check:
 npm run check
 ```
 
+CLI:
+
+```bash
+npm run cli -- help
+npm run cli -- auth status
+```
+
+The CLI lives in `packages/cli` and is the first local client for external agents. It does not write directly to tables for critical mutations; it calls Supabase Edge Function command wrappers. It reads `.env.local`/`.env` for the Supabase URL and publishable key, and requires a user access token through `NEXUS_ACCESS_TOKEN` or `nexus config set token <token>` before authenticated reads/writes.
+
+Dedicated CLI documentation lives in `docs/cli/README.md`. The JSON contract for external agents that use `agent validate-plan` or `agent apply-plan` lives in `docs/cli/AGENT_PLANS.md`.
+
+Implemented CLI backend command endpoints:
+
+- `epic-commands:create_epic` -> `create_epic_command`
+- `task-commands:create_task`, `assign_task`, `move_task_column`, `schedule_task`
+- `sprint-commands:create_sprint`, `complete_sprint`
+- `notification-commands:mark_all_read`
+- `workspace-commands` includes organization/project/member/invitation commands plus `delete_organization`
+- `agent-commands:validate_plan`, `apply_plan`
+
+`agent apply-plan` consumes a JSON plan shaped as `organization -> projects -> sprints/epics/tasks`. Plan entries can use `ref` fields so tasks can point to `epic_ref` and `sprint_ref`; the Edge Function resolves those refs after each server-side command returns real IDs. `validate-plan` checks structure and date/order rules without requiring a user token, while `apply-plan` requires a user JWT and applies only through the same RPC command boundary used by the UI.
+
 `npm run build` runs `tsc -b` and `vite build`. A Vite warning about large chunks may appear; that warning is not currently a failing error.
 
 `npm run test:integration` runs Vitest service-level integration tests. Tests that touch Supabase require either `NEXUS_TEST_USER_EMAIL`/`NEXUS_TEST_USER_PASSWORD` or OAuth session tokens through `NEXUS_TEST_ACCESS_TOKEN`/`NEXUS_TEST_REFRESH_TOKEN`; without credentials, the suite is skipped instead of mutating shared data anonymously.
@@ -187,8 +209,17 @@ Task editor rule:
 - New task creation requires explicit decisions for title, assignee state, issue type, priority, and story points when those catalogs are available. `Sin asignar` is allowed, but it must be chosen explicitly so task-created automations can tell intentional unassigned work from an unfinished form (`src/features/board/components/TaskEditorModal.tsx:119`, `src/features/board/components/TaskEditorModal.tsx:163`, `src/features/board/components/TaskEditorModal.tsx:168`, `src/features/board/components/TaskEditorModal.tsx:173`, `src/features/board/components/TaskEditorModal.tsx:178`, `src/features/board/components/TaskEditorModal.tsx:183`).
 - The main pane focuses on title, subtitle, and rich description.
 - The side pane holds task properties such as destination, assignee, status, type, priority, story points, and destructive actions.
+- Task planning dates live on `tasks.planned_start_date` and `tasks.planned_end_date`. If they are empty, Board calendar/timeline views fall back to `created_at` for display only.
 - In the board drawer, changing the `Estado` selector persists immediately through `move_task_column_command` and moves the card locally; users should not need to press Guardar for a pure status change.
 - Keep save/delete behavior compatible with both Board and Backlog callers.
+
+Board view rule:
+
+- `/tablero` supports five layouts over the same active sprint data: list, board, calendar, table, and timeline.
+- The selected layout is stored per project in `localStorage["nexusplanner.boardView.<projectId>"]`.
+- Calendar drag and resize write `planned_start_date` and `planned_end_date`.
+- Timeline drag and side resize write the same date fields. Timeline is task scheduling only; it must not render roadmap dependency connectors.
+- These alternate layouts use the active sprint task set, not the full project backlog.
 
 ## Core Contexts
 
@@ -336,7 +367,7 @@ Use `src/shared/utils/errorHandling.ts` for Supabase-facing errors:
 
 Feature hooks and components should not call Supabase tables/storage directly. Put database-backed reads and writes in `src/features/api/*Service.ts`, then import those service functions from hooks/components. Auth-only surfaces such as `AuthGate`, `AuthForm`, and app shell account handling may use the auth client directly, but product data should stay behind services.
 
-Critical product commands have a stricter boundary. Creating tasks, assigning task owners, moving tasks between board columns/statuses, completing sprints, creating organizations, creating projects, inviting users, accepting/declining invitations, and changing organization/project membership must go through backend commands, not through ad hoc frontend write sequences. Task/sprint commands live in `src/features/api/taskCommandService.ts`, and workspace commands live in `src/features/api/workspaceCommandService.ts`.
+Critical product commands have a stricter boundary. Creating tasks, assigning task owners, moving tasks between board columns/statuses, completing sprints, creating organizations, creating projects, inviting users, accepting/declining invitations, changing organization/project membership, and deleting organizations must go through backend commands, not through ad hoc frontend write sequences. Task/sprint commands live in `src/features/api/taskCommandService.ts`, and workspace commands live in `src/features/api/workspaceCommandService.ts`.
 
 These RPCs validate project edit access, related project ownership, task assignment membership, sprint status, incomplete sprint task disposition, visible task ID generation, organization admin rights, project owner rights, membership invariants, activity events, and command outbox/queue handoff. The Edge Functions under `supabase/functions/task-commands`, `supabase/functions/sprint-commands`, and `supabase/functions/workspace-commands` are HTTP wrappers over the same RPCs; they must not duplicate or drift from the database rules.
 
@@ -649,6 +680,7 @@ Rules:
 - An organization can have many projects.
 - A project belongs to one and only one organization.
 - The active organization controls which projects appear in project selection.
+- `Layout` must keep `activeOrganization.role` fresh from `fetchUserOrganizations`; stale active organization objects can hide owner/admin controls even when SQL permissions are correct.
 - Organization branding is shown in the sidebar as a square logo plus organization name.
 - The top app header keeps the product brand: `NexusPlanner` and `Planning Software`.
 - Organization logos are stored in the `project-assets` bucket under `organization-logos/{organizationId}/logo.ext`.
@@ -657,7 +689,9 @@ Rules:
 - Creating a project while an organization is active uses that organization and does not let the user switch organization inside the project modal.
 - Users with more than one organization can switch from the account menu.
 - Owner/admin can invite registered users to the organization from user settings by exact email address. Do not list all registered users or search globally by name.
-- Project settings includes an `Organización` section for the active organization. It shows organization members, pending invitations, role changes, member removal, and email-based organization invites.
+- Organization settings are available from the account menu and the sidebar organization header. `src/features/organizations/components/OrganizationSettingsModal.tsx` shows organization identity, role descriptions, members, pending invitations, role changes, member removal, email-based organization invites, and a danger zone.
+- Organization settings should derive owner/admin controls from both `activeOrganization.role` and the loaded `organization_members` row for the current user; this protects the UI when context metadata is temporarily stale.
+- Deleting an organization is owner-only and must call `deleteOrganizationCommand`, which executes `delete_organization_command`. The SQL command validates `current_organization_role(...) = 'owner'`, enqueues an `activity.organization_deleted` job with Storage cleanup prefixes for a worker/API path, and deletes the `organizations` row so FK cascades remove projects and organization-scoped data. Do not delete from `storage.objects` directly in SQL; Supabase Storage blocks direct table deletion and requires the Storage API/service-role path for object cleanup.
 - Invited users receive a pending organization notification in the account menu; accepting adds them to the organization.
 - Organization members can view organization-visible projects by default, but they cannot change project data unless they are added as project members.
 - Project owners add organization members to a project from the Board collaborators control.

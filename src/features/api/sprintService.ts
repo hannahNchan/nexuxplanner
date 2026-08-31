@@ -1,6 +1,7 @@
 import { supabase } from "../../lib/supabase";
 import type { Sprint, SprintWithStats, CreateSprintData } from "../../features/sprints/types/sprint";
 import { completeSprintCommand } from "./taskCommandService";
+import { getSprintDurationDays } from "../sprints/utils/sprintDates";
 
 const assertSprintBelongsToProject = async (projectId: string, sprintId: string): Promise<void> => {
   const { data, error } = await supabase
@@ -111,21 +112,22 @@ export const createSprint = async (
   projectId: string,
   sprintData: CreateSprintData
 ): Promise<Sprint> => {
+  const durationDays = getSprintDurationDays(sprintData.start_date, sprintData.end_date) ?? 7;
+  const duration = durationDays >= 28 ? "1m" : durationDays >= 15 ? "15d" : "7d";
+
   const { data, error } = await supabase
-    .from("sprints")
-    .insert({
-      project_id: projectId,
-      name: sprintData.name,
-      goal: sprintData.goal || null,
-      status: "future",
-      start_date: sprintData.start_date,
-      end_date: sprintData.end_date,
+    .rpc("create_sprint_command", {
+      p_project_id: projectId,
+      p_name: sprintData.name,
+      p_goal: sprintData.goal || null,
+      p_start_date: sprintData.start_date,
+      p_duration: duration,
+      p_status: "future",
     })
-    .select()
     .single();
 
   if (error) throw error;
-  return data;
+  return data as Sprint;
 };
 
 // Actualizar sprint

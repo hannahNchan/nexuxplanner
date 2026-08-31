@@ -4,6 +4,7 @@ import {
   createOrganizationCommand,
   createOrganizationInvitationForUserCommand,
   createOrganizationInvitationCommand,
+  deleteOrganizationCommand,
   declineOrganizationInvitationCommand,
   removeOrganizationMemberCommand,
   updateOrganizationMemberRoleCommand,
@@ -162,6 +163,10 @@ export const updateOrganization = async (
 
   if (error) throw error;
   return data;
+};
+
+export const deleteOrganization = async (organizationId: string): Promise<string> => {
+  return deleteOrganizationCommand(organizationId);
 };
 
 export const uploadOrganizationLogo = async (

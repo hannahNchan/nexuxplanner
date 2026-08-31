@@ -1,9 +1,11 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.110.7";
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 
-type SprintCommandRequest = {
-  action: "create_sprint" | "complete_sprint";
-  payload: Record<string, unknown>;
+type NotificationCommandAction = "mark_all_read";
+
+type NotificationCommandRequest = {
+  action: NotificationCommandAction;
+  payload?: Record<string, unknown>;
 };
 
 Deno.serve(async (req) => {
@@ -30,29 +32,19 @@ Deno.serve(async (req) => {
   });
 
   try {
-    const body = (await req.json()) as SprintCommandRequest;
+    const body = (await req.json()) as NotificationCommandRequest;
 
-    if (body.action === "create_sprint") {
-      const { data, error } = await supabase
-        .rpc("create_sprint_command", body.payload)
-        .single();
-
-      if (error) throw error;
-      return jsonResponse({ data });
+    if (body.action !== "mark_all_read") {
+      return jsonResponse({ error: "Unsupported notification command" }, 400);
     }
 
-    if (body.action === "complete_sprint") {
-      const { data, error } = await supabase
-        .rpc("complete_sprint_command", body.payload)
-        .single();
+    const { data, error } = await supabase
+      .rpc("mark_all_notifications_read_command");
 
-      if (error) throw error;
-      return jsonResponse({ data });
-    }
-
-    return jsonResponse({ error: "Unsupported sprint command" }, 400);
+    if (error) throw error;
+    return jsonResponse({ data });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Sprint command failed";
+    const message = error instanceof Error ? error.message : "Notification command failed";
     return jsonResponse({ error: message }, 400);
   }
 });

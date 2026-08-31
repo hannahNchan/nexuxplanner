@@ -134,6 +134,15 @@ export const removeOrganizationMemberCommand = async (
   if (error) throw error;
 };
 
+export const deleteOrganizationCommand = async (organizationId: string): Promise<string> => {
+  const { data, error } = await supabase.rpc("delete_organization_command", {
+    p_organization_id: organizationId,
+  });
+
+  if (error) throw error;
+  return data as string;
+};
+
 export const addProjectMemberCommand = async (
   projectId: string,
   userId: string,

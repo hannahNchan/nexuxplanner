@@ -48,6 +48,8 @@ type TaskEditorModalProps = {
     priority_id?: string | null;
     story_points?: string | null;
     assignee_id?: string | null;
+    planned_start_date?: string | null;
+    planned_end_date?: string | null;
   } | null;
   columns: Array<{ id: string; title: string }>;
   issueTypes: IssueType[];
@@ -68,6 +70,8 @@ type TaskEditorModalProps = {
     priority_id: string | null;
     story_points: string | null;
     assignee_id: string | null;
+    planned_start_date: string | null;
+    planned_end_date: string | null;
   }) => Promise<void>;
   onStatusChange?: (taskId: string, columnId: string) => Promise<void>;
   onDelete: (taskId: string) => Promise<void>;
@@ -106,6 +110,8 @@ const TaskEditorModal = ({
   const [priorityId, setPriorityId] = useState<string>("");
   const [storyPoints, setStoryPoints] = useState<string>("");
   const [assigneeId, setAssigneeId] = useState<string>("");
+  const [plannedStartDate, setPlannedStartDate] = useState<string>("");
+  const [plannedEndDate, setPlannedEndDate] = useState<string>("");
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
@@ -139,6 +145,8 @@ const TaskEditorModal = ({
     setPriorityId(task.priority_id || "");
     setStoryPoints(task.story_points || "");
     setAssigneeId(task.assignee_id || "");
+    setPlannedStartDate(task.planned_start_date || "");
+    setPlannedEndDate(task.planned_end_date || "");
   }, [task, columns, issueTypes]);
 
   useEffect(() => {
@@ -151,6 +159,8 @@ const TaskEditorModal = ({
       setPriorityId("");
       setStoryPoints("");
       setAssigneeId("");
+      setPlannedStartDate("");
+      setPlannedEndDate("");
       setErrorMessage("");
     }
   }, [open, defaultDestination]);
@@ -190,6 +200,11 @@ const TaskEditorModal = ({
       return;
     }
 
+    if (plannedStartDate && plannedEndDate && plannedEndDate < plannedStartDate) {
+      setErrorMessage("La fecha fin no puede ser anterior a la fecha inicio.");
+      return;
+    }
+
     setErrorMessage("");
     const description = descriptionEditorRef.current?.getHTML() ?? "";
 
@@ -205,6 +220,8 @@ const TaskEditorModal = ({
         priority_id: priorityId || null,
         story_points: storyPoints || null,
         assignee_id: assigneeId === EXPLICIT_UNASSIGNED_ASSIGNEE ? null : assigneeId || null,
+        planned_start_date: plannedStartDate || null,
+        planned_end_date: plannedEndDate || null,
       });
       onClose();
     } catch (error) {
@@ -455,6 +472,27 @@ const TaskEditorModal = ({
                     )}
                   </Select>
                 </FormControl>
+              </Stack>
+
+              <Stack direction={{ xs: "column", md: "row" }} spacing={2}>
+                <TextField
+                  fullWidth
+                  label="Fecha inicio"
+                  type="date"
+                  value={plannedStartDate}
+                  onChange={(e) => setPlannedStartDate(e.target.value)}
+                  InputLabelProps={{ shrink: true }}
+                  helperText="Opcional. Si no se define, se usa la fecha de creación."
+                />
+                <TextField
+                  fullWidth
+                  label="Fecha fin"
+                  type="date"
+                  value={plannedEndDate}
+                  onChange={(e) => setPlannedEndDate(e.target.value)}
+                  InputLabelProps={{ shrink: true }}
+                  helperText="Opcional. Si no se define, termina el mismo día."
+                />
               </Stack>
 
               <Stack direction={{ xs: "column", md: "row" }} spacing={2}>
@@ -904,6 +942,35 @@ const TaskEditorModal = ({
                     ))}
                   </Select>
                 </FormControl>
+
+                <Divider />
+
+                <Stack spacing={1}>
+                  <Typography variant="caption" color="text.secondary" fontWeight={900}>
+                    Fechas de planificación
+                  </Typography>
+                  <TextField
+                    fullWidth
+                    size={isCompact ? "medium" : "small"}
+                    label="Inicio"
+                    type="date"
+                    value={plannedStartDate}
+                    onChange={(e) => setPlannedStartDate(e.target.value)}
+                    InputLabelProps={{ shrink: true }}
+                  />
+                  <TextField
+                    fullWidth
+                    size={isCompact ? "medium" : "small"}
+                    label="Fin"
+                    type="date"
+                    value={plannedEndDate}
+                    onChange={(e) => setPlannedEndDate(e.target.value)}
+                    InputLabelProps={{ shrink: true }}
+                  />
+                  <Typography variant="caption" color="text.secondary">
+                    Calendario y timeline usan la fecha de creación si no defines inicio.
+                  </Typography>
+                </Stack>
 
                 <Divider />
 

@@ -1,6 +1,6 @@
 # NexusPlanner Raspberry Supabase Migration
 
-Goal: move NexusPlanner backend state from Supabase Cloud project `cucqyupaaqnrzblkpsrz` to the Raspberry Pi Supabase stack at `192.168.100.10`.
+Goal: move NexusPlanner backend state from Supabase Cloud project `cucqyupaaqnrzblkpsrz` to the Raspberry Pi Supabase stack at `192.168.100.2`.
 
 This directory is the operational source of truth for the migration. Do not start by applying repo migrations to the Raspberry. The repo is missing early production migrations that created the base NexusPlanner tables, so a production schema baseline must be restored first.
 
@@ -69,6 +69,15 @@ Apply schema to Raspberry:
 $env:NEXUS_RASPBERRY_SSH_PASSWORD = "<temporary Raspberry SSH password>"
 .\docs\migration\scripts\apply-raspberry-baseline.ps1
 ```
+
+Apply one new repo migration to Raspberry without using the linked Cloud project:
+
+```powershell
+$env:NEXUS_RASPBERRY_SSH_PASSWORD = "<temporary Raspberry SSH password>"
+.\docs\migration\scripts\apply-raspberry-migration.ps1 -MigrationFile "supabase\migrations\20260831195943_cli_missing_backend_commands.sql"
+```
+
+Do this instead of plain `npx supabase db push` when the repo is still linked to Cloud. Plain `db push` targets the linked remote project and may fail with `SUPABASE_DB_PASSWORD` or connection-role errors unrelated to the Raspberry.
 
 Run Raspberry SQL checks:
 

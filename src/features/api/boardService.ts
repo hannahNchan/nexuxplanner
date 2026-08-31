@@ -18,6 +18,7 @@ type ColumnRecord = {
 
 type TaskRecord = {
   id: string;
+  project_id: string;
   column_id: string | null;
   title: string;
   task_id_display: string | null;
@@ -31,6 +32,10 @@ type TaskRecord = {
   epic_id?: string | null;
   epic_name?: string | null;
   epic_color?: string | null;
+  planned_start_date: string | null;
+  planned_end_date: string | null;
+  created_at: string;
+  updated_at: string;
 };
 
 type TaskUpdatePayload = {
@@ -44,6 +49,8 @@ type TaskUpdatePayload = {
   story_points?: string | null;
   assignee_id?: string | null;
   in_backlog?: boolean;
+  planned_start_date?: string | null;
+  planned_end_date?: string | null;
 };
 
 const assertColumnBelongsToProject = async (columnId: string, projectId: string): Promise<void> => {
@@ -160,7 +167,7 @@ export const fetchBoardDataByProject = async (
   let tasksQuery = supabase
     .from("tasks")
     .select(
-      "id, column_id, title, task_id_display, subtitle, description, position, issue_type_id, priority_id, story_points, assignee_id, epic_id"
+      "id, project_id, column_id, title, task_id_display, subtitle, description, position, issue_type_id, priority_id, story_points, assignee_id, epic_id, planned_start_date, planned_end_date, created_at, updated_at"
     )
     .eq("project_id", projectId)
     .in("column_id", columnIds);
@@ -268,6 +275,8 @@ export const createTask = async (
     story_points?: string | null;
     assignee_id?: string | null;
     sprint_id?: string | null;
+    planned_start_date?: string | null;
+    planned_end_date?: string | null;
   } = {}
 ): Promise<TaskRecord> => {
 
@@ -289,7 +298,7 @@ export const createTask = async (
     throw new Error("La tarea debe pertenecer al proyecto activo.");
   }
 
-  const data = await createTaskCommand({
+  const created = await createTaskCommand({
     project_id: projectId,
     title,
     subtitle: details.subtitle ?? null,
@@ -304,7 +313,23 @@ export const createTask = async (
     assignee_id: details.assignee_id ?? null,
   });
 
-  return data;
+  if (details.planned_start_date || details.planned_end_date) {
+    const data = await updateTask(projectId, created.id, {
+      planned_start_date: details.planned_start_date ?? null,
+      planned_end_date: details.planned_end_date ?? null,
+    });
+
+    return {
+      ...created,
+      ...data,
+      project_id: projectId,
+      position,
+      parent_task_id: null,
+      github_link: null,
+    } as TaskRecord;
+  }
+
+  return created as TaskRecord;
 };
 
 export const updateTask = async (
@@ -320,6 +345,8 @@ export const updateTask = async (
     story_points?: string | null;
     assignee_id?: string | null;
     in_backlog?: boolean;
+    planned_start_date?: string | null;
+    planned_end_date?: string | null;
   }
 ): Promise<Task> => {
 
@@ -356,7 +383,7 @@ export const updateTask = async (
       .update(updateData)
       .eq("id", taskId)
       .eq("project_id", projectId)
-      .select("id, column_id, title, task_id_display, subtitle, description, position, issue_type_id, priority_id, story_points, assignee_id")
+      .select("id, project_id, column_id, title, task_id_display, subtitle, description, position, issue_type_id, priority_id, story_points, assignee_id, epic_id, planned_start_date, planned_end_date, created_at, updated_at")
       .single();
 
     if (error) {
@@ -420,6 +447,7 @@ export const toBoardState = (
   tasks.forEach((task) => {
     taskMap[task.id] = {
       id: task.id,
+      column_id: task.column_id,
       title: task.title,
       task_id_display: task.task_id_display ?? undefined,
       subtitle: task.subtitle ?? undefined,
@@ -431,6 +459,10 @@ export const toBoardState = (
       epic_id: task.epic_id ?? undefined,
       epic_name: task.epic_name ?? undefined,
       epic_color: task.epic_color ?? undefined,
+      planned_start_date: task.planned_start_date ?? null,
+      planned_end_date: task.planned_end_date ?? null,
+      created_at: task.created_at,
+      updated_at: task.updated_at,
     };
   });
 

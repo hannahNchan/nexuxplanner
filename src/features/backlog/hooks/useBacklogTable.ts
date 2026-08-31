@@ -99,6 +99,8 @@ export const useBacklogTable = (userId: string) => {
     priority_id?: string | null;
     story_points?: string | null;
     assignee_id?: string | null;
+    planned_start_date?: string | null;
+    planned_end_date?: string | null;
   } | null>(null);
 
   // Catalogs for modal
@@ -214,6 +216,8 @@ export const useBacklogTable = (userId: string) => {
       priority_id: null,
       story_points: null,
       assignee_id: null,
+      planned_start_date: null,
+      planned_end_date: null,
     });
     setTaskEditorPresentation("modal");
     setIsTaskModalOpen(true);
@@ -373,6 +377,8 @@ export const useBacklogTable = (userId: string) => {
       priority_id: string | null;
       story_points: string | null;
       assignee_id: string | null;
+      planned_start_date: string | null;
+      planned_end_date: string | null;
     }
   ) => {
     if (!currentProject) return;
@@ -391,6 +397,8 @@ export const useBacklogTable = (userId: string) => {
           priority_id: updates.priority_id,
           story_points: updates.story_points,
           issue_type_id: updates.issue_type_id,
+          planned_start_date: updates.planned_start_date,
+          planned_end_date: updates.planned_end_date,
         });
 
         if (updates.destination === "backlog") {
@@ -415,6 +423,8 @@ export const useBacklogTable = (userId: string) => {
         assignee_id: updates.assignee_id,
         priority_id: updates.priority_id,
         story_points: updates.story_points,
+        planned_start_date: updates.planned_start_date,
+        planned_end_date: updates.planned_end_date,
       });
 
       if (updates.destination === "scrum") {
@@ -436,6 +446,8 @@ export const useBacklogTable = (userId: string) => {
                 priority_name: priority?.name,
                 priority_color: priority?.color,
                 story_points: updates.story_points,
+                planned_start_date: updates.planned_start_date,
+                planned_end_date: updates.planned_end_date,
               } as BacklogTaskWithDetails)
             : task
         )

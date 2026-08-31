@@ -64,6 +64,8 @@ export const useBoardManager = (userId: string) => {
     priority_id?: string | null;
     story_points?: string | null;
     assignee_id?: string | null;
+    planned_start_date?: string | null;
+    planned_end_date?: string | null;
   } | null>(null);
 
   // Creating states
@@ -253,6 +255,8 @@ export const useBoardManager = (userId: string) => {
       priority_id: null,
       story_points: null,
       assignee_id: null,
+      planned_start_date: null,
+      planned_end_date: null,
     });
     setTaskEditorPresentation("modal");
     setIsModalOpen(true);
@@ -282,6 +286,8 @@ export const useBoardManager = (userId: string) => {
       priority_id: task.priority_id ?? null,
       story_points: task.story_points ?? null,
       assignee_id: task.assignee_id ?? null,
+      planned_start_date: task.planned_start_date ?? null,
+      planned_end_date: task.planned_end_date ?? null,
     });
     setTaskEditorPresentation("drawer");
     setIsModalOpen(true);
@@ -299,6 +305,8 @@ export const useBoardManager = (userId: string) => {
       priority_id: string | null;
       story_points: string | null;
       assignee_id: string | null;
+      planned_start_date: string | null;
+      planned_end_date: string | null;
     }
   ) => {
     if (!currentProject || !data) return;
@@ -328,6 +336,8 @@ export const useBoardManager = (userId: string) => {
             priority_id: updates.priority_id,
             story_points: updates.story_points,
             assignee_id: updates.assignee_id,
+            planned_start_date: updates.planned_start_date,
+            planned_end_date: updates.planned_end_date,
             sprint_id: updates.destination === "scrum" ? sprintManager.activeSprint?.id ?? null : null,
           }
         );
@@ -350,6 +360,10 @@ export const useBoardManager = (userId: string) => {
                   priority_id: created.priority_id ?? undefined,
                   story_points: created.story_points ?? undefined,
                   assignee_id: created.assignee_id ?? undefined,
+                  planned_start_date: created.planned_start_date ?? null,
+                  planned_end_date: created.planned_end_date ?? null,
+                  created_at: created.created_at,
+                  updated_at: created.updated_at,
                 },
               },
               columns: {
@@ -397,6 +411,10 @@ export const useBoardManager = (userId: string) => {
             priority_id: updated.priority_id ?? undefined,
             story_points: updated.story_points ?? undefined,
             assignee_id: updated.assignee_id ?? undefined,
+            planned_start_date: updated.planned_start_date ?? previousTask?.planned_start_date ?? null,
+            planned_end_date: updated.planned_end_date ?? previousTask?.planned_end_date ?? null,
+            created_at: updated.created_at ?? previousTask?.created_at,
+            updated_at: updated.updated_at ?? previousTask?.updated_at,
           },
         };
 
@@ -527,6 +545,10 @@ export const useBoardManager = (userId: string) => {
               priority_id: updated.priority_id ?? undefined,
               story_points: updated.story_points ?? undefined,
               assignee_id: updated.assignee_id ?? undefined,
+              planned_start_date: updated.planned_start_date ?? previous.tasks[taskId].planned_start_date ?? null,
+              planned_end_date: updated.planned_end_date ?? previous.tasks[taskId].planned_end_date ?? null,
+              created_at: updated.created_at ?? previous.tasks[taskId].created_at,
+              updated_at: updated.updated_at ?? previous.tasks[taskId].updated_at,
             },
           },
         };
@@ -538,6 +560,76 @@ export const useBoardManager = (userId: string) => {
       setData(previousData);
       setSelectedTask(previousSelectedTask);
       setErrorMessage(getErrorMessage(error, "No se pudo cambiar el estado de la tarea."));
+      throw error;
+    }
+  };
+
+  const handleUpdateTaskDates = async (
+    taskId: string,
+    plannedStartDate: string | null,
+    plannedEndDate: string | null
+  ) => {
+    if (!currentProject || !data) return;
+    if (!canEditProject) {
+      setErrorMessage("Solo puedes modificar fechas en proyectos donde eres colaborador.");
+      return;
+    }
+
+    const previousTask = data.tasks[taskId];
+    if (!previousTask) return;
+
+    setData((previous) => {
+      if (!previous || !previous.tasks[taskId]) return previous;
+
+      return {
+        ...previous,
+        tasks: {
+          ...previous.tasks,
+          [taskId]: {
+            ...previous.tasks[taskId],
+            planned_start_date: plannedStartDate,
+            planned_end_date: plannedEndDate,
+          },
+        },
+      };
+    });
+
+    try {
+      const updated = await updateTask(currentProject.id, taskId, {
+        planned_start_date: plannedStartDate,
+        planned_end_date: plannedEndDate,
+      });
+
+      setData((previous) => {
+        if (!previous || !previous.tasks[taskId]) return previous;
+
+        return {
+          ...previous,
+          tasks: {
+            ...previous.tasks,
+            [taskId]: {
+              ...previous.tasks[taskId],
+              planned_start_date: updated.planned_start_date ?? null,
+              planned_end_date: updated.planned_end_date ?? null,
+              updated_at: updated.updated_at ?? previous.tasks[taskId].updated_at,
+            },
+          },
+        };
+      });
+    } catch (error) {
+      logError("board.updateTaskDates", error);
+      setData((previous) => {
+        if (!previous || !previous.tasks[taskId]) return previous;
+
+        return {
+          ...previous,
+          tasks: {
+            ...previous.tasks,
+            [taskId]: previousTask,
+          },
+        };
+      });
+      setErrorMessage(getErrorMessage(error, "No se pudieron guardar las fechas de la tarea."));
       throw error;
     }
   };
@@ -744,6 +836,7 @@ export const useBoardManager = (userId: string) => {
     handleTaskClick,
     handleSaveTask,
     handleMoveTaskColumn,
+    handleUpdateTaskDates,
     handleDeleteTask,
     onDragEnd,
   };

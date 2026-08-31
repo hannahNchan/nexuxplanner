@@ -52,6 +52,14 @@ export const markNotificationRead = async (
   if (error) throw error;
 };
 
+export const markAllNotificationsRead = async (userId: string): Promise<void> => {
+  if (!userId) return;
+
+  const { error } = await supabase.rpc("mark_all_notifications_read_command");
+
+  if (error) throw error;
+};
+
 export const subscribeToUserNotifications = (
   userId: string,
   onChange: () => void

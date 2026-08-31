@@ -10,6 +10,7 @@ type WorkspaceAction =
   | "decline_organization_invitation"
   | "update_organization_member_role"
   | "remove_organization_member"
+  | "delete_organization"
   | "add_project_member"
   | "remove_project_member"
   | "create_project_invitation"
@@ -30,6 +31,7 @@ const rpcByAction: Record<WorkspaceAction, string> = {
   decline_organization_invitation: "decline_organization_invitation_command",
   update_organization_member_role: "update_organization_member_role_command",
   remove_organization_member: "remove_organization_member_command",
+  delete_organization: "delete_organization_command",
   add_project_member: "add_project_member_command",
   remove_project_member: "remove_project_member_command",
   create_project_invitation: "create_project_invitation_command",

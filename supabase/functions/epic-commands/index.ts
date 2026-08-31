@@ -1,8 +1,10 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.110.7";
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 
-type SprintCommandRequest = {
-  action: "create_sprint" | "complete_sprint";
+type EpicCommandAction = "create_epic";
+
+type EpicCommandRequest = {
+  action: EpicCommandAction;
   payload: Record<string, unknown>;
 };
 
@@ -30,29 +32,20 @@ Deno.serve(async (req) => {
   });
 
   try {
-    const body = (await req.json()) as SprintCommandRequest;
+    const body = (await req.json()) as EpicCommandRequest;
 
-    if (body.action === "create_sprint") {
-      const { data, error } = await supabase
-        .rpc("create_sprint_command", body.payload)
-        .single();
-
-      if (error) throw error;
-      return jsonResponse({ data });
+    if (body.action !== "create_epic") {
+      return jsonResponse({ error: "Unsupported epic command" }, 400);
     }
 
-    if (body.action === "complete_sprint") {
-      const { data, error } = await supabase
-        .rpc("complete_sprint_command", body.payload)
-        .single();
+    const { data, error } = await supabase
+      .rpc("create_epic_command", body.payload)
+      .single();
 
-      if (error) throw error;
-      return jsonResponse({ data });
-    }
-
-    return jsonResponse({ error: "Unsupported sprint command" }, 400);
+    if (error) throw error;
+    return jsonResponse({ data });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Sprint command failed";
+    const message = error instanceof Error ? error.message : "Epic command failed";
     return jsonResponse({ error: message }, 400);
   }
 });

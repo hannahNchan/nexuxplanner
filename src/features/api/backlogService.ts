@@ -48,6 +48,8 @@ type BacklogTaskUpdate = {
   story_points?: string | null;
   epic_id?: string | null;
   github_link?: string | null;
+  planned_start_date?: string | null;
+  planned_end_date?: string | null;
 };
 
 export const fetchFirstProjectColumnId = async (projectId: string): Promise<string | null> => {
@@ -165,6 +167,8 @@ export const createBacklogTask = async (
     epic_id?: string | null;
     issue_type_id?: string | null;
     github_link?: string | null;
+    planned_start_date?: string | null;
+    planned_end_date?: string | null;
   }
 ): Promise<BacklogTask> => {
   if (data.epic_id) {
@@ -186,6 +190,27 @@ export const createBacklogTask = async (
       issue_type_id: data.issue_type_id || null,
       github_link: data.github_link || null,
   });
+
+  if (data.planned_start_date || data.planned_end_date) {
+    const { data: updated, error } = await supabase
+      .from("tasks")
+      .update({
+        planned_start_date: data.planned_start_date ?? null,
+        planned_end_date: data.planned_end_date ?? null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", task.id)
+      .eq("project_id", projectId)
+      .select("*")
+      .single();
+
+    if (error) throw error;
+
+    return {
+      ...(updated as BacklogTask),
+      user_id: userId,
+    };
+  }
   
   return {
     ...task,
@@ -205,6 +230,8 @@ export const updateBacklogTask = async (
     story_points?: string | null;
     epic_id?: string | null;
     github_link?: string | null;
+    planned_start_date?: string | null;
+    planned_end_date?: string | null;
   }
 ): Promise<void> => {
   if (updates.epic_id) {
