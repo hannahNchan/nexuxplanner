@@ -1,7 +1,7 @@
 import FullCalendar from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/daygrid";
 import interactionPlugin, { type EventResizeDoneArg } from "@fullcalendar/interaction";
-import type { EventClickArg, EventDropArg, EventInput } from "@fullcalendar/core";
+import type { EventClickArg, EventDropArg, EventInput, EventMountArg } from "@fullcalendar/core";
 import { Box, Paper, Typography } from "@mui/material";
 import { alpha, useTheme } from "@mui/material/styles";
 import type { BoardState, Task } from "../../../../shared/types/board";
@@ -30,6 +30,7 @@ const BoardTaskCalendarView = ({ data, readOnly = false, onTaskClick, onTaskDate
 
   const events: EventInput[] = tasks.map((task) => {
     const range = getTaskDateRange(task);
+    const taskColor = task.epic_color || theme.palette.primary.main;
 
     return {
       id: task.id,
@@ -37,9 +38,13 @@ const BoardTaskCalendarView = ({ data, readOnly = false, onTaskClick, onTaskDate
       start: range.start,
       end: toCalendarEnd(range.end),
       allDay: true,
-      backgroundColor: alpha(task.epic_color || theme.palette.primary.main, theme.palette.mode === "dark" ? 0.26 : 0.14),
-      borderColor: alpha(task.epic_color || theme.palette.primary.main, 0.42),
+      backgroundColor: alpha(taskColor, theme.palette.mode === "dark" ? 0.26 : 0.14),
+      borderColor: alpha(taskColor, 0.42),
       textColor: theme.palette.text.primary,
+      extendedProps: {
+        hoverBackgroundColor: alpha(taskColor, theme.palette.mode === "dark" ? 0.38 : 0.24),
+        hoverBorderColor: alpha(taskColor, 0.62),
+      },
     };
   });
 
@@ -101,8 +106,28 @@ const BoardTaskCalendarView = ({ data, readOnly = false, onTaskClick, onTaskDate
         },
         "& .fc-event": {
           borderRadius: "6px",
-          minHeight: 24,
+          minHeight: 48,
           cursor: readOnly ? "pointer" : "grab",
+          transition: "background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease",
+        },
+        "& .fc-event:hover": {
+          backgroundColor: "var(--nexus-calendar-event-hover-bg) !important",
+          borderColor: "var(--nexus-calendar-event-hover-border) !important",
+          boxShadow: `0 1px 0 ${alpha(theme.palette.common.black, 0.08)}`,
+        },
+        "& .fc-daygrid-event": {
+          alignItems: "center",
+          whiteSpace: "normal",
+        },
+        "& .fc-event-main": {
+          display: "flex",
+          alignItems: "center",
+          minHeight: 46,
+        },
+        "& .fc-event-title": {
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          lineHeight: 1.2,
         },
       }}
     >
@@ -121,6 +146,18 @@ const BoardTaskCalendarView = ({ data, readOnly = false, onTaskClick, onTaskDate
           eventStartEditable={!readOnly}
           eventDurationEditable={!readOnly}
           events={events}
+          eventDidMount={(arg: EventMountArg) => {
+            const extendedProps = arg.event.extendedProps as {
+              hoverBackgroundColor?: string;
+              hoverBorderColor?: string;
+            };
+            if (extendedProps.hoverBackgroundColor) {
+              arg.el.style.setProperty("--nexus-calendar-event-hover-bg", extendedProps.hoverBackgroundColor);
+            }
+            if (extendedProps.hoverBorderColor) {
+              arg.el.style.setProperty("--nexus-calendar-event-hover-border", extendedProps.hoverBorderColor);
+            }
+          }}
           eventClick={(arg: EventClickArg) => {
             const task = taskById[arg.event.id];
             if (task) onTaskClick(task);

@@ -31,6 +31,7 @@ import type { IssueType, Priority, PointValue } from "../../api/catalogService";
 import IconRenderer from "../../../shared/ui/IconRenderer";
 import UserAvatar from "../../../shared/ui/UserAvatar";
 import { getErrorMessage, logError } from "../../../shared/utils/errorHandling";
+import { nexusDensity } from "../../../app/visualTokens";
 import TaskDeleteDialog from "./TaskEditor/TaskDeleteDialog";
 import TaskDescriptionEditor, { type TaskDescriptionEditorHandle } from "./TaskEditor/TaskDescriptionEditor";
 import { useTaskProjectMembers } from "./TaskEditor/useTaskProjectMembers";
@@ -603,7 +604,8 @@ const TaskEditorModal = ({
               md: "min(1120px, calc(100vw - 72px))",
             },
             maxWidth: "100vw",
-            height: "100vh",
+            top: nexusDensity.topbarHeight,
+            height: `calc(100vh - ${nexusDensity.topbarHeight}px)`,
             bgcolor: "background.default",
             display: "flex",
             flexDirection: "column",

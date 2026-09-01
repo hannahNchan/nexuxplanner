@@ -170,7 +170,9 @@ const BacklogTable = ({ userId }: BacklogTableProps) => {
           minHeight: 0,
           display: "flex",
           flexDirection: "column",
-          overflow: "hidden",
+          overflowY: "auto",
+          overflowX: "hidden",
+          pb: 3,
         }}
       >
         <Stack spacing={2} sx={{ flexShrink: 0, pb: 2 }}>
@@ -222,17 +224,17 @@ const BacklogTable = ({ userId }: BacklogTableProps) => {
 
         <Box
           sx={{
-            flex: 1,
+            flex: "0 0 auto",
             minHeight: 0,
-            display: "grid",
-            gridTemplateColumns: { xs: "1fr", lg: hasSprintPlanning ? "minmax(0, 7fr) minmax(420px, 3fr)" : "1fr" },
+            display: "flex",
+            flexDirection: "column",
             gap: 2,
-            overflow: "hidden",
+            overflow: "visible",
           }}
         >
-          <Stack sx={{ minHeight: 0, overflow: "hidden" }}>
+          <Stack sx={{ minHeight: 0, overflow: "visible" }}>
             <Box sx={{ flexShrink: 0, mb: 2 }}>
-              <WorkTableToolbar description="Backlog del proyecto. Arrastra tareas desde esta lista hacia el sprint de la derecha para planificarlas.">
+              <WorkTableToolbar description="Backlog del proyecto. Arrastra tareas desde esta lista hacia la planificación de sprints de abajo.">
                   <Fade in={!backlog.searchOpen}>
                     <Button
                       variant="outlined"
@@ -325,14 +327,10 @@ const BacklogTable = ({ userId }: BacklogTableProps) => {
 
             <Box
               sx={{
-                flex: 1,
+                flex: "0 0 auto",
                 minHeight: 0,
-                overflowY: "auto",
+                overflowY: "visible",
                 overflowX: "hidden",
-                scrollbarWidth: "none",
-                "&::-webkit-scrollbar": {
-                  display: "none",
-                },
               }}
             >
               {backlog.rows.length === 0 ? (
@@ -510,7 +508,7 @@ const BacklogTable = ({ userId }: BacklogTableProps) => {
           </Stack>
 
           {hasSprintPlanning ? (
-            <Box sx={{ minHeight: 0, overflow: "hidden", display: "flex", alignItems: "stretch" }}>
+            <Box sx={{ minHeight: 0, overflow: "visible", display: "flex", alignItems: "stretch" }}>
               <Paper
                 elevation={0}
                 sx={{
@@ -521,7 +519,7 @@ const BacklogTable = ({ userId }: BacklogTableProps) => {
                   bgcolor: "background.paper",
                   display: "flex",
                   flexDirection: "column",
-                  overflow: "hidden",
+                  overflow: "visible",
                 }}
               >
                 <Stack spacing={0.25} sx={{ p: 2, borderBottom: `1px solid ${theme.palette.divider}` }}>
@@ -536,14 +534,10 @@ const BacklogTable = ({ userId }: BacklogTableProps) => {
                 <Stack
                   spacing={2}
                   sx={{
-                    flex: 1,
+                    flex: "0 0 auto",
                     minHeight: 0,
-                    overflowY: "auto",
+                    overflowY: "visible",
                     p: 2,
-                    scrollbarWidth: "none",
-                    "&::-webkit-scrollbar": {
-                      display: "none",
-                    },
                   }}
                 >
                   {activeSprints.length > 1 ? (

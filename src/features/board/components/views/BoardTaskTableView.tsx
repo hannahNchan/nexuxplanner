@@ -1,4 +1,6 @@
-import { AvatarGroup, Box, Chip, Paper, Stack, Typography } from "@mui/material";
+import { AvatarGroup, Box, Chip, Stack, Typography } from "@mui/material";
+import { DataGrid, GridToolbar } from "@mui/x-data-grid";
+import type { GridColDef, GridRenderCellParams, GridRowParams } from "@mui/x-data-grid";
 import { alpha, useTheme } from "@mui/material/styles";
 import type { BoardState, Task } from "../../../../shared/types/board";
 import UserAvatar from "../../../../shared/ui/UserAvatar";
@@ -9,108 +11,203 @@ type BoardTaskTableViewProps = {
   onTaskClick: (task: Task) => void;
 };
 
-const headers = ["ID", "Tarea", "Estado", "Epica", "Inicio", "Fin", "Puntos", "Responsable"];
+type BoardTaskTableRow = {
+  id: string;
+  task: Task;
+  displayId: string;
+  title: string;
+  subtitle: string;
+  status: string;
+  epic: string;
+  start: string;
+  end: string;
+  storyPoints: number | null;
+  assigneeId: string | null;
+  assigneeLabel: string;
+};
+
+const parseStoryPoints = (value?: string) => {
+  if (!value) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
 
 const BoardTaskTableView = ({ data, onTaskClick }: BoardTaskTableViewProps) => {
   const theme = useTheme();
   const tasks = getBoardViewTasks(data);
 
+  const rows: BoardTaskTableRow[] = tasks.map((task) => {
+    const range = getTaskDateRange(task);
+
+    return {
+      id: task.id,
+      task,
+      displayId: task.task_id_display || "SIN-ID",
+      title: task.title,
+      subtitle: task.subtitle ?? "",
+      status: task.columnTitle ?? "Sin estado",
+      epic: task.epic_name || "Sin epica",
+      start: range.start,
+      end: range.end,
+      storyPoints: parseStoryPoints(task.story_points),
+      assigneeId: task.assignee_id ?? null,
+      assigneeLabel: task.assignee_id ? "Asignado" : "Sin asignar",
+    };
+  });
+
+  const columns: GridColDef<BoardTaskTableRow>[] = [
+    {
+      field: "displayId",
+      headerName: "ID",
+      width: 120,
+      renderCell: (params: GridRenderCellParams<BoardTaskTableRow, string>) => (
+        <Typography variant="caption" fontFamily="monospace" fontWeight={800} color="text.secondary">
+          {params.value}
+        </Typography>
+      ),
+    },
+    {
+      field: "title",
+      headerName: "Tarea",
+      minWidth: 320,
+      flex: 1.4,
+      renderCell: (params: GridRenderCellParams<BoardTaskTableRow, string>) => (
+        <Stack spacing={0.25} sx={{ minWidth: 0 }}>
+          <Typography variant="body2" fontWeight={800} noWrap>
+            {params.value}
+          </Typography>
+          {params.row.subtitle ? (
+            <Typography variant="caption" color="text.secondary" noWrap>
+              {params.row.subtitle}
+            </Typography>
+          ) : null}
+        </Stack>
+      ),
+    },
+    {
+      field: "status",
+      headerName: "Estado",
+      width: 170,
+      type: "singleSelect",
+      valueOptions: [...new Set(rows.map((row) => row.status))],
+    },
+    {
+      field: "epic",
+      headerName: "Epica",
+      width: 190,
+      type: "singleSelect",
+      valueOptions: [...new Set(rows.map((row) => row.epic))],
+      renderCell: (params: GridRenderCellParams<BoardTaskTableRow, string>) => (
+        <Chip
+          label={params.value}
+          size="small"
+          variant="outlined"
+          sx={{ height: 22, maxWidth: 170, justifyContent: "flex-start" }}
+        />
+      ),
+    },
+    {
+      field: "start",
+      headerName: "Inicio",
+      width: 130,
+      type: "date",
+      valueGetter: (value) => (value ? new Date(`${value}T00:00:00`) : null),
+      valueFormatter: (value: Date | null) => value?.toISOString().slice(0, 10) ?? "",
+    },
+    {
+      field: "end",
+      headerName: "Fin",
+      width: 130,
+      type: "date",
+      valueGetter: (value) => (value ? new Date(`${value}T00:00:00`) : null),
+      valueFormatter: (value: Date | null) => value?.toISOString().slice(0, 10) ?? "",
+    },
+    {
+      field: "storyPoints",
+      headerName: "Puntos",
+      width: 110,
+      type: "number",
+      align: "left",
+      headerAlign: "left",
+      valueFormatter: (value: number | null) => (value ? `${value} pts` : "-"),
+    },
+    {
+      field: "assigneeLabel",
+      headerName: "Responsable",
+      width: 150,
+      type: "singleSelect",
+      valueOptions: ["Asignado", "Sin asignar"],
+      renderCell: (params: GridRenderCellParams<BoardTaskTableRow, string>) => (
+        <AvatarGroup max={2} sx={{ justifyContent: "flex-start" }}>
+          {params.row.assigneeId ? <UserAvatar userId={params.row.assigneeId} size={28} showTooltip /> : null}
+        </AvatarGroup>
+      ),
+    },
+  ];
+
   return (
-    <Paper
-      elevation={0}
+    <Box
       sx={{
         height: "100%",
         minHeight: 0,
-        overflow: "auto",
+        width: "100%",
         borderRadius: 1,
+        overflow: "hidden",
         border: `1px solid ${theme.palette.divider}`,
         bgcolor: "background.paper",
-        scrollbarWidth: "none",
-        "&::-webkit-scrollbar": { display: "none" },
       }}
     >
-      <Box sx={{ minWidth: 1060 }}>
-        <Box
-          sx={{
-            display: "grid",
-            gridTemplateColumns: "110px minmax(260px, 1.5fr) 150px 180px 116px 116px 90px 120px",
-            px: 1.5,
-            py: 1,
-            position: "sticky",
-            top: 0,
-            zIndex: 3,
-            bgcolor: "background.paper",
+      <DataGrid
+        rows={rows}
+        columns={columns}
+        disableColumnMenu={false}
+        disableRowSelectionOnClick
+        slots={{ toolbar: GridToolbar }}
+        slotProps={{
+          toolbar: {
+            showQuickFilter: true,
+            quickFilterProps: { debounceMs: 250 },
+          },
+        }}
+        initialState={{
+          pagination: {
+            paginationModel: { pageSize: 25 },
+          },
+          sorting: {
+            sortModel: [{ field: "start", sort: "asc" }],
+          },
+        }}
+        pageSizeOptions={[10, 25, 50, 100]}
+        onRowClick={(params: GridRowParams<BoardTaskTableRow>) => onTaskClick(params.row.task)}
+        sx={{
+          height: "100%",
+          border: "none",
+          "& .MuiDataGrid-toolbarContainer": {
+            gap: 1,
+            p: 1,
             borderBottom: `1px solid ${theme.palette.divider}`,
-            boxShadow: `0 1px 0 ${theme.palette.divider}`,
-          }}
-        >
-          {headers.map((header) => (
-            <Typography key={header} variant="caption" color="text.secondary" fontWeight={900} textTransform="uppercase">
-              {header}
-            </Typography>
-          ))}
-        </Box>
-
-        {tasks.map((task) => {
-          const range = getTaskDateRange(task);
-
-          return (
-            <Box
-              key={task.id}
-              onClick={() => onTaskClick(task)}
-              sx={{
-                display: "grid",
-                gridTemplateColumns: "110px minmax(260px, 1.5fr) 150px 180px 116px 116px 90px 120px",
-                alignItems: "center",
-                px: 1.5,
-                py: 1,
-                minHeight: 52,
-                borderBottom: `1px solid ${theme.palette.divider}`,
-                cursor: "pointer",
-                "&:hover": {
-                  bgcolor: alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.14 : 0.055),
-                },
-              }}
-            >
-              <Typography variant="caption" fontFamily="monospace" fontWeight={800} color="text.secondary">
-                {task.task_id_display || "SIN-ID"}
-              </Typography>
-              <Stack spacing={0.25} sx={{ minWidth: 0 }}>
-                <Typography variant="body2" fontWeight={800} noWrap>
-                  {task.title}
-                </Typography>
-                {task.subtitle ? (
-                  <Typography variant="caption" color="text.secondary" noWrap>
-                    {task.subtitle}
-                  </Typography>
-                ) : null}
-              </Stack>
-              <Typography variant="body2" color="text.secondary" noWrap>
-                {task.columnTitle}
-              </Typography>
-              <Chip
-                label={task.epic_name || "Sin epica"}
-                size="small"
-                variant="outlined"
-                sx={{ height: 22, maxWidth: 160, justifyContent: "flex-start" }}
-              />
-              <Typography variant="caption" color="text.secondary">
-                {range.start}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                {range.end}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                {task.story_points ? `${task.story_points} pts` : "-"}
-              </Typography>
-              <AvatarGroup max={2} sx={{ justifyContent: "flex-start" }}>
-                {task.assignee_id ? <UserAvatar userId={task.assignee_id} size={28} showTooltip /> : null}
-              </AvatarGroup>
-            </Box>
-          );
-        })}
-      </Box>
-    </Paper>
+            bgcolor: "background.paper",
+          },
+          "& .MuiDataGrid-columnHeaders": {
+            bgcolor: `${theme.palette.background.paper} !important`,
+            borderBottom: `1px solid ${theme.palette.divider}`,
+          },
+          "& .MuiDataGrid-columnHeader": {
+            bgcolor: `${theme.palette.background.paper} !important`,
+          },
+          "& .MuiDataGrid-row": {
+            cursor: "pointer",
+            "&:hover": {
+              bgcolor: alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.14 : 0.055),
+            },
+          },
+          "& .MuiDataGrid-cell": {
+            display: "flex",
+            alignItems: "center",
+          },
+        }}
+      />
+    </Box>
   );
 };
 
