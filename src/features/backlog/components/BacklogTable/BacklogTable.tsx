@@ -12,7 +12,9 @@ import {
   Typography,
   Alert,
   Box,
+  MenuItem,
 } from "@mui/material";
+import { useMemo, useState } from "react";
 import { alpha, useTheme } from "@mui/material/styles";
 import AddIcon from "@mui/icons-material/Add";
 import SearchIcon from "@mui/icons-material/Search";
@@ -54,14 +56,42 @@ type BacklogTableProps = {
   userId: string;
 };
 
+type SprintSortMode = "start_asc" | "start_desc" | "created_desc" | "name_asc";
+
+const getSprintSortDate = (sprint: Sprint) =>
+  new Date(`${(sprint.start_date || sprint.end_date || sprint.created_at).slice(0, 10)}T00:00:00`).getTime();
+
+const sortSprints = (sprints: Sprint[], mode: SprintSortMode) =>
+  [...sprints].sort((a, b) => {
+    if (mode === "name_asc") {
+      return a.name.localeCompare(b.name, "es", { numeric: true, sensitivity: "base" });
+    }
+
+    if (mode === "created_desc") {
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    }
+
+    const startDiff = getSprintSortDate(a) - getSprintSortDate(b);
+    if (startDiff !== 0) {
+      return mode === "start_asc" ? startDiff : -startDiff;
+    }
+
+    return a.name.localeCompare(b.name, "es", { numeric: true, sensitivity: "base" });
+  });
+
 const BacklogTable = ({ userId }: BacklogTableProps) => {
   const theme = useTheme();
   const backlog = useBacklogTable(userId);
   const { currentProject } = useProject();
+  const [sprintSortMode, setSprintSortMode] = useState<SprintSortMode>("start_asc");
   const canEditProject = currentProject?.can_edit ?? true;
-  const activeSprints = backlog.sprintManager.sprints.filter((sprint) => sprint.status === "active");
-  const futureSprints = backlog.sprintManager.sprints.filter((sprint) => sprint.status === "future");
-  const closedSprints = backlog.sprintManager.sprints.filter((sprint) => sprint.status === "closed");
+  const sortedSprints = useMemo(
+    () => sortSprints(backlog.sprintManager.sprints, sprintSortMode),
+    [backlog.sprintManager.sprints, sprintSortMode]
+  );
+  const activeSprints = sortedSprints.filter((sprint) => sprint.status === "active");
+  const futureSprints = sortedSprints.filter((sprint) => sprint.status === "future");
+  const closedSprints = sortedSprints.filter((sprint) => sprint.status === "closed");
   const hasSprintPlanning = backlog.sprintManager.sprints.length > 0;
   const canStartFutureSprint = activeSprints.length === 0;
 
@@ -522,13 +552,40 @@ const BacklogTable = ({ userId }: BacklogTableProps) => {
                   overflow: "visible",
                 }}
               >
-                <Stack spacing={0.25} sx={{ p: 2, borderBottom: `1px solid ${theme.palette.divider}` }}>
-                  <Typography variant="subtitle1" fontWeight={900}>
-                    Planificación de Sprints
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Organiza el sprint activo, los próximos sprints y el histórico cerrado.
-                  </Typography>
+                <Stack
+                  direction={{ xs: "column", sm: "row" }}
+                  spacing={1.5}
+                  alignItems={{ xs: "stretch", sm: "center" }}
+                  justifyContent="space-between"
+                  sx={{ p: 2, borderBottom: `1px solid ${theme.palette.divider}` }}
+                >
+                  <Box sx={{ minWidth: 0 }}>
+                    <Typography variant="subtitle1" fontWeight={900}>
+                      Planificación de Sprints
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      Organiza el sprint activo, los próximos sprints y el histórico cerrado.
+                    </Typography>
+                  </Box>
+                  <TextField
+                    select
+                    size="small"
+                    label="Ordenar"
+                    value={sprintSortMode}
+                    onChange={(event) => setSprintSortMode(event.target.value as SprintSortMode)}
+                    sx={{
+                      width: { xs: "100%", sm: 220 },
+                      flexShrink: 0,
+                      "& .MuiInputBase-root": {
+                        bgcolor: "background.paper",
+                      },
+                    }}
+                  >
+                    <MenuItem value="start_asc">Inicio mas proximo</MenuItem>
+                    <MenuItem value="start_desc">Inicio mas lejano</MenuItem>
+                    <MenuItem value="created_desc">Creacion reciente</MenuItem>
+                    <MenuItem value="name_asc">Nombre A-Z</MenuItem>
+                  </TextField>
                 </Stack>
 
                 <Stack

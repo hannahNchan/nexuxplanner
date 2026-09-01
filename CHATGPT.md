@@ -182,6 +182,7 @@ Current routes:
 - `/epicas`: epics table.
 - `/backlog`: backlog.
 - `/roadmap`: roadmap timeline.
+- `/reportes`: historical sprint reports generated when sprints are completed.
 - `/editor`: notes editor.
 - `/ajustes`: user settings.
 - unknown paths redirect to `/tablero`.
@@ -1244,5 +1245,6 @@ If you need to work on:
 - Roadmap dependency lines: `src/features/roadmap/components/RoadmapDependencyLayer.tsx`
 - Roadmap data loading: `src/features/roadmap/hooks/useRoadmap.ts`
 - Dependency persistence: `src/features/api/dependencyService.ts`
+- Sprint reports: `src/features/reports/components/ReportsPage.tsx`, `src/features/api/reportService.ts`
 - Task editor internals: `src/features/board/components/TaskEditor/*`
 - Supabase migrations: `supabase/migrations/*`

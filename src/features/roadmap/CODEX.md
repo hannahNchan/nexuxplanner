@@ -31,6 +31,8 @@ flowchart TD
 
 `TimelineGrid` construye líneas visuales invirtiendo semánticamente `depends_on_*` como source y `*_id` como target (`src/features/roadmap/components/TimelineGrid.tsx:168`, `src/features/roadmap/components/TimelineGrid.tsx:174`, `src/features/roadmap/components/TimelineGrid.tsx:175`, `src/features/roadmap/components/TimelineGrid.tsx:181`, `src/features/roadmap/components/TimelineGrid.tsx:182`).
 
+`fetchTaskDependencies` carga dependencias por chunks de tareas y filtra `depends_on_task_id` en memoria para no construir URLs enormes de PostgREST cuando un proyecto tiene muchas tareas (`src/features/api/dependencyService.ts:20`, `src/features/api/dependencyService.ts:50`). `useRoadmap.loadData` conserva las epicas cargadas si solo falla la carga de dependencias, dejando conectores vacios en vez de vaciar la pantalla (`src/features/roadmap/hooks/useRoadmap.ts:64`).
+
 ## Contratos externos
 
 `RoadmapDependencyLayer` recibe dependencias, `scrollContainerRef`, `refreshKey`, colores y callback de delete (`src/features/roadmap/components/RoadmapDependencyLayer.tsx:25`). Usa `@xyflow/react` para nodos/edges invisibles y routing visual (`src/features/roadmap/components/RoadmapDependencyLayer.tsx:4`, `src/features/roadmap/components/RoadmapDependencyLayer.tsx:64`).

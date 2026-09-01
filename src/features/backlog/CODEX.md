@@ -28,7 +28,7 @@ flowchart TD
   F --> G["sprintManager.reload"]
 ```
 
-La UI divide sprints en activos, futuros y cerrados por `status` (`src/features/backlog/components/BacklogTable/BacklogTable.tsx:62`, `src/features/backlog/components/BacklogTable/BacklogTable.tsx:63`, `src/features/backlog/components/BacklogTable/BacklogTable.tsx:64`).
+La UI divide sprints en activos, futuros y cerrados por `status` y los presenta con un selector de ordenamiento. El orden inicial es por fecha de inicio mas proxima, no por fecha de creacion, porque un sprint creado despues puede iniciar antes que uno existente (`src/features/backlog/components/BacklogTable/BacklogTable.tsx:55`, `src/features/backlog/components/BacklogTable/BacklogTable.tsx:76`, `src/features/backlog/components/BacklogTable/BacklogTable.tsx:539`).
 
 ## Contratos externos
 

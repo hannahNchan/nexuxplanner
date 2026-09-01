@@ -29,6 +29,7 @@ import Brightness7Icon from "@mui/icons-material/Brightness7";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import TimelineIcon from "@mui/icons-material/Timeline";
+import AssessmentIcon from "@mui/icons-material/Assessment";
 import SettingsIcon from "@mui/icons-material/Settings";
 import NotificationsIcon from "@mui/icons-material/Notifications";
 import BusinessIcon from "@mui/icons-material/Business";
@@ -76,6 +77,7 @@ const NAV_ITEMS = [
   { label: "Epicas", path: "/epicas", icon: <FlagIcon /> },
   { label: "Backlog", path: "/backlog", icon: <ListAltIcon /> },
   { label: "Roadmap", path: "/roadmap", icon: <TimelineIcon /> },
+  { label: "Reportes", path: "/reportes", icon: <AssessmentIcon /> },
   { label: "Editor", path: "/editor", icon: <DescriptionIcon /> },
 ];
 

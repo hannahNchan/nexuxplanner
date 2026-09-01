@@ -8,6 +8,7 @@ import { BacklogTable } from "../features/backlog";
 import Roadmap from "../features/roadmap/components/Roadmap";
 import QuillEditor from "../features/editor/QuillEditor";
 import UserSettingsPage from "../features/users/components/UserSettingsPage";
+import { ReportsPage } from "../features/reports";
 import { Container, Stack, Typography } from "@mui/material";
 import { ProjectProvider } from "../shared/contexts/ProjectContext";
 import BoardInfo from "../features/board/components/BoardInfo";
@@ -67,6 +68,11 @@ const App = () => {
                   <Route
                     path="roadmap"
                     element={<Roadmap userId={session.user.id} />}
+                  />
+
+                  <Route
+                    path="reportes"
+                    element={<ReportsPage userId={session.user.id} />}
                   />
                   
                   <Route
