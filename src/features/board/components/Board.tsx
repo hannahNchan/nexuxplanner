@@ -6,13 +6,18 @@ import {
   Alert,
 } from "@mui/material";
 import { DragDropContext, Droppable } from "@hello-pangea/dnd";
-import { useState, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
 import Column from "./Column";
 import TaskEditorModal from "./TaskEditorModal";
 import AddColumnModal from "./AddColumnModal";
 import BoardToolbar from "./BoardToolbar";
 import { useBoardManager } from "../hooks/useBoardManager";
 import ReadOnlyProjectNotice from "../../../shared/ui/ReadOnlyProjectNotice";
+import BoardTaskCalendarView from "./views/BoardTaskCalendarView";
+import BoardTaskListView from "./views/BoardTaskListView";
+import BoardTaskTableView from "./views/BoardTaskTableView";
+import BoardTaskTimelineView from "./views/BoardTaskTimelineView";
+import type { BoardViewMode } from "./views/boardViewTypes";
 
 type BoardProps = {
   userId: string;
@@ -27,6 +32,25 @@ const Board = ({ userId, userEmail, header }: BoardProps) => {
   const hasFutureSprints = board.sprintManager.sprints.some((sprint) => sprint.status === "future");
 
   const [searchQuery, setSearchQuery] = useState("");
+  const [viewMode, setViewMode] = useState<BoardViewMode>("board");
+
+  useEffect(() => {
+    if (!board.currentProject?.id) return;
+
+    const stored = window.localStorage.getItem(`nexusplanner.boardView.${board.currentProject.id}`);
+    if (stored === "list" || stored === "board" || stored === "calendar" || stored === "table" || stored === "timeline") {
+      setViewMode(stored);
+    } else {
+      setViewMode("board");
+    }
+  }, [board.currentProject?.id]);
+
+  const handleViewModeChange = (nextViewMode: BoardViewMode) => {
+    setViewMode(nextViewMode);
+    if (board.currentProject?.id) {
+      window.localStorage.setItem(`nexusplanner.boardView.${board.currentProject.id}`, nextViewMode);
+    }
+  };
 
   const filteredData = useMemo(() => {
     if (!board.data || !searchQuery) return board.data;
@@ -137,87 +161,116 @@ const Board = ({ userId, userEmail, header }: BoardProps) => {
             onSearchChange={setSearchQuery}
             projectId={board.currentProject?.id || ""}
             onAddColumn={() => board.setIsAddColumnModalOpen(true)}
+            viewMode={viewMode}
+            onViewModeChange={handleViewModeChange}
             readOnly={!canEditProject}
           />
           {!canEditProject ? <ReadOnlyProjectNotice projectName={board.currentProject.title} /> : null}
         </Stack>
 
-        <DragDropContext onDragEnd={board.onDragEnd}>
-          <Droppable droppableId="board" direction="horizontal" type="column">
-            {(provided) => (
-              <Box
-                sx={{
-                  flexGrow: 1,
-                  minHeight: 0,
-                  overflowX: "auto",
-                  overflowY: "auto",
-                  scrollbarWidth: "none",
-                  "&::-webkit-scrollbar": {
-                    display: "none",
-                  },
-                }}
-              >
+        {viewMode === "board" ? (
+          <DragDropContext onDragEnd={board.onDragEnd}>
+            <Droppable droppableId="board" direction="horizontal" type="column">
+              {(provided) => (
                 <Box
-                  ref={provided.innerRef}
-                  {...provided.droppableProps}
                   sx={{
-                    display: "inline-flex",
-                    gap: 3,
-                    flexWrap: "nowrap",
-                    alignItems: "stretch",
-                    minWidth: "100%",
-                    minHeight: "100%",
-                    pb: 1,
+                    flexGrow: 1,
+                    minHeight: 0,
+                    overflowX: "auto",
+                    overflowY: "auto",
+                    scrollbarWidth: "none",
+                    "&::-webkit-scrollbar": {
+                      display: "none",
+                    },
                   }}
                 >
-                  <Stack direction="column" alignItems="stretch" sx={{ minWidth: "100%", minHeight: "100%" }}>
-                    <Stack
-                      direction="row"
-                      alignItems="stretch"
-                      spacing={2}
-                      sx={{
-                        width: "max-content",
-                        minWidth: "100%",
-                        minHeight: "100%",
-                      }}
-                    >
-                      {displayData?.columnOrder.map((columnId, index) => {
-                        const column = displayData!.columns[columnId];
-                        const tasks = column.taskIds.map((taskId) => displayData!.tasks[taskId]);
-                        return (
-                          <Box
-                            key={column.id}
-                            sx={{
-                              flex: "0 0 360px",
-                              width: 360,
-                              maxWidth: "calc(100vw - 48px)",
-                              display: "flex",
-                              minHeight: "100%",
-                            }}
-                          >
-                            <Column
-                              column={column}
-                              tasks={tasks}
-                              index={index}
-                              onCreateTask={board.handleCreateTask}
-                              onTaskClick={board.handleTaskClick}
-                              isCreatingTask={board.creatingTaskColumnId === column.id}
-                              currentUserId={userId}
-                              currentUserEmail={userEmail}
-                              allowTaskCreation={allowBoardTaskCreation && canEditProject}
-                              readOnly={!canEditProject}
-                            />
-                          </Box>
-                        );
-                      })}
+                  <Box
+                    ref={provided.innerRef}
+                    {...provided.droppableProps}
+                    sx={{
+                      display: "inline-flex",
+                      gap: 3,
+                      flexWrap: "nowrap",
+                      alignItems: "stretch",
+                      minWidth: "100%",
+                      minHeight: "100%",
+                      pb: 1,
+                    }}
+                  >
+                    <Stack direction="column" alignItems="stretch" sx={{ minWidth: "100%", minHeight: "100%" }}>
+                      <Stack
+                        direction="row"
+                        alignItems="stretch"
+                        spacing={2}
+                        sx={{
+                          width: "max-content",
+                          minWidth: "100%",
+                          minHeight: "100%",
+                        }}
+                      >
+                        {displayData?.columnOrder.map((columnId, index) => {
+                          const column = displayData!.columns[columnId];
+                          const tasks = column.taskIds.map((taskId) => displayData!.tasks[taskId]);
+                          return (
+                            <Box
+                              key={column.id}
+                              sx={{
+                                flex: "0 0 360px",
+                                width: 360,
+                                maxWidth: "calc(100vw - 48px)",
+                                display: "flex",
+                                minHeight: "100%",
+                              }}
+                            >
+                              <Column
+                                column={column}
+                                tasks={tasks}
+                                index={index}
+                                onCreateTask={board.handleCreateTask}
+                                onTaskClick={board.handleTaskClick}
+                                isCreatingTask={board.creatingTaskColumnId === column.id}
+                                currentUserId={userId}
+                                currentUserEmail={userEmail}
+                                allowTaskCreation={allowBoardTaskCreation && canEditProject}
+                                readOnly={!canEditProject}
+                              />
+                            </Box>
+                          );
+                        })}
+                      </Stack>
                     </Stack>
-                  </Stack>
-                  {provided.placeholder}
+                    {provided.placeholder}
+                  </Box>
                 </Box>
-              </Box>
-            )}
-          </Droppable>
-        </DragDropContext>
+              )}
+            </Droppable>
+          </DragDropContext>
+        ) : (
+          <Box sx={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
+            {viewMode === "list" ? (
+              <BoardTaskListView data={displayData} onTaskClick={board.handleTaskClick} />
+            ) : null}
+            {viewMode === "table" ? (
+              <BoardTaskTableView data={displayData} onTaskClick={board.handleTaskClick} />
+            ) : null}
+            {viewMode === "calendar" ? (
+              <BoardTaskCalendarView
+                data={displayData}
+                readOnly={!canEditProject}
+                onTaskClick={board.handleTaskClick}
+                onTaskDatesChange={board.handleUpdateTaskDates}
+              />
+            ) : null}
+            {viewMode === "timeline" ? (
+              <BoardTaskTimelineView
+                data={displayData}
+                readOnly={!canEditProject}
+                onTaskClick={board.handleTaskClick}
+                onTaskDatesChange={board.handleUpdateTaskDates}
+              />
+            ) : null}
+          </Box>
+        )}
       </Stack>
 
       <TaskEditorModal
@@ -228,8 +281,10 @@ const Board = ({ userId, userEmail, header }: BoardProps) => {
         priorities={board.priorities}
         pointValues={board.pointValues}
         currentUserId={userId}
+        presentation={board.taskEditorPresentation}
         onClose={() => board.setIsModalOpen(false)}
         onSave={board.handleSaveTask}
+        onStatusChange={board.handleMoveTaskColumn}
         onDelete={board.handleDeleteTask}
       />
 

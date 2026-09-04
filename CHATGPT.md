@@ -78,6 +78,28 @@ Combined check:
 npm run check
 ```
 
+CLI:
+
+```bash
+npm run cli -- help
+npm run cli -- auth status
+```
+
+The CLI lives in `packages/cli` and is the first local client for external agents. It does not write directly to tables for critical mutations; it calls Supabase Edge Function command wrappers. It reads `.env.local`/`.env` for the Supabase URL and publishable key, and requires a user access token through `NEXUS_ACCESS_TOKEN` or `nexus config set token <token>` before authenticated reads/writes.
+
+Dedicated CLI documentation lives in `docs/cli/README.md`. The JSON contract for external agents that use `agent validate-plan` or `agent apply-plan` lives in `docs/cli/AGENT_PLANS.md`.
+
+Implemented CLI backend command endpoints:
+
+- `epic-commands:create_epic` -> `create_epic_command`
+- `task-commands:create_task`, `assign_task`, `move_task_column`, `schedule_task`
+- `sprint-commands:create_sprint`, `complete_sprint`
+- `notification-commands:mark_all_read`
+- `workspace-commands` includes organization/project/member/invitation commands plus `delete_organization`
+- `agent-commands:validate_plan`, `apply_plan`
+
+`agent apply-plan` consumes a JSON plan shaped as `organization -> projects -> sprints/epics/tasks`. Plan entries can use `ref` fields so tasks can point to `epic_ref` and `sprint_ref`; the Edge Function resolves those refs after each server-side command returns real IDs. `validate-plan` checks structure and date/order rules without requiring a user token, while `apply-plan` requires a user JWT and applies only through the same RPC command boundary used by the UI.
+
 `npm run build` runs `tsc -b` and `vite build`. A Vite warning about large chunks may appear; that warning is not currently a failing error.
 
 `npm run test:integration` runs Vitest service-level integration tests. Tests that touch Supabase require either `NEXUS_TEST_USER_EMAIL`/`NEXUS_TEST_USER_PASSWORD` or OAuth session tokens through `NEXUS_TEST_ACCESS_TOKEN`/`NEXUS_TEST_REFRESH_TOKEN`; without credentials, the suite is skipped instead of mutating shared data anonymously.
@@ -107,6 +129,8 @@ NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=
 ```
 
 Client setup lives in `src/lib/supabase.ts`.
+
+In Vite builds, `VITE_*` variables intentionally take precedence over `NEXT_PUBLIC_*` variables. This lets `.env.local` point a local session to the Raspberry Supabase instance even if `.env` still contains Cloud `NEXT_PUBLIC_*` fallbacks.
 
 OAuth redirect setup:
 
@@ -158,6 +182,7 @@ Current routes:
 - `/epicas`: epics table.
 - `/backlog`: backlog.
 - `/roadmap`: roadmap timeline.
+- `/reportes`: historical sprint reports generated when sprints are completed.
 - `/editor`: notes editor.
 - `/ajustes`: user settings.
 - unknown paths redirect to `/tablero`.
@@ -178,6 +203,26 @@ Layout scroll rule:
 - Sidebar content may scroll internally when it overflows.
 - The footer lives in the sidebar, not below the main content, so it never reduces the route workspace height.
 - Scrollbars should remain visually hidden while preserving wheel/trackpad scrolling.
+
+Task editor rule:
+
+- `TaskEditorModal` supports two presentations. New task creation should open as a centered modal. Opening an existing ticket reference/card should open as a right-side drawer/panel, similar to Jira issue detail.
+- New task creation requires explicit decisions for title, assignee state, issue type, priority, and story points when those catalogs are available. `Sin asignar` is allowed, but it must be chosen explicitly so task-created automations can tell intentional unassigned work from an unfinished form (`src/features/board/components/TaskEditorModal.tsx:119`, `src/features/board/components/TaskEditorModal.tsx:163`, `src/features/board/components/TaskEditorModal.tsx:168`, `src/features/board/components/TaskEditorModal.tsx:173`, `src/features/board/components/TaskEditorModal.tsx:178`, `src/features/board/components/TaskEditorModal.tsx:183`).
+- The main pane focuses on title, subtitle, and rich description.
+- The side pane holds task properties such as destination, assignee, status, type, priority, story points, and destructive actions.
+- Task planning dates live on `tasks.planned_start_date` and `tasks.planned_end_date`. If they are empty, Board calendar/timeline views fall back to `created_at` for display only.
+- In the board drawer, changing the `Estado` selector persists immediately through `move_task_column_command` and moves the card locally; users should not need to press Guardar for a pure status change.
+- Keep save/delete behavior compatible with both Board and Backlog callers.
+
+Board view rule:
+
+- `/tablero` supports five layouts over the same active sprint data: list, board, calendar, table, and timeline.
+- The selected layout is stored per project in `localStorage["nexusplanner.boardView.<projectId>"]`.
+- Calendar drag and resize write `planned_start_date` and `planned_end_date`.
+- Timeline drag and side resize write the same date fields. Timeline is task scheduling only; it must not render roadmap dependency connectors.
+- Board alternate layouts except kanban/tablero show status and assignee metadata through `BoardTaskMeta`; keep `columnTitle` as the status source and `assignee_id` as the avatar source (`src/features/board/components/views/BoardTaskMeta.tsx:22`, `src/features/board/components/views/BoardTaskMeta.tsx:49`, `src/features/board/components/views/BoardTaskListView.tsx:76`, `src/features/board/components/views/BoardTaskCalendarView.tsx:167`, `src/features/board/components/views/BoardTaskTableView.tsx:88`, `src/features/board/components/views/BoardTaskTimelineView.tsx:299`).
+- Status badge colors are project-column settings. `columns.color` stores one value from the 12-color palette in `src/features/board/statusBadgePalette.ts`, and the database enforces that palette with `columns_color_palette_check` (`supabase/migrations/20260904181108_add_column_status_badge_colors.sql`). Project Settings > General lets editors choose the color per status/column; alternate board layouts consume that color for badges only, with room to reuse the same setting for future visual affordances.
+- These alternate layouts use the active sprint task set, not the full project backlog.
 
 ## Core Contexts
 
@@ -227,9 +272,14 @@ Important tables used by the app:
 - `project_members`
 - `project_invitations`
 - `user_notifications`
+- `activity_events`
+- `command_jobs`
+- `automation_rules`
+- `automation_runs`
 - `project_tags`
 - `boards`
 - `columns`
+  - `color` stores the canonical status/badge color and is limited to the 12 approved palette values.
 - `column_order`
 - `tasks`
 - `epics`
@@ -244,6 +294,7 @@ Important tables used by the app:
 - `point_systems`
 - `point_values`
 - `editor_notes`
+- `sprint_reports`
 
 Important storage buckets used by code:
 
@@ -320,6 +371,24 @@ Use `src/shared/utils/errorHandling.ts` for Supabase-facing errors:
 
 Feature hooks and components should not call Supabase tables/storage directly. Put database-backed reads and writes in `src/features/api/*Service.ts`, then import those service functions from hooks/components. Auth-only surfaces such as `AuthGate`, `AuthForm`, and app shell account handling may use the auth client directly, but product data should stay behind services.
 
+Critical product commands have a stricter boundary. Creating tasks, assigning task owners, moving tasks between board columns/statuses, completing sprints, creating organizations, creating projects, inviting users, accepting/declining invitations, changing organization/project membership, and deleting organizations must go through backend commands, not through ad hoc frontend write sequences. Task/sprint commands live in `src/features/api/taskCommandService.ts`, and workspace commands live in `src/features/api/workspaceCommandService.ts`.
+
+These RPCs validate project edit access, related project ownership, task assignment membership, sprint status, incomplete sprint task disposition, visible task ID generation, organization admin rights, project owner rights, membership invariants, activity events, and command outbox/queue handoff. The Edge Functions under `supabase/functions/task-commands`, `supabase/functions/sprint-commands`, and `supabase/functions/workspace-commands` are HTTP wrappers over the same RPCs; they must not duplicate or drift from the database rules.
+
+SQL permissions are centralized in the `centralized_sql_permissions` migration. New authorization checks should be expressed as canonical permission functions such as `current_organization_role`, `current_project_role`, `can_view_organization`, `can_manage_organization`, `can_create_project_in_organization`, `can_view_project`, `can_mutate_project`, `can_manage_project`, `can_add_project_member`, `can_invite_to_organization`, `can_invite_to_project`, and `can_assign_project_user`, then consumed by policies and commands (`supabase/migrations/20260730034117_centralized_sql_permissions.sql:1`, `supabase/migrations/20260730034117_centralized_sql_permissions.sql:15`, `supabase/migrations/20260730034117_centralized_sql_permissions.sql:29`, `supabase/migrations/20260730034117_centralized_sql_permissions.sql:39`, `supabase/migrations/20260730034117_centralized_sql_permissions.sql:49`, `supabase/migrations/20260730034117_centralized_sql_permissions.sql:59`, `supabase/migrations/20260730034117_centralized_sql_permissions.sql:80`, `supabase/migrations/20260730034117_centralized_sql_permissions.sql:90`, `supabase/migrations/20260730034117_centralized_sql_permissions.sql:100`, `supabase/migrations/20260730034117_centralized_sql_permissions.sql:130`, `supabase/migrations/20260730034117_centralized_sql_permissions.sql:140`, `supabase/migrations/20260730034117_centralized_sql_permissions.sql:153`). Legacy helpers like `is_organization_member`, `is_organization_admin`, `is_project_member`, `is_project_owner`, and `can_edit_project` are compatibility wrappers over the canonical functions, not places to fork business rules (`supabase/migrations/20260730034117_centralized_sql_permissions.sql:172`, `supabase/migrations/20260730034117_centralized_sql_permissions.sql:182`, `supabase/migrations/20260730034117_centralized_sql_permissions.sql:192`, `supabase/migrations/20260730034117_centralized_sql_permissions.sql:202`, `supabase/migrations/20260730034117_centralized_sql_permissions.sql:212`).
+
+Activity logging is centralized. New backend commands should call `record_activity_event` instead of inserting ad hoc rows into `activity_events`; existing direct inserts are guarded by `normalize_activity_event_before_insert`, which normalizes `event_type`, infers organization/project scope from related project/task/sprint rows, requires an actor, validates cross-entity consistency, and supports optional idempotency through `event_key` (`supabase/migrations/20260730035602_centralize_activity_events.sql:4`, `supabase/migrations/20260730035602_centralize_activity_events.sql:14`, `supabase/migrations/20260730035602_centralize_activity_events.sql:128`, `supabase/migrations/20260730035602_centralize_activity_events.sql:134`). Clients must not write activity events directly; `record_activity_event` is not executable by `anon` or `authenticated`, and RLS exposes project events through `can_view_project` plus organization-only events through `can_view_organization` (`supabase/migrations/20260730035602_centralize_activity_events.sql:183`, `supabase/migrations/20260730035602_centralize_activity_events.sql:187`).
+
+Async work is centralized behind the command job outbox. Commands enqueue durable work with `enqueue_command_job`; `command_job_worker_foundation` adds idempotent `job_key`, worker locks, retry attempts, claim/complete/fail/reset RPCs, and keeps those worker RPCs closed to `anon`/`authenticated` (`supabase/migrations/20260730045659_command_job_worker_foundation.sql:1`, `supabase/migrations/20260730045659_command_job_worker_foundation.sql:24`, `supabase/migrations/20260730045659_command_job_worker_foundation.sql:73`, `supabase/migrations/20260730045659_command_job_worker_foundation.sql:118`, `supabase/migrations/20260730045659_command_job_worker_foundation.sql:158`, `supabase/migrations/20260730045659_command_job_worker_foundation.sql:200`, `supabase/migrations/20260730045659_command_job_worker_foundation.sql:114`, `supabase/migrations/20260730045659_command_job_worker_foundation.sql:154`, `supabase/migrations/20260730045659_command_job_worker_foundation.sql:196`, `supabase/migrations/20260730045659_command_job_worker_foundation.sql:227`). `supabase/functions/job-worker` is the server-side consumer for queued emails, reports, and processing jobs; it uses the service role key, requires `JOB_WORKER_SECRET`/`x-job-worker-secret`, resets stale locks, claims jobs, completes success, and retries failures (`supabase/functions/job-worker/index.ts:53`, `supabase/functions/job-worker/index.ts:54`, `supabase/functions/job-worker/index.ts:72`, `supabase/functions/job-worker/index.ts:83`, `supabase/functions/job-worker/index.ts:91`, `supabase/functions/job-worker/index.ts:107`, `supabase/functions/job-worker/index.ts:120`). Future feature: replace the underlying queue transport with a self-hosted open source Kafka-compatible broker. Keep the app contract as command -> outbox/event -> worker so React services do not learn broker topics, producer credentials, or consumer semantics.
+
+Scheduled maintenance uses Supabase `pg_cron` for SQL-only jobs. `scheduled_maintenance_cron` creates `run_command_job_maintenance`, which calls `reset_stale_command_jobs`, creates `scan_sprint_deadlines`, which notifies project members about sprints due tomorrow or overdue, and schedules `nexusplanner-command-job-maintenance` every five minutes plus `nexusplanner-sprint-deadline-scan` daily (`supabase/migrations/20260730053934_scheduled_maintenance_cron.sql:1`, `supabase/migrations/20260730053934_scheduled_maintenance_cron.sql:19`, `supabase/migrations/20260730053934_scheduled_maintenance_cron.sql:45`, `supabase/migrations/20260730053934_scheduled_maintenance_cron.sql:179`, `supabase/migrations/20260730053934_scheduled_maintenance_cron.sql:185`). Deadline cron creates `sprint_due_soon` and `sprint_overdue` notifications through `create_user_notification`, and `allow_sprint_deadline_notification_types` updates that function's allowlist while keeping execution revoked from `PUBLIC`, `anon`, and `authenticated` (`supabase/migrations/20260730053934_scheduled_maintenance_cron.sql:80`, `supabase/migrations/20260730053934_scheduled_maintenance_cron.sql:123`, `supabase/migrations/20260730054111_allow_sprint_deadline_notification_types.sql:42`, `supabase/migrations/20260730054111_allow_sprint_deadline_notification_types.sql:126`). Cron does not close overdue sprints; completion still belongs to `complete_sprint_command` so incomplete-task decisions and reports stay transactional.
+
+Premium automations are server-side rules, not frontend conditionals. `automation_rules` stores one project-scoped rule per row with `trigger_event`, JSONB `conditions`, JSONB `actions`, `enabled`, creator and `last_run_at`; `automation_runs` stores execution history, counters and result/error (`supabase/migrations/20260730055853_premium_automation_rules.sql:1`, `supabase/migrations/20260730055853_premium_automation_rules.sql:21`). Project Settings renders a monday/Jira-inspired builder with `Cuando`, `Si` and `Entonces`, but it only calls `automationService` to create/update/delete rules and read runs (`src/features/projects/components/ProjectSettingsModal.tsx:631`, `src/features/projects/components/ProjectSettingsModal.tsx:765`, `src/features/projects/components/ProjectSettingsModal.tsx:872`, `src/features/projects/components/ProjectSettingsModal.tsx:957`, `src/features/api/automationService.ts:79`, `src/features/api/automationService.ts:112`). Execution happens after inserts in `activity_events`: `evaluate_automation_rules_after_activity_event` matches enabled rules with `automation_rule_matches_event`, inserts `automation_runs`, then `execute_automation_action` creates notifications or enqueues `automation.email`/`automation.webhook` jobs (`supabase/migrations/20260730055853_premium_automation_rules.sql:201`, `supabase/migrations/20260730055853_premium_automation_rules.sql:239`, `supabase/migrations/20260730055853_premium_automation_rules.sql:347`, `supabase/migrations/20260730055853_premium_automation_rules.sql:462`). `task.created` payload includes assignment, `is_unassigned`, issue type, priority, story points, column, sprint, epic and backlog state, so automation conditions can reason about the task's creation state without querying mutable task rows later (`supabase/migrations/20260730061644_enrich_task_created_event_payload.sql:172`, `supabase/migrations/20260730061644_enrich_task_created_event_payload.sql:177`, `supabase/migrations/20260730061644_enrich_task_created_event_payload.sql:180`, `supabase/migrations/20260730061644_enrich_task_created_event_payload.sql:181`, `supabase/migrations/20260730061644_enrich_task_created_event_payload.sql:182`, `supabase/migrations/20260730061644_enrich_task_created_event_payload.sql:183`, `supabase/migrations/20260730061644_enrich_task_created_event_payload.sql:184`). Do not add task-mutating automation actions without anti-loop and idempotency design, because automations are fed by `activity_events`.
+
+Sprint reports are backend snapshots. `sprint_reports` stores totals, completion rates, story points, task/status snapshots and incomplete-task dispositions; authenticated users can only `select` rows they can view through project RLS (`supabase/migrations/20260730052854_backend_sprint_reports.sql:1`, `supabase/migrations/20260730052854_backend_sprint_reports.sql:22`, `supabase/migrations/20260730052854_backend_sprint_reports.sql:41`, `supabase/migrations/20260730052854_backend_sprint_reports.sql:50`). `complete_sprint_command` calls `generate_sprint_report` before moving incomplete tasks out of the sprint, then enqueues `report.sprint_completed` with an idempotent `job_key` for later export/email work (`supabase/migrations/20260730052854_backend_sprint_reports.sql:68`, `supabase/migrations/20260730052854_backend_sprint_reports.sql:455`, `supabase/migrations/20260730052854_backend_sprint_reports.sql:552`, `supabase/migrations/20260730052854_backend_sprint_reports.sql:554`). `normalize_sprint_report_before_write` sets persisted sprint report status to `closed` when `closed_at` exists, because the task snapshot is captured before `sprints.status` changes (`supabase/migrations/20260730053303_fix_sprint_report_closed_status.sql:1`, `supabase/migrations/20260730053303_fix_sprint_report_closed_status.sql:9`, `supabase/migrations/20260730053303_fix_sprint_report_closed_status.sql:10`). Frontend report screens should read `reportService`, not rebuild historical reports from mutable `tasks` rows (`src/features/api/reportService.ts:96`, `src/features/api/reportService.ts:107`).
+
+Realtime channels are centralized in `src/shared/realtime/realtimeChannels.ts`. New frontend subscriptions should use `createRealtimeChannelName` for a scoped channel name, `createDebouncedRealtimeCallback` when a change causes a reload, and `removeRealtimeChannel` during cleanup. React-mounted channels should keep the default unique suffix to avoid reusing a subscribed Supabase topic; filters must stay scoped by `project_id`, `organization_id`, `user_id`, or `invitee_id` rather than listening to full tables.
+
 ## Data Model Notes
 
 ### Projects
@@ -351,7 +420,7 @@ Creating a project also:
   - `Hecho`
 - persists column order in `column_order`
 
-Project creation must be all-or-nothing. The frontend service should call `create_project_with_defaults`, which creates the project, owner membership, tags, default columns, and `column_order` inside one Postgres transaction. If the RPC is not available in an environment, the fallback path must delete the partially created project when any setup step fails.
+Project creation must be all-or-nothing. The frontend service should call `createProjectCommand`, which calls `create_project_command`; that SQL command creates the project, owner membership, tags, default columns, `column_order`, activity event, and outbox job inside one Postgres transaction. Do not reintroduce the old frontend fallback that inserted `projects`, `project_members`, tags and columns in separate requests.
 
 The project key is important because ticket IDs are displayed as `<KEY>-<N>`, such as `ALGOR-2`.
 
@@ -375,7 +444,7 @@ Rules:
 - A new user starts with no organizations and can create an organization plus one or more projects.
 - A user can belong to many organizations.
 - Users cannot see organizations created by other users unless they are invited and accept.
-- Organization owner/admin can invite registered NexusPlanner users to the organization.
+- Organization owner/admin can invite registered NexusPlanner users to the organization by exact email address.
 - The user menu shows pending organization invitations in real time and lets the invited user accept or reject.
 - Accepting an organization invitation calls `accept_organization_invitation`, which atomically marks the invitation accepted and inserts the user into `organization_members` as `member`.
 - Once accepted, the user can see all `organization` visibility projects in that organization.
@@ -383,7 +452,7 @@ Rules:
 - Adding a user to a project is not a new invitation flow; it is an owner action that adds an existing organization member to `project_members`.
 - Project members can be assigned to tickets.
 - Private projects (`projects.visibility = 'private'`) are visible only to explicit project members.
-- Membership RLS uses `is_project_member(project_id)`, `is_project_owner(project_id)`, `is_organization_member(organization_id)`, `is_organization_admin(organization_id)`, and `can_view_project(project_id)` helpers to avoid recursive policies and separate read access from edit access.
+- Membership RLS and commands should use the centralized SQL permission layer. Canonical helpers are `can_view_project(project_id)` for read access, `can_mutate_project(project_id)` for edit access, `can_manage_project(project_id)` for owner-level project administration, `can_manage_organization(organization_id)` for owner/admin organization administration, and `can_add_project_member(project_id, user_id)` / `can_assign_project_user(project_id, user_id)` for membership-sensitive actions (`supabase/migrations/20260730034117_centralized_sql_permissions.sql:59`, `supabase/migrations/20260730034117_centralized_sql_permissions.sql:80`, `supabase/migrations/20260730034117_centralized_sql_permissions.sql:90`, `supabase/migrations/20260730034117_centralized_sql_permissions.sql:39`, `supabase/migrations/20260730034117_centralized_sql_permissions.sql:100`, `supabase/migrations/20260730034117_centralized_sql_permissions.sql:153`). Older helpers such as `is_project_member(project_id)`, `is_project_owner(project_id)`, `is_organization_member(organization_id)`, `is_organization_admin(organization_id)`, and `can_edit_project(project_id)` delegate to that layer (`supabase/migrations/20260730034117_centralized_sql_permissions.sql:192`, `supabase/migrations/20260730034117_centralized_sql_permissions.sql:202`, `supabase/migrations/20260730034117_centralized_sql_permissions.sql:172`, `supabase/migrations/20260730034117_centralized_sql_permissions.sql:182`, `supabase/migrations/20260730034117_centralized_sql_permissions.sql:212`).
 - `project_invitations` may still exist for legacy compatibility, but the intended product flow is organization invitation first, project membership second.
 - Do not use browser alerts for invitation feedback; use MUI menu/alert surfaces.
 
@@ -429,6 +498,11 @@ Rules:
 
 - Backlog tasks have `in_backlog = true` and usually `column_id = null`.
 - Board tasks have `in_backlog = false` and a `column_id`.
+- New tasks should be created through `create_task_command`, which owns `task_id_display` generation by incrementing `projects.task_sequence`.
+- Assignments should be changed through `assign_task_command`, which keeps assignment validation, activity events, queue handoff, and notification triggers centralized.
+- Board status changes from the task editor should be changed through `move_task_column_command`, which validates edit access, validates the destination column, updates `column_id`, clears backlog state, recalculates position when needed, and records `task.moved`.
+- User notifications are created server-side through `create_user_notification` and trigger functions, not by React components. The database creates notifications for task assignment, project membership added, organization membership added, and sprint completion; `dedupe_key` prevents duplicate delivery for idempotent events (`supabase/migrations/20260730041047_server_side_notifications.sql:4`, `supabase/migrations/20260730041047_server_side_notifications.sql:36`, `supabase/migrations/20260730041047_server_side_notifications.sql:158`, `supabase/migrations/20260730041047_server_side_notifications.sql:198`, `supabase/migrations/20260730041047_server_side_notifications.sql:229`, `supabase/migrations/20260730041047_server_side_notifications.sql:272`, `supabase/migrations/20260730041047_server_side_notifications.sql:315`).
+- Sprint deadline notifications are also server-side. `scan_sprint_deadlines` creates `sprint_due_soon` for active sprints ending tomorrow and `sprint_overdue` for active sprints past `end_date`; these are notification-only events and must not close the sprint (`supabase/migrations/20260730053934_scheduled_maintenance_cron.sql:45`, `supabase/migrations/20260730053934_scheduled_maintenance_cron.sql:80`, `supabase/migrations/20260730053934_scheduled_maintenance_cron.sql:123`).
 - Roadmap task bars use `planned_start_date`/`planned_end_date` when present.
 - If roadmap child scheduling is enabled and a task has no planned dates, the UI may fall back to sprint dates or visual default dates.
 - Tasks are connected to epics only by `tasks.epic_id`. Do not reintroduce a join table for task-epic assignment.
@@ -477,10 +551,14 @@ Important fields:
 Rules:
 
 - Backlog can create future sprints.
+- Sprint duration is fixed by product rule: 1 week is exactly 7 days, 15 days is exactly 15 days, and 1 month ends on the same calendar day of the next month. The UI must not create open-ended or custom-range sprints.
+- A project must have at most one active sprint. UI/service code should block starting a future sprint while another sprint is active, and the database keeps a partial unique index on active sprints per project.
 - Board shows only the active sprint. Future sprints stay in Backlog/Sprint planning until they are started.
+- Board header shows the active sprint status and days remaining from the normalized sprint end date.
 - Tasks are assigned to a sprint through `tasks.sprint_id`.
 - Starting a sprint sets `status = active`.
-- Closing a sprint sets `status = closed`.
+- Closing/completing a sprint sets `status = closed` through `complete_sprint_command`.
+- Completing a sprint opens a decision modal for incomplete tasks. Each incomplete task can be moved to backlog, moved to an existing future sprint, or moved to a newly created future sprint. The RPC requires a disposition for every incomplete task and applies all moves plus sprint closure in one transaction.
 
 ### Epic-Task Relationship
 
@@ -606,6 +684,7 @@ Rules:
 - An organization can have many projects.
 - A project belongs to one and only one organization.
 - The active organization controls which projects appear in project selection.
+- `Layout` must keep `activeOrganization.role` fresh from `fetchUserOrganizations`; stale active organization objects can hide owner/admin controls even when SQL permissions are correct.
 - Organization branding is shown in the sidebar as a square logo plus organization name.
 - The top app header keeps the product brand: `NexusPlanner` and `Planning Software`.
 - Organization logos are stored in the `project-assets` bucket under `organization-logos/{organizationId}/logo.ext`.
@@ -613,7 +692,10 @@ Rules:
 - New users with no organization create one from the project creation modal or user settings.
 - Creating a project while an organization is active uses that organization and does not let the user switch organization inside the project modal.
 - Users with more than one organization can switch from the account menu.
-- Owner/admin can invite registered users to the organization from user settings.
+- Owner/admin can invite registered users to the organization from user settings by exact email address. Do not list all registered users or search globally by name.
+- Organization settings are available from the account menu and the sidebar organization header. `src/features/organizations/components/OrganizationSettingsModal.tsx` shows organization identity, role descriptions, members, pending invitations, role changes, member removal, email-based organization invites, and a danger zone.
+- Organization settings should derive owner/admin controls from both `activeOrganization.role` and the loaded `organization_members` row for the current user; this protects the UI when context metadata is temporarily stale.
+- Deleting an organization is owner-only and must call `deleteOrganizationCommand`, which executes `delete_organization_command`. The SQL command validates `current_organization_role(...) = 'owner'`, enqueues an `activity.organization_deleted` job with Storage cleanup prefixes for a worker/API path, and deletes the `organizations` row so FK cascades remove projects and organization-scoped data. Do not delete from `storage.objects` directly in SQL; Supabase Storage blocks direct table deletion and requires the Storage API/service-role path for object cleanup.
 - Invited users receive a pending organization notification in the account menu; accepting adds them to the organization.
 - Organization members can view organization-visible projects by default, but they cannot change project data unless they are added as project members.
 - Project owners add organization members to a project from the Board collaborators control.
@@ -679,9 +761,11 @@ Responsibilities:
 Important behavior:
 
 - If there is an active sprint, board loads tasks for that sprint.
+- Tasks created from the board must pass the active sprint id to the task command so they remain in the active board after reload.
 - If there is no active sprint, board shows an empty state and directs the user to Backlog to create or start a sprint.
 - If no sprint is provided to the board service, it filters board tasks with `sprint_id is null`. Do not use fake UUID sentinel values for missing sprints.
 - In the Board screen, the title/actions header and the board toolbar are fixed. Only the columns area scrolls vertically/horizontally.
+- Board realtime subscriptions use the shared realtime helper with unique channel names per mount/project/sprint. Reusing a channel topic and adding `postgres_changes` callbacks after subscription can throw Supabase's `cannot add postgres_changes callbacks after subscribe()` error.
 
 ### Backlog
 
@@ -702,6 +786,7 @@ Responsibilities:
 Product rule:
 
 - Backlog task creation should not include epic as an issue type option. Epics are created in the Epics section.
+- Backlog task creation should use the task command, even when the UI opens a draft modal. The database should not receive a real task until the user confirms creation.
 
 ### Epics
 
@@ -720,6 +805,11 @@ Responsibilities:
 - Set start/end dates.
 - Connect and disconnect tasks.
 - Show tasks connected to each epic.
+
+Table behavior:
+
+- The epics table uses the shared `DataTable` wrapper with MUI `DataGrid` slots, slot props, initial state, and enabled column menus so column headers expose native sort/filter behavior (`src/shared/ui/DataTable/types.ts:16`, `src/shared/ui/DataTable/types.ts:17`, `src/shared/ui/DataTable/DataTable.tsx:42`, `src/shared/ui/DataTable/DataTable.tsx:44`, `src/features/board/components/EpicsTable/EpicsTable.tsx:23`, `src/features/board/components/EpicsTable/EpicsTable.tsx:247`).
+- Keep epics table column types explicit: project/phase/effort use `singleSelect`, dates use `date`, and the hidden `connectedTaskCount` field is numeric for filtering/sorting by connected task volume (`src/features/board/components/EpicsTable/columns.tsx:87`, `src/features/board/components/EpicsTable/columns.tsx:88`, `src/features/board/components/EpicsTable/columns.tsx:89`, `src/features/board/components/EpicsTable/columns.tsx:288`, `src/features/board/components/EpicsTable/columns.tsx:338`, `src/features/board/components/EpicsTable/columns.tsx:399`, `src/features/board/components/EpicsTable/columns.tsx:411`, `src/features/board/components/EpicsTable/columns.tsx:420`, `src/features/board/components/EpicsTable/columns.tsx:429`).
 
 Important modal behavior:
 
@@ -745,9 +835,12 @@ Responsibilities:
 
 Product rules:
 
-- Sprints can be fixed-range or open-ended.
-- If a sprint is open-ended, `start_date` is set and `end_date` can be null.
-- If it is fixed-range, the UI should clearly show the end date.
+- Sprints are fixed-duration only: 7 exact days, 15 exact days, or 1 exact month.
+- `CreateSprintModal` calculates `end_date` automatically from `start_date` and the selected duration; users should not enter arbitrary end dates.
+- Legacy sprints with invalid/custom end dates may be displayed using the closest valid duration, but new UI-created sprints should always store an exact allowed range.
+- Board sprint actions show days remaining, status, and a complete action that closes the active sprint.
+- Backlog shows sprint planning as a right-side panel grouped into active sprint, upcoming future sprints, and recently closed sprints. Future sprints can hold planned tasks before they start; closed sprints are read-only and do not accept drag-and-drop.
+- Story points are human estimates and should not change automatically when roadmap dates or sprint duration change. Sprint cards can use story points for planning summaries: planned points, suggested capacity, available points, or overload. Suggested capacity is derived from closed sprint history when available; without history the UI should say that no historical capacity exists instead of inventing a default.
 
 ### Roadmap
 
@@ -772,7 +865,7 @@ Current modes:
 
 - `weeks`
 - `months`
-- `quarters` disabled
+- `quarters`
 
 Weeks:
 
@@ -790,7 +883,10 @@ Months:
 
 Quarters:
 
-- Present in the UI as disabled.
+- Enabled from the Roadmap mode selector.
+- Uses `getRoadmapTimelineRange` to collect dates from epic `start_date`/`end_date`, task `planned_start_date`/`planned_end_date`, and task sprint start/end dates, then rounds the visible range to calendar quarter boundaries (`src/features/roadmap/components/Roadmap.tsx:40`, `src/features/roadmap/components/Roadmap.tsx:64`, `src/features/roadmap/utils/timelineRange.ts:27`, `src/features/roadmap/utils/timelineRange.ts:39`, `src/features/roadmap/utils/timelineRange.ts:60`).
+- Renders quarter units with proportional widths based on visible days, using `QUARTER_DAY_WIDTH` and `getQuarterUnits` (`src/features/roadmap/components/TimelineGridParts.tsx:12`, `src/features/roadmap/components/TimelineGridParts.tsx:19`, `src/features/roadmap/components/TimelineGrid.tsx:214`, `src/features/roadmap/components/TimelineGrid.tsx:215`, `src/features/roadmap/utils/timelineRange.ts:86`).
+- Keeps at least two quarters visible when there are few or no roadmap dates (`src/features/roadmap/utils/timelineRange.ts:64`, `src/features/roadmap/utils/timelineRange.ts:69`, `src/features/roadmap/utils/timelineRange.ts:73`).
 
 #### Bars
 
@@ -1021,6 +1117,7 @@ The code relies on Supabase/database behavior to populate `task_id_display` and 
 
 - Week mode starts on Monday of the current week.
 - Month mode uses visible day counts to calculate month widths.
+- Quarter mode derives its start/end from roadmap data and rounds to full calendar quarters.
 - Avoid equal-width month columns because date-to-position mapping breaks at month boundaries.
 
 ## Styling Guidelines
@@ -1091,12 +1188,29 @@ Manual checks by feature:
 ## Known Risks and Technical Debt
 
 - Some older files contain debug `console.log` calls and comments with emojis. Clean carefully in scoped refactors only.
+- Some non-command task movement paths still update `tasks` directly for drag ordering and backlog-to-sprint planning; do not expand that pattern into create/assign/status/complete flows.
 - Board sprint filtering uses `sprint_id is null` when no sprint is selected. Keep missing-sprint state represented as `null`, not as a fake UUID.
 - Task-epic assignment is intentionally single-source through `tasks.epic_id`.
 - Dependency cycles are blocked in the service layer and database triggers. Keep both layers in sync when changing dependency behavior.
 - Roadmap dependency routing is custom and visual. Test with multiple rows between source and target before changing route math.
 - `react-archer` remains in dependencies but roadmap now uses `@xyflow/react`.
 - Some UI labels are English in Roadmap settings while most app copy is Spanish.
+
+## Raspberry Supabase Migration
+
+The Raspberry self-hosted Supabase migration is documented under `docs/migration`; start with `docs/migration/README.md`. Do not run the repo migrations directly against an empty Raspberry database: the repo is missing the earliest production migrations that created the base NexusPlanner tables. The detailed order is `raspberry-supabase-inventory.md`, `raspberry-supabase-baseline-runbook.md`, `raspberry-supabase-data-runbook.md`, `raspberry-supabase-storage-runbook.md`, and `raspberry-frontend-cutover-runbook.md`.
+
+Current migration rule: schema parity must be proven before data import, and data integrity must be proven before frontend cutover. The SQL checks in `docs/migration/sql` are the reusable gates for extension readiness, schema object parity, domain row counts and relationship integrity.
+
+`supabase db dump` requires a reachable Docker daemon where the command runs. If Docker Desktop is unavailable on Windows, use `docs/migration/scripts/export-cloud-baseline-on-raspberry.ps1` and `docs/migration/scripts/export-cloud-data-on-raspberry.ps1`; those wrappers run the dump from the Raspberry and copy the ignored export files back. Baseline schema must apply `cloud_schema_public.sql` plus `cloud_storage_policies.sql`, not a full `storage` schema dump, because self-hosted Supabase already owns internal Storage tables, types and functions.
+
+Raspberry data export intentionally excludes volatile/internal Auth and Storage tables such as sessions, refresh tokens, one-time tokens, MFA transient rows, schema migrations, multipart uploads and Storage analytics/vector internals. The data migration target is preserved Auth users/identities, NexusPlanner public rows, Storage buckets and Storage object metadata; actual object bytes are migrated in the dedicated Storage phase.
+
+Storage byte migration uses `docs/migration/scripts/migrate-storage-bytes-on-raspberry.ps1`. It runs on the Raspberry, reads the local `SERVICE_ROLE_KEY` from `supabase status -o env` without printing it, downloads the six public production objects, uploads them to the local Storage API with `x-upsert: true`, and verifies public byte counts through `http://127.0.0.1:54321/storage/v1/object/public/...`.
+
+Realtime and Cron do not come from the schema/data dumps. Apply `docs/migration/scripts/configure-raspberry-realtime-cron.ps1` after data import; it adds `activity_events`, `automation_rules`, `automation_runs`, `organization_invitations`, `project_invitations`, `tasks`, and `user_notifications` to `supabase_realtime`, then schedules command-job maintenance every five minutes and sprint deadline scanning daily at 08:15.
+
+Raspberry Auth URLs are configured through `docs/migration/scripts/configure-raspberry-auth.ps1`. The script sets `site_url`, `auth.external_url`, and allowed app redirect URLs for LAN testing; it only enables Google OAuth when `NEXUS_GOOGLE_CLIENT_ID` and `NEXUS_GOOGLE_CLIENT_SECRET` are present in the current shell. Do not hardcode provider secrets in repo files or migration docs.
 
 ## How To Add A Feature Safely
 
@@ -1143,5 +1257,6 @@ If you need to work on:
 - Roadmap dependency lines: `src/features/roadmap/components/RoadmapDependencyLayer.tsx`
 - Roadmap data loading: `src/features/roadmap/hooks/useRoadmap.ts`
 - Dependency persistence: `src/features/api/dependencyService.ts`
+- Sprint reports: `src/features/reports/components/ReportsPage.tsx`, `src/features/api/reportService.ts`
 - Task editor internals: `src/features/board/components/TaskEditor/*`
 - Supabase migrations: `supabase/migrations/*`

@@ -6,11 +6,19 @@ import {
   deleteSprint as deleteSprintApi,
   startSprint as startSprintApi,
   closeSprint as closeSprintApi,
+  closeSprintWithTaskDisposition as closeSprintWithTaskDispositionApi,
   fetchSprintTasks,
+  type SprintTaskDisposition,
 } from "../../api/sprintService";
 import { logError } from "../../../shared/utils/errorHandling";
 import type { Sprint } from "../types/sprint";
 import type { SprintTask } from "../components/SprintTasksTable";
+
+const SPRINTS_CHANGED_EVENT = "nexus:sprints-changed";
+
+const notifySprintsChanged = () => {
+  window.dispatchEvent(new CustomEvent(SPRINTS_CHANGED_EVENT));
+};
 
 export const useSprintManager = (projectId: string | null) => {
   const [sprints, setSprints] = useState<Sprint[]>([]);
@@ -18,6 +26,7 @@ export const useSprintManager = (projectId: string | null) => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sprintTasks, setSprintTasks] = useState<SprintTask[]>([]);
+  const [sprintTasksById, setSprintTasksById] = useState<Record<string, SprintTask[]>>({});
   const [lastUpdate, setLastUpdate] = useState<number>(Date.now());
 
   const loadSprints = async () => {
@@ -25,6 +34,7 @@ export const useSprintManager = (projectId: string | null) => {
       setSprints([]);
       setActiveSprint(null);
       setSprintTasks([]);
+      setSprintTasksById({});
       return;
     }
 
@@ -39,13 +49,17 @@ export const useSprintManager = (projectId: string | null) => {
       setSprints(allSprints);
       setActiveSprint(active);
 
+      const taskEntries = await Promise.all(
+        allSprints.map(async (sprint) => {
+          const tasks = await fetchSprintTasks(projectId, sprint.id);
+          return [sprint.id, tasks] as const;
+        })
+      );
+      const tasksBySprint = Object.fromEntries(taskEntries);
       const targetSprint = active || allSprints.find((s) => s.status === "future");
-      if (targetSprint) {
-        const tasks = await fetchSprintTasks(projectId, targetSprint.id);
-        setSprintTasks(tasks);
-      } else {
-        setSprintTasks([]);
-      }
+
+      setSprintTasksById(tasksBySprint);
+      setSprintTasks(targetSprint ? tasksBySprint[targetSprint.id] ?? [] : []);
 
       setLastUpdate(Date.now());
     } catch (err) {
@@ -58,6 +72,15 @@ export const useSprintManager = (projectId: string | null) => {
 
   useEffect(() => {
     void loadSprints();
+  }, [projectId]);
+
+  useEffect(() => {
+    const handleSprintsChanged = () => {
+      void loadSprints();
+    };
+
+    window.addEventListener(SPRINTS_CHANGED_EVENT, handleSprintsChanged);
+    return () => window.removeEventListener(SPRINTS_CHANGED_EVENT, handleSprintsChanged);
   }, [projectId]);
 
   const createSprint = async (data: {
@@ -73,6 +96,7 @@ export const useSprintManager = (projectId: string | null) => {
     const newSprint = await createSprintApi(projectId, data);
     setSprints((prev) => [newSprint, ...prev]);
     setLastUpdate(Date.now());
+    notifySprintsChanged();
     return newSprint;
   };
 
@@ -85,6 +109,7 @@ export const useSprintManager = (projectId: string | null) => {
     setSprints((prev) => prev.map((s) => (s.id === sprintId ? updated : s)));
     setActiveSprint(updated);
     setLastUpdate(Date.now());
+    notifySprintsChanged();
     return updated;
   };
 
@@ -97,6 +122,23 @@ export const useSprintManager = (projectId: string | null) => {
     setSprints((prev) => prev.map((s) => (s.id === sprintId ? updated : s)));
     setActiveSprint(null);
     setLastUpdate(Date.now());
+    notifySprintsChanged();
+    return updated;
+  };
+
+  const closeSprintWithTaskDisposition = async (
+    sprintId: string,
+    dispositions: SprintTaskDisposition[]
+  ) => {
+    if (!projectId) {
+      throw new Error("No hay proyecto seleccionado");
+    }
+
+    const updated = await closeSprintWithTaskDispositionApi(projectId, sprintId, dispositions);
+    setSprints((prev) => prev.map((s) => (s.id === sprintId ? updated : s)));
+    setActiveSprint(null);
+    setLastUpdate(Date.now());
+    notifySprintsChanged();
     return updated;
   };
 
@@ -108,6 +150,7 @@ export const useSprintManager = (projectId: string | null) => {
     await deleteSprintApi(projectId, sprintId);
     setSprints((prev) => prev.filter((s) => s.id !== sprintId));
     setLastUpdate(Date.now());
+    notifySprintsChanged();
   };
 
   const canCreateSprint = (taskCount: number) => {
@@ -118,12 +161,14 @@ export const useSprintManager = (projectId: string | null) => {
     sprints,
     activeSprint,
     sprintTasks,
+    sprintTasksById,
     isLoading,
     error,
     lastUpdate,
     createSprint,
     startSprint,
     closeSprint,
+    closeSprintWithTaskDisposition,
     deleteSprint,
     canCreateSprint,
     reload: loadSprints,

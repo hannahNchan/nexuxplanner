@@ -18,6 +18,16 @@ export type TaskDependency = {
   created_at: string;
 };
 
+const chunkValues = <T,>(values: T[], size: number): T[][] => {
+  const chunks: T[][] = [];
+
+  for (let index = 0; index < values.length; index += size) {
+    chunks.push(values.slice(index, index + size));
+  }
+
+  return chunks;
+};
+
 export const fetchDependencies = async (epicIds: string[]): Promise<EpicDependency[]> => {
   if (epicIds.length === 0) return [];
 
@@ -34,14 +44,26 @@ export const fetchDependencies = async (epicIds: string[]): Promise<EpicDependen
 export const fetchTaskDependencies = async (taskIds: string[]): Promise<TaskDependency[]> => {
   if (taskIds.length === 0) return [];
 
-  const { data, error } = await supabase
-    .from("task_dependencies")
-    .select("*")
-    .in("task_id", taskIds)
-    .in("depends_on_task_id", taskIds);
+  const uniqueTaskIds = [...new Set(taskIds)];
+  const taskIdSet = new Set(uniqueTaskIds);
+  const dependencyById = new Map<string, TaskDependency>();
 
-  if (error) throw error;
-  return data ?? [];
+  for (const taskIdChunk of chunkValues(uniqueTaskIds, 40)) {
+    const { data, error } = await supabase
+      .from("task_dependencies")
+      .select("*")
+      .in("task_id", taskIdChunk);
+
+    if (error) throw error;
+
+    (data ?? [])
+      .filter((dependency) => taskIdSet.has(dependency.depends_on_task_id))
+      .forEach((dependency) => {
+        dependencyById.set(dependency.id, dependency);
+      });
+  }
+
+  return Array.from(dependencyById.values());
 };
 
 const wouldCreateCycle = <T extends { sourceId: string; targetId: string }>(

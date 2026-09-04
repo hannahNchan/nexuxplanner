@@ -1,6 +1,7 @@
 import { supabase } from "../../lib/supabase";
 import type { BoardState, Column, Task } from "../../shared/types/board";
 import { logError } from "../../shared/utils/errorHandling";
+import { assignTaskCommand, createTaskCommand, moveTaskColumnCommand } from "./taskCommandService";
 
 type BoardRecord = {
   id: string;
@@ -8,16 +9,18 @@ type BoardRecord = {
   user_id: string;
 };
 
-type ColumnRecord = {
+export type ColumnRecord = {
   id: string;
   project_id: string;
   name: string;
   position: number;
+  color: string | null;
 };
 
 type TaskRecord = {
   id: string;
-  column_id: string;
+  project_id: string;
+  column_id: string | null;
   title: string;
   task_id_display: string | null;
   subtitle: string | null;
@@ -30,14 +33,10 @@ type TaskRecord = {
   epic_id?: string | null;
   epic_name?: string | null;
   epic_color?: string | null;
-};
-
-type CreateTaskInsert = {
-  title: string;
-  position: number;
-  in_backlog: boolean;
-  project_id: string;
-  column_id: string | null;
+  planned_start_date: string | null;
+  planned_end_date: string | null;
+  created_at: string;
+  updated_at: string;
 };
 
 type TaskUpdatePayload = {
@@ -51,6 +50,8 @@ type TaskUpdatePayload = {
   story_points?: string | null;
   assignee_id?: string | null;
   in_backlog?: boolean;
+  planned_start_date?: string | null;
+  planned_end_date?: string | null;
 };
 
 const assertColumnBelongsToProject = async (columnId: string, projectId: string): Promise<void> => {
@@ -140,7 +141,7 @@ export const fetchBoardDataByProject = async (
 
   const { data: columns, error: columnsError } = await supabase
     .from("columns")
-    .select("id, project_id, name, position")
+    .select("id, project_id, name, position, color")
     .eq("project_id", projectId)
     .order("position", { ascending: true });
 
@@ -167,7 +168,7 @@ export const fetchBoardDataByProject = async (
   let tasksQuery = supabase
     .from("tasks")
     .select(
-      "id, column_id, title, task_id_display, subtitle, description, position, issue_type_id, priority_id, story_points, assignee_id, epic_id"
+      "id, project_id, column_id, title, task_id_display, subtitle, description, position, issue_type_id, priority_id, story_points, assignee_id, epic_id, planned_start_date, planned_end_date, created_at, updated_at"
     )
     .eq("project_id", projectId)
     .in("column_id", columnIds);
@@ -249,7 +250,7 @@ export const createColumn = async (
       name,
       position,
     })
-    .select("id, project_id, name, position")
+    .select("id, project_id, name, position, color")
     .single();
 
   if (error) throw error;
@@ -266,7 +267,18 @@ export const createTask = async (
   title: string,
   position: number,
   isBacklog = false,
-  expectedProjectId?: string
+  expectedProjectId?: string,
+  details: {
+    subtitle?: string | null;
+    description?: string | null;
+    issue_type_id?: string | null;
+    priority_id?: string | null;
+    story_points?: string | null;
+    assignee_id?: string | null;
+    sprint_id?: string | null;
+    planned_start_date?: string | null;
+    planned_end_date?: string | null;
+  } = {}
 ): Promise<TaskRecord> => {
 
   let projectId: string | null = null;
@@ -287,25 +299,38 @@ export const createTask = async (
     throw new Error("La tarea debe pertenecer al proyecto activo.");
   }
 
-  const taskData: CreateTaskInsert = {
-    title,
-    position,
-    in_backlog: isBacklog,
+  const created = await createTaskCommand({
     project_id: projectId,
+    title,
+    subtitle: details.subtitle ?? null,
+    description: details.description ?? null,
+    destination: isBacklog ? "backlog" : "scrum",
     column_id: isBacklog ? null : columnIdOrProjectId,
-  };
+    sprint_id: details.sprint_id ?? null,
+    position,
+    issue_type_id: details.issue_type_id ?? null,
+    priority_id: details.priority_id ?? null,
+    story_points: details.story_points ?? null,
+    assignee_id: details.assignee_id ?? null,
+  });
 
-  const { data, error } = await supabase
-    .from("tasks")
-    .insert(taskData)
-    .select("id, column_id, title, task_id_display, subtitle, description, position, issue_type_id, priority_id, story_points, assignee_id")
-    .single();
+  if (details.planned_start_date || details.planned_end_date) {
+    const data = await updateTask(projectId, created.id, {
+      planned_start_date: details.planned_start_date ?? null,
+      planned_end_date: details.planned_end_date ?? null,
+    });
 
-  if (error) {
-    throw error;
+    return {
+      ...created,
+      ...data,
+      project_id: projectId,
+      position,
+      parent_task_id: null,
+      github_link: null,
+    } as TaskRecord;
   }
 
-  return data;
+  return created as TaskRecord;
 };
 
 export const updateTask = async (
@@ -321,6 +346,8 @@ export const updateTask = async (
     story_points?: string | null;
     assignee_id?: string | null;
     in_backlog?: boolean;
+    planned_start_date?: string | null;
+    planned_end_date?: string | null;
   }
 ): Promise<Task> => {
 
@@ -328,27 +355,95 @@ export const updateTask = async (
     await assertColumnBelongsToProject(updates.column_id, projectId);
   }
 
+  const shouldUpdateAssignee = Object.prototype.hasOwnProperty.call(updates, "assignee_id");
+  const shouldMoveColumn =
+    Object.prototype.hasOwnProperty.call(updates, "column_id") &&
+    updates.in_backlog !== true &&
+    Boolean(updates.column_id);
+  const nextAssigneeId = updates.assignee_id ?? null;
+  const nonAssigneeUpdates = { ...updates };
+  delete nonAssigneeUpdates.assignee_id;
+  delete nonAssigneeUpdates.column_id;
+
   const updateData: TaskUpdatePayload = {
-    ...updates,
+    ...nonAssigneeUpdates,
     updated_at: new Date().toISOString(),
   };
 
   if (updates.in_backlog === true) {
     updateData.column_id = null;
+  } else if (shouldMoveColumn) {
+    delete updateData.in_backlog;
   }
 
+  let data: Task | null = null;
+
+  if (Object.keys(updateData).length > 1) {
+    const { data: updatedTask, error } = await supabase
+      .from("tasks")
+      .update(updateData)
+      .eq("id", taskId)
+      .eq("project_id", projectId)
+      .select("id, project_id, column_id, title, task_id_display, subtitle, description, position, issue_type_id, priority_id, story_points, assignee_id, epic_id, planned_start_date, planned_end_date, created_at, updated_at")
+      .single();
+
+    if (error) {
+      throw error;
+    }
+
+    data = updatedTask;
+  }
+
+  if (shouldUpdateAssignee) {
+    data = await assignTaskCommand({
+      project_id: projectId,
+      task_id: taskId,
+      assignee_id: nextAssigneeId,
+    });
+  }
+
+  if (shouldMoveColumn && updates.column_id) {
+    data = await moveTaskColumnCommand({
+      project_id: projectId,
+      task_id: taskId,
+      column_id: updates.column_id,
+    });
+  }
+
+  if (!data) {
+    throw new Error("No hubo cambios para guardar en la tarea.");
+  }
+
+  return data;
+};
+
+export const fetchProjectColumns = async (projectId: string): Promise<ColumnRecord[]> => {
   const { data, error } = await supabase
-    .from("tasks")
-    .update(updateData)
-    .eq("id", taskId)
+    .from("columns")
+    .select("id, project_id, name, position, color")
     .eq("project_id", projectId)
-    .select("id, column_id, title, task_id_display, subtitle, description, position, issue_type_id, priority_id, story_points, assignee_id")
+    .order("position", { ascending: true });
+
+  if (error) throw error;
+  return data ?? [];
+};
+
+export const updateColumnBadgeColor = async (
+  projectId: string,
+  columnId: string,
+  color: string
+): Promise<ColumnRecord> => {
+  const { data, error } = await supabase
+    .from("columns")
+    .update({
+      color,
+    })
+    .eq("id", columnId)
+    .eq("project_id", projectId)
+    .select("id, project_id, name, position, color")
     .single();
 
-  if (error) {
-    throw error;
-  }
-
+  if (error) throw error;
   return data;
 };
 
@@ -376,13 +471,16 @@ export const toBoardState = (
   tasks: TaskRecord[],
   columnOrder: string[]
 ): BoardState => {
-  
+  const columnsById = new Map(columns.map((column) => [column.id, column]));
   const taskMap: Record<string, Task> = {};
   const columnMap: Record<string, Column> = {};
 
   tasks.forEach((task) => {
+    const taskColumn = task.column_id ? columnsById.get(task.column_id) : undefined;
+
     taskMap[task.id] = {
       id: task.id,
+      column_id: task.column_id,
       title: task.title,
       task_id_display: task.task_id_display ?? undefined,
       subtitle: task.subtitle ?? undefined,
@@ -391,13 +489,22 @@ export const toBoardState = (
       priority_id: task.priority_id ?? undefined,
       story_points: task.story_points ?? undefined,
       assignee_id: task.assignee_id ?? undefined,
+      columnColor: taskColumn?.color ?? undefined,
       epic_id: task.epic_id ?? undefined,
       epic_name: task.epic_name ?? undefined,
       epic_color: task.epic_color ?? undefined,
+      planned_start_date: task.planned_start_date ?? null,
+      planned_end_date: task.planned_end_date ?? null,
+      created_at: task.created_at,
+      updated_at: task.updated_at,
     };
   });
 
   const tasksByColumn = tasks.reduce<Record<string, TaskRecord[]>>((acc, task) => {
+    if (!task.column_id) {
+      return acc;
+    }
+
     if (!acc[task.column_id]) {
       acc[task.column_id] = [];
     }
@@ -414,6 +521,7 @@ export const toBoardState = (
     columnMap[column.id] = {
       id: column.id,
       title: column.name,
+      color: column.color ?? undefined,
       taskIds: orderedTaskIds,
     };
   });

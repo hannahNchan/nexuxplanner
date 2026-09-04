@@ -1,5 +1,7 @@
 import { supabase } from "../../lib/supabase";
 import type { Sprint, SprintWithStats, CreateSprintData } from "../../features/sprints/types/sprint";
+import { completeSprintCommand } from "./taskCommandService";
+import { getSprintDurationDays } from "../sprints/utils/sprintDates";
 
 const assertSprintBelongsToProject = async (projectId: string, sprintId: string): Promise<void> => {
   const { data, error } = await supabase
@@ -58,6 +60,22 @@ export type SprintTaskRecord = {
   priority: SprintTaskPriority | null;
 };
 
+export type SprintCompletionTask = SprintTaskRecord & {
+  column_name: string | null;
+  is_completed: boolean;
+};
+
+export type SprintCompletionSummary = {
+  completedTasks: SprintCompletionTask[];
+  incompleteTasks: SprintCompletionTask[];
+};
+
+export type SprintTaskDisposition = {
+  taskId: string;
+  destination: "backlog" | "sprint";
+  sprintId?: string;
+};
+
 type SprintTaskRow = Omit<SprintTaskRecord, "priority"> & {
   priority: SprintTaskPriority | SprintTaskPriority[] | null;
 };
@@ -81,10 +99,12 @@ export const fetchActiveSprint = async (projectId: string): Promise<Sprint | nul
     .select("*")
     .eq("project_id", projectId)
     .eq("status", "active")
-    .maybeSingle();
+    .order("updated_at", { ascending: false })
+    .order("created_at", { ascending: false })
+    .limit(1);
 
   if (error) throw error;
-  return data;
+  return data?.[0] ?? null;
 };
 
 // Crear sprint
@@ -92,21 +112,22 @@ export const createSprint = async (
   projectId: string,
   sprintData: CreateSprintData
 ): Promise<Sprint> => {
+  const durationDays = getSprintDurationDays(sprintData.start_date, sprintData.end_date) ?? 7;
+  const duration = durationDays >= 28 ? "1m" : durationDays >= 15 ? "15d" : "7d";
+
   const { data, error } = await supabase
-    .from("sprints")
-    .insert({
-      project_id: projectId,
-      name: sprintData.name,
-      goal: sprintData.goal || null,
-      status: "future",
-      start_date: sprintData.start_date,
-      end_date: sprintData.end_date,
+    .rpc("create_sprint_command", {
+      p_project_id: projectId,
+      p_name: sprintData.name,
+      p_goal: sprintData.goal || null,
+      p_start_date: sprintData.start_date,
+      p_duration: duration,
+      p_status: "future",
     })
-    .select()
     .single();
 
   if (error) throw error;
-  return data;
+  return data as Sprint;
 };
 
 // Actualizar sprint
@@ -132,6 +153,19 @@ export const updateSprint = async (
 
 // Iniciar sprint (cambiar a active)
 export const startSprint = async (projectId: string, sprintId: string): Promise<Sprint> => {
+  const { data: activeSprint, error: activeSprintError } = await supabase
+    .from("sprints")
+    .select("id")
+    .eq("project_id", projectId)
+    .eq("status", "active")
+    .neq("id", sprintId)
+    .limit(1);
+
+  if (activeSprintError) throw activeSprintError;
+  if ((activeSprint ?? []).length > 0) {
+    throw new Error("Ya existe un sprint activo en este proyecto. Completa el sprint actual antes de iniciar otro.");
+  }
+
   const { data, error } = await supabase
     .from("sprints")
     .update({
@@ -140,6 +174,7 @@ export const startSprint = async (projectId: string, sprintId: string): Promise<
     })
     .eq("id", sprintId)
     .eq("project_id", projectId)
+    .eq("status", "future")
     .select()
     .single();
 
@@ -149,19 +184,7 @@ export const startSprint = async (projectId: string, sprintId: string): Promise<
 
 // Cerrar sprint (cambiar a closed)
 export const closeSprint = async (projectId: string, sprintId: string): Promise<Sprint> => {
-  const { data, error } = await supabase
-    .from("sprints")
-    .update({
-      status: "closed",
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", sprintId)
-    .eq("project_id", projectId)
-    .select()
-    .single();
-
-  if (error) throw error;
-  return data;
+  return completeSprintCommand(projectId, sprintId, []);
 };
 
 // Eliminar sprint
@@ -329,4 +352,48 @@ export const fetchSprintTasks = async (
           : null,
     priority: Array.isArray(task.priority) ? task.priority[0] ?? null : task.priority,
   }));
+};
+
+export const fetchSprintCompletionSummary = async (
+  projectId: string,
+  sprintId: string
+): Promise<SprintCompletionSummary> => {
+  await assertSprintBelongsToProject(projectId, sprintId);
+
+  const [tasks, columnsResponse] = await Promise.all([
+    fetchSprintTasks(projectId, sprintId),
+    supabase
+      .from("columns")
+      .select("id, name")
+      .eq("project_id", projectId),
+  ]);
+
+  const { data: columns, error: columnsError } = columnsResponse;
+  if (columnsError) throw columnsError;
+
+  const columnById = new Map((columns ?? []).map((column) => [column.id, column.name]));
+  const doneColumnIds = new Set(
+    (columns ?? [])
+      .filter((column) => DONE_COLUMN_NAMES.has(normalizeColumnName(column.name)))
+      .map((column) => column.id)
+  );
+
+  const completionTasks = tasks.map((task) => ({
+    ...task,
+    column_name: task.column_id ? columnById.get(task.column_id) ?? null : null,
+    is_completed: Boolean(task.column_id && doneColumnIds.has(task.column_id)),
+  }));
+
+  return {
+    completedTasks: completionTasks.filter((task) => task.is_completed),
+    incompleteTasks: completionTasks.filter((task) => !task.is_completed),
+  };
+};
+
+export const closeSprintWithTaskDisposition = async (
+  projectId: string,
+  sprintId: string,
+  dispositions: SprintTaskDisposition[]
+): Promise<Sprint> => {
+  return completeSprintCommand(projectId, sprintId, dispositions);
 };

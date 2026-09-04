@@ -208,6 +208,7 @@ export const useEpicsTable = (userId: string) => {
         project: project?.title || "Sin proyecto",
         projectTags: project?.tags || [],
         connectedTasks: epic.connected_tasks || [],
+        connectedTaskCount: epic.connected_tasks?.length ?? 0,
         estimatedEffort: epic.estimated_effort || "",
         epicId: epic.epic_id_display || "-",
         startDate: epic.start_date,

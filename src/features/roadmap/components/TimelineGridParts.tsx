@@ -1,21 +1,28 @@
 import { Box, Stack, Typography } from "@mui/material";
 import { alpha, type Theme } from "@mui/material/styles";
 import { format } from "date-fns";
+import {
+  ROADMAP_TIMELINE_MONTHS,
+  ROADMAP_TIMELINE_WEEKS,
+  type RoadmapTimelineMode,
+} from "../utils/timelineRange";
 
 export const LEFT_PANEL_WIDTH = 520;
 export const MONTH_DAY_WIDTH = 18;
+export const QUARTER_DAY_WIDTH = 7;
 export const DAY_WIDTH = 72;
 export const ROADMAP_TASK_DRAG_TYPE = "application/x-roadmap-task";
-export const TIMELINE_MONTHS = 3;
-export const TIMELINE_WEEKS = 6;
+export const TIMELINE_MONTHS = ROADMAP_TIMELINE_MONTHS;
+export const TIMELINE_WEEKS = ROADMAP_TIMELINE_WEEKS;
 export const LEFT_PANEL_SHADOW = "8px 0 12px rgba(15, 23, 42, 0.08)";
 
 export type TimelineUnit = {
-  type: "day" | "month";
+  type: "day" | "month" | "quarter";
   label: string;
   start: Date;
   end: Date;
   width: number;
+  subLabel?: string;
   dayNumber?: string;
   monthLabel?: string;
   weekIndex?: number;
@@ -27,7 +34,7 @@ type TimelinePartProps = {
 };
 
 type TimelineUnitsProps = TimelinePartProps & {
-  timelineMode: "weeks" | "months";
+  timelineMode: RoadmapTimelineMode;
   units: TimelineUnit[];
 };
 
@@ -71,6 +78,8 @@ export const TimelineColumns = ({ theme, timelineMode, units }: TimelineUnitsPro
           bgcolor:
             timelineMode === "weeks" && unit.type === "day" && (unit.weekIndex ?? 0) % 2 === 1
               ? alpha(theme.palette.text.primary, 0.035)
+              : timelineMode === "quarters" && unit.type === "quarter" && unitIndex % 2 === 1
+              ? alpha(theme.palette.text.primary, 0.035)
               : "transparent",
         }}
       />
@@ -103,6 +112,8 @@ export const TimelineHeader = ({
             bgcolor:
               timelineMode === "weeks" && unit.type === "day" && (unit.weekIndex ?? 0) % 2 === 1
                 ? alpha(theme.palette.text.primary, 0.035)
+                : timelineMode === "quarters" && unit.type === "quarter" && index % 2 === 1
+                ? alpha(theme.palette.text.primary, 0.035)
                 : "transparent",
           }}
         >
@@ -126,6 +137,15 @@ export const TimelineHeader = ({
                 sx={{ lineHeight: 1.1 }}
               >
                 {unit.dayNumber}
+              </Typography>
+            </Stack>
+          ) : unit.type === "quarter" ? (
+            <Stack spacing={0.35} alignItems="center">
+              <Typography variant="subtitle2" fontWeight={800}>
+                {unit.label}
+              </Typography>
+              <Typography variant="caption" color="text.secondary" fontWeight={700}>
+                {unit.subLabel}
               </Typography>
             </Stack>
           ) : (

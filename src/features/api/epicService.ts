@@ -176,7 +176,7 @@ export const fetchEpics = async (
 };
 
 export const createEpic = async (
-  userId: string,
+  _userId: string,
   data: {
     name: string;
     color?: string | null;
@@ -193,17 +193,20 @@ export const createEpic = async (
   }
 
   const { data: created, error } = await supabase
-    .from("epics")
-    .insert({
-      user_id: userId,
-      color: data.color || "#3B82F6",
-      ...data,
+    .rpc("create_epic_command", {
+      p_project_id: data.project_id,
+      p_name: data.name,
+      p_color: data.color ?? null,
+      p_owner_id: data.owner_id ?? null,
+      p_phase_id: data.phase_id ?? null,
+      p_estimated_effort: data.estimated_effort ?? null,
+      p_start_date: data.start_date ?? null,
+      p_end_date: data.end_date ?? null,
     })
-    .select()
     .single();
 
   if (error) throw error;
-  return created;
+  return created as Epic;
 };
 
 export const updateEpic = async (

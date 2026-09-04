@@ -22,7 +22,7 @@ import DeleteIcon from "@mui/icons-material/Delete";
 import { useTheme } from "@mui/material/styles";
 import { logError } from "../../../shared/utils/errorHandling";
 import {
-  createOrganizationInvitation,
+  createOrganizationInvitationByEmail,
   createOrganization,
   fetchOrganizationMembers,
   fetchOrganizationPendingInvitations,
@@ -31,7 +31,6 @@ import {
   uploadOrganizationLogo,
 } from "../../api/organizationService";
 import { useProject } from "../../../shared/contexts/ProjectContext";
-import { fetchAllUsers } from "../../api/projectService";
 import OrganizationLogoCropDialog from "../../../shared/ui/OrganizationLogoCropDialog";
 
 type UserSettingsPageProps = {
@@ -57,11 +56,10 @@ const UserSettingsPage = ({
   const [newOrganizationName, setNewOrganizationName] = useState("");
   const [newOrganizationLogo, setNewOrganizationLogo] = useState<File | null>(null);
   const [organizationLogoCropSourceFile, setOrganizationLogoCropSourceFile] = useState<File | null>(null);
-  const [organizationInviteSearch, setOrganizationInviteSearch] = useState("");
-  const [allUsers, setAllUsers] = useState<Array<{ id: string; full_name: string | null; avatar_url: string | null }>>([]);
+  const [organizationInviteEmail, setOrganizationInviteEmail] = useState("");
   const [organizationMembers, setOrganizationMembers] = useState<OrganizationMemberWithProfile[]>([]);
   const [pendingOrganizationInvitations, setPendingOrganizationInvitations] = useState<OrganizationInvitation[]>([]);
-  const [invitingUserId, setInvitingUserId] = useState<string | null>(null);
+  const [isInvitingOrganizationMember, setIsInvitingOrganizationMember] = useState(false);
   const [creatingOrganization, setCreatingOrganization] = useState(false);
   const [saving, setSaving] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
@@ -90,12 +88,10 @@ const UserSettingsPage = ({
     }
 
     try {
-      const [users, members, invitations] = await Promise.all([
-        fetchAllUsers(),
+      const [members, invitations] = await Promise.all([
         fetchOrganizationMembers(activeOrganization.id),
         fetchOrganizationPendingInvitations(activeOrganization.id),
       ]);
-      setAllUsers(users);
       setOrganizationMembers(members);
       setPendingOrganizationInvitations(invitations);
     } catch (err) {
@@ -212,20 +208,27 @@ const UserSettingsPage = ({
     }
   };
 
-  const handleInviteToOrganization = async (inviteeId: string) => {
+  const handleInviteToOrganization = async () => {
     if (!activeOrganization) return;
 
+    const email = organizationInviteEmail.trim().toLowerCase();
+
+    if (!email) {
+      setErrorMessage("Escribe el correo de la persona que quieres invitar");
+      return;
+    }
+
     try {
-      setInvitingUserId(inviteeId);
-      await createOrganizationInvitation(activeOrganization.id, inviteeId);
-      setOrganizationInviteSearch("");
+      setIsInvitingOrganizationMember(true);
+      await createOrganizationInvitationByEmail(activeOrganization.id, email);
+      setOrganizationInviteEmail("");
       await loadOrganizationAccess();
       setSuccessMessage("Invitación enviada correctamente");
     } catch (err) {
       logError("userSettings.inviteOrganizationMember", err);
-      setErrorMessage("No se pudo enviar la invitación");
+      setErrorMessage(err instanceof Error ? err.message : "No se pudo enviar la invitación");
     } finally {
-      setInvitingUserId(null);
+      setIsInvitingOrganizationMember(false);
     }
   };
 
@@ -259,23 +262,8 @@ const UserSettingsPage = ({
     }
   };
 
-  const organizationMemberIds = organizationMembers.map((member) => member.user_id);
   const canManageActiveOrganization =
     activeOrganization?.role === "owner" || activeOrganization?.role === "admin";
-  const pendingOrganizationInviteeIds = pendingOrganizationInvitations.map(
-    (invitation) => invitation.invitee_id
-  );
-  const availableOrganizationInvitees = allUsers.filter((user) => {
-    const query = organizationInviteSearch.trim().toLowerCase();
-    const matchesSearch = query ? user.full_name?.toLowerCase().includes(query) : true;
-
-    return (
-      matchesSearch &&
-      user.id !== userId &&
-      !organizationMemberIds.includes(user.id) &&
-      !pendingOrganizationInviteeIds.includes(user.id)
-    );
-  });
 
   if (loading) {
     return (
@@ -446,50 +434,27 @@ const UserSettingsPage = ({
 
                 {canManageActiveOrganization ? (
                   <>
-                    <TextField
-                      label="Buscar usuario registrado"
-                      value={organizationInviteSearch}
-                      onChange={(event) => setOrganizationInviteSearch(event.target.value)}
-                      placeholder="Escribe el nombre del usuario"
-                      fullWidth
-                    />
-
-                    {organizationInviteSearch.trim() ? (
-                      <Stack spacing={1}>
-                        {availableOrganizationInvitees.slice(0, 5).map((user) => (
-                          <Stack
-                            key={user.id}
-                            direction="row"
-                            spacing={1.5}
-                            alignItems="center"
-                            justifyContent="space-between"
-                            sx={{ p: 1, border: 1, borderColor: "divider", borderRadius: 1 }}
-                          >
-                            <Stack direction="row" spacing={1.25} alignItems="center" sx={{ minWidth: 0 }}>
-                              <Avatar src={user.avatar_url ?? undefined} sx={{ width: 32, height: 32 }}>
-                                {(user.full_name ?? "U").slice(0, 1)}
-                              </Avatar>
-                              <Typography variant="body2" fontWeight={650} noWrap>
-                                {user.full_name ?? "Usuario sin nombre"}
-                              </Typography>
-                            </Stack>
-                            <Button
-                              size="small"
-                              variant="outlined"
-                              onClick={() => handleInviteToOrganization(user.id)}
-                              disabled={invitingUserId === user.id}
-                            >
-                              Invitar
-                            </Button>
-                          </Stack>
-                        ))}
-                        {availableOrganizationInvitees.length === 0 ? (
-                          <Typography variant="body2" color="text.secondary">
-                            No hay usuarios disponibles con ese nombre.
-                          </Typography>
-                        ) : null}
-                      </Stack>
-                    ) : null}
+                    <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
+                      <TextField
+                        label="Correo del usuario"
+                        type="email"
+                        value={organizationInviteEmail}
+                        onChange={(event) => setOrganizationInviteEmail(event.target.value)}
+                        placeholder="persona@empresa.com"
+                        disabled={isInvitingOrganizationMember}
+                        sx={{ flex: 1 }}
+                      />
+                      <Button
+                        variant="outlined"
+                        onClick={handleInviteToOrganization}
+                        disabled={isInvitingOrganizationMember || !organizationInviteEmail.trim()}
+                      >
+                        {isInvitingOrganizationMember ? "Enviando..." : "Enviar invitación"}
+                      </Button>
+                    </Stack>
+                    <Typography variant="caption" color="text.secondary">
+                      Escribe el correo exacto de una cuenta registrada en NexusPlanner.
+                    </Typography>
                   </>
                 ) : (
                   <Alert severity="info" variant="outlined">
@@ -514,12 +479,11 @@ const UserSettingsPage = ({
                     </Typography>
                     <Stack direction="row" spacing={1} flexWrap="wrap" gap={1}>
                       {pendingOrganizationInvitations.map((invitation) => {
-                        const user = allUsers.find((item) => item.id === invitation.invitee_id);
                         return (
                           <Chip
                             key={invitation.id}
                             color="warning"
-                            label={`${user?.full_name ?? "Usuario invitado"} · pendiente`}
+                            label={`Usuario invitado · pendiente`}
                           />
                         );
                       })}

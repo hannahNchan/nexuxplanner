@@ -7,16 +7,27 @@ import UserAvatar from "../../../shared/ui/UserAvatar";
 import InviteUserModal from "./InviteUserModal";
 import { fetchProjectMembers } from "../../api/projectService";
 import { logError } from "../../../shared/utils/errorHandling";
+import BoardLayoutSwitcher from "./views/BoardLayoutSwitcher";
+import type { BoardViewMode } from "./views/boardViewTypes";
 
 type BoardToolbarProps = {
   tasks: Record<string, { assignee_id?: string }>;
   onSearchChange: (query: string) => void;
   projectId: string;
   onAddColumn: () => void;
+  viewMode: BoardViewMode;
+  onViewModeChange: (viewMode: BoardViewMode) => void;
   readOnly?: boolean;
 };
 
-const BoardToolbar = ({ onSearchChange, projectId, onAddColumn, readOnly = false }: BoardToolbarProps) => {
+const BoardToolbar = ({
+  onSearchChange,
+  projectId,
+  onAddColumn,
+  viewMode,
+  onViewModeChange,
+  readOnly = false,
+}: BoardToolbarProps) => {
   const [searchQuery, setSearchQuery] = useState("");
   const [changeInput, setChangeInput] = useState(250);
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
@@ -100,20 +111,23 @@ const BoardToolbar = ({ onSearchChange, projectId, onAddColumn, readOnly = false
           </IconButton>
         </Stack>
 
-        <Button
-          variant="outlined"
-          size="small"
-          onClick={onAddColumn}
-          startIcon={<AddIcon fontSize="small" />}
-          disabled={readOnly}
-          sx={{
-            flexShrink: 0,
-            textTransform: "none",
-            fontWeight: 700,
-          }}
-        >
-          Añadir columna
-        </Button>
+        <Stack direction="row" spacing={1} alignItems="center" sx={{ flexShrink: 0 }}>
+          <BoardLayoutSwitcher value={viewMode} onChange={onViewModeChange} />
+          <Button
+            variant="outlined"
+            size="small"
+            onClick={onAddColumn}
+            startIcon={<AddIcon fontSize="small" />}
+            disabled={readOnly}
+            sx={{
+              flexShrink: 0,
+              textTransform: "none",
+              fontWeight: 700,
+            }}
+          >
+            Añadir columna
+          </Button>
+        </Stack>
       </Stack>
 
       <InviteUserModal

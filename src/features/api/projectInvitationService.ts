@@ -1,4 +1,10 @@
 import { supabase } from "../../lib/supabase";
+import { createRealtimeChannelName } from "../../shared/realtime/realtimeChannels";
+import {
+  acceptProjectInvitationCommand,
+  createProjectInvitationCommand,
+  declineProjectInvitationCommand,
+} from "./workspaceCommandService";
 
 type ProjectInvitationProject = {
   title: string;
@@ -52,31 +58,7 @@ export const createProjectInvitation = async (
   projectId: string,
   inviteeId: string
 ): Promise<void> => {
-  const { data: currentUser, error: userError } = await supabase.auth.getUser();
-  if (userError) throw userError;
-
-  const inviterId = currentUser.user?.id;
-  if (!inviterId) {
-    throw new Error("No hay sesión activa.");
-  }
-
-  const { error } = await supabase
-    .from("project_invitations")
-    .insert({
-      project_id: projectId,
-      inviter_id: inviterId,
-      invitee_id: inviteeId,
-    });
-
-  if (error) {
-    if (error.code === "23505") {
-      throw new Error("Este usuario ya tiene una invitación pendiente.");
-    }
-    if (error.code === "23514") {
-      throw new Error("No puedes invitarte a ti misma al proyecto.");
-    }
-    throw error;
-  }
+  await createProjectInvitationCommand(projectId, inviteeId);
 };
 
 export const fetchProjectPendingInvitations = async (
@@ -128,21 +110,11 @@ export const fetchPendingInvitationsForUser = async (
 };
 
 export const acceptProjectInvitation = async (invitationId: string): Promise<string> => {
-  const { data, error } = await supabase.rpc("accept_project_invitation", {
-    p_invitation_id: invitationId,
-  });
-
-  if (error) throw error;
-  return data as string;
+  return acceptProjectInvitationCommand(invitationId);
 };
 
 export const declineProjectInvitation = async (invitationId: string): Promise<string> => {
-  const { data, error } = await supabase.rpc("decline_project_invitation", {
-    p_invitation_id: invitationId,
-  });
-
-  if (error) throw error;
-  return data as string;
+  return declineProjectInvitationCommand(invitationId);
 };
 
 export const subscribeToPendingInvitations = (
@@ -150,7 +122,11 @@ export const subscribeToPendingInvitations = (
   onChange: () => void
 ) =>
   supabase
-    .channel(`project-invitations:${userId}`)
+    .channel(createRealtimeChannelName({
+      scope: "user",
+      scopeId: userId,
+      topic: "project-invitations",
+    }))
     .on(
       "postgres_changes",
       {

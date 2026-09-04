@@ -1,5 +1,10 @@
 import { supabase } from "../../lib/supabase";
 import { logError } from "../../shared/utils/errorHandling";
+import {
+  addProjectMemberCommand,
+  createProjectCommand,
+  removeProjectMemberCommand,
+} from "./workspaceCommandService";
 
 export type Project = {
   id: string;
@@ -48,148 +53,6 @@ export type CurrentUserOption = {
 
 type CreateProjectRpcResult = Project & {
   tags?: string[];
-};
-
-const createDefaultColumns = async (projectId: string): Promise<void> => {
-  const defaultColumns = [
-    { project_id: projectId, name: "Por hacer", position: 0 },
-    { project_id: projectId, name: "En progreso", position: 1 },
-    { project_id: projectId, name: "En revisión", position: 2 },
-    { project_id: projectId, name: "Hecho", position: 3 },
-  ];
-
-  const { data: columns, error } = await supabase
-    .from("columns")
-    .insert(defaultColumns)
-    .select("id, position");
-
-  if (error) throw error;
-
-  const columnIds = (columns ?? [])
-    .sort((a, b) => a.position - b.position)
-    .map((c) => c.id);
-
-  const { error: columnOrderError } = await supabase
-    .from("column_order")
-    .upsert(
-      {
-        project_id: projectId,
-        column_ids: columnIds,
-      },
-      {
-        onConflict: "project_id",
-      }
-    );
-
-  if (columnOrderError) throw columnOrderError;
-};
-
-const isMissingCreateProjectRpcError = (error: unknown) => {
-  if (!error || typeof error !== "object") return false;
-
-  const candidate = error as { code?: string; message?: string; details?: string };
-  const message = `${candidate.message ?? ""} ${candidate.details ?? ""}`.toLowerCase();
-
-  return (
-    candidate.code === "PGRST202" ||
-    candidate.code === "42883" ||
-    message.includes("create_project_with_defaults") ||
-    message.includes("could not find the function")
-  );
-};
-
-const deletePartialProject = async (projectId: string): Promise<void> => {
-  const { error } = await supabase
-    .from("projects")
-    .delete()
-    .eq("id", projectId)
-    .select("id");
-
-  if (error) {
-    logError("projects.cleanupPartialProject", error);
-  }
-};
-
-const createProjectWithRollback = async (
-  userId: string,
-  data: {
-    title: string;
-    description?: string;
-    tags?: string[];
-    project_key: string;
-    organization_id: string;
-    visibility?: Project["visibility"];
-  }
-): Promise<ProjectWithTags> => {
-  let createdProjectId: string | null = null;
-
-  try {
-    const { data: project, error: projectError } = await supabase
-      .from("projects")
-      .insert({
-        user_id: userId,
-        organization_id: data.organization_id,
-        title: data.title,
-        description: data.description || null,
-        project_key: data.project_key.toUpperCase(),
-        task_sequence: 0,
-        epic_sequence: 0,
-        visibility: data.visibility ?? "organization",
-      })
-      .select()
-      .single();
-
-    if (projectError) throw projectError;
-
-    createdProjectId = project.id;
-
-    const { error: memberError } = await supabase
-      .from("project_members")
-      .insert({
-        project_id: project.id,
-        user_id: userId,
-        role: "owner",
-      });
-
-    if (memberError) throw memberError;
-
-    if (data.tags && data.tags.length > 0) {
-      const tagRecords = data.tags.map((tag) => ({
-        project_id: project.id,
-        tag,
-      }));
-
-      const { error: tagsError } = await supabase
-        .from("project_tags")
-        .insert(tagRecords);
-
-      if (tagsError) throw tagsError;
-    }
-
-    await createDefaultColumns(project.id);
-
-    const { data: columns, error: columnsError } = await supabase
-      .from("columns")
-      .select("id")
-      .eq("project_id", project.id);
-
-    if (columnsError) throw columnsError;
-
-    if (!columns || columns.length < 4) {
-      throw new Error("No se pudieron crear las columnas iniciales del proyecto.");
-    }
-
-    return {
-      ...project,
-      tags: data.tags || [],
-    };
-  } catch (error) {
-    if (createdProjectId) {
-      await deletePartialProject(createdProjectId);
-    }
-
-    throw error;
-  }
 };
 
 export const fetchProjects = async (
@@ -284,6 +147,8 @@ export const createProject = async (
     visibility?: Project["visibility"];
   }
 ): Promise<ProjectWithTags> => {
+  void userId;
+
   if (!data.project_key || data.project_key.trim().length === 0) {
     throw new Error("Las siglas del proyecto son obligatorias");
   }
@@ -292,36 +157,14 @@ export const createProject = async (
     throw new Error("Las siglas deben tener entre 2 y 10 caracteres (solo mayúsculas y números)");
   }
 
-  const { data: existingProject, error: checkError } = await supabase
-    .from("projects")
-    .select("id, project_key")
-    .eq("project_key", data.project_key)
-    .maybeSingle();
-
-  if (checkError) throw checkError;
-
-  if (existingProject) {
-    throw new Error(`Las siglas "${data.project_key}" ya están en uso por otro proyecto`);
-  }
-
-  const { data: project, error: rpcError } = await supabase
-    .rpc("create_project_with_defaults", {
-      p_title: data.title,
-      p_description: data.description || null,
-      p_project_key: data.project_key.toUpperCase(),
-      p_organization_id: data.organization_id,
-      p_tags: data.tags || [],
-      p_visibility: data.visibility ?? "organization",
-    })
-    .single<CreateProjectRpcResult>();
-
-  if (rpcError) {
-    if (isMissingCreateProjectRpcError(rpcError)) {
-      return createProjectWithRollback(userId, data);
-    }
-
-    throw rpcError;
-  }
+  const project = await createProjectCommand({
+    title: data.title,
+    description: data.description || null,
+    project_key: data.project_key.toUpperCase(),
+    organization_id: data.organization_id,
+    tags: data.tags || [],
+    visibility: data.visibility ?? "organization",
+  }) as CreateProjectRpcResult;
 
   return {
     ...project,
@@ -513,20 +356,7 @@ export const addProjectMember = async (
   userId: string,
   role = "member"
 ): Promise<void> => {
-  const { error } = await supabase
-    .from("project_members")
-    .insert({
-      project_id: projectId,
-      user_id: userId,
-      role,
-    });
-
-  if (error) {
-    if (error.code === "23505") {
-      throw new Error("Este usuario ya es miembro del proyecto");
-    }
-    throw error;
-  }
+  await addProjectMemberCommand(projectId, userId, role);
 };
 
 export const fetchCurrentUserOption = async (
@@ -604,13 +434,7 @@ export const fetchProjectMembers = async (projectId: string): Promise<ProjectMem
 };
 
 export const removeProjectMember = async (projectId: string, memberId: string): Promise<void> => {
-  const { error } = await supabase
-    .from("project_members")
-    .delete()
-    .eq("project_id", projectId)
-    .eq("id", memberId);
-
-  if (error) throw error;
+  await removeProjectMemberCommand(projectId, memberId);
 };
 
 export const fetchAllUsers = async () => {

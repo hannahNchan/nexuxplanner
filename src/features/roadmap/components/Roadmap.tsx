@@ -20,12 +20,13 @@ import { useTheme } from "@mui/material/styles";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import SettingsIcon from "@mui/icons-material/Settings";
-import { addMonths, addWeeks, endOfWeek, format, startOfWeek } from "date-fns";
+import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import { useEffect, useState } from "react";
 import { useProject } from "../../../shared/contexts/ProjectContext";
 import ReadOnlyProjectNotice from "../../../shared/ui/ReadOnlyProjectNotice";
 import { useRoadmap } from "../hooks/useRoadmap";
+import { getRoadmapTimelineRange, type RoadmapTimelineMode } from "../utils/timelineRange";
 import TimelineGrid from "./TimelineGrid";
 
 type RoadmapProps = {
@@ -36,7 +37,7 @@ const Roadmap = ({ userId }: RoadmapProps) => {
   const theme = useTheme();
   const { currentProject } = useProject();
   const canEditProject = currentProject?.can_edit ?? true;
-  const [timelineMode, setTimelineMode] = useState<"weeks" | "months">("months");
+  const [timelineMode, setTimelineMode] = useState<RoadmapTimelineMode>("months");
   const [hasTimelineOverflow, setHasTimelineOverflow] = useState(false);
   const [timelineScrollRequest, setTimelineScrollRequest] = useState<{
     direction: "left" | "right";
@@ -60,13 +61,8 @@ const Roadmap = ({ userId }: RoadmapProps) => {
     updateSettings,
   } = useRoadmap(userId, currentProject?.id || null, canEditProject);
 
-  const now = new Date();
-  const timelineStart = startOfWeek(now, { weekStartsOn: 1 });
-  const timelineEnd =
-    timelineMode === "weeks"
-      ? endOfWeek(addWeeks(timelineStart, 5), { weekStartsOn: 1 })
-      : addMonths(timelineStart, 2);
-  const timelineRangeLabel = `Sprint timeline: ${format(timelineStart, "d MMM yyyy", {
+  const { timelineStart, timelineEnd } = getRoadmapTimelineRange(timelineMode, epics);
+  const timelineRangeLabel = `Roadmap timeline: ${format(timelineStart, "d MMM yyyy", {
     locale: es,
   })} - ${format(timelineEnd, "d MMM yyyy", { locale: es })}`;
 
@@ -230,7 +226,7 @@ const Roadmap = ({ userId }: RoadmapProps) => {
                 exclusive
                 size="small"
                 value={timelineMode}
-                onChange={(_event, value: "weeks" | "months" | null) => {
+                onChange={(_event, value: RoadmapTimelineMode | null) => {
                   if (value) {
                     setTimelineMode(value);
                   }
@@ -267,9 +263,7 @@ const Roadmap = ({ userId }: RoadmapProps) => {
               >
                 <ToggleButton value="weeks">Weeks</ToggleButton>
                 <ToggleButton value="months">Monthly</ToggleButton>
-                <ToggleButton value="quarters" disabled>
-                  Quarters
-                </ToggleButton>
+                <ToggleButton value="quarters">Quarters</ToggleButton>
               </ToggleButtonGroup>
             </Stack>
           </Stack>

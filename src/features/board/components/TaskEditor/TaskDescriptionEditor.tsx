@@ -201,6 +201,23 @@ const TaskDescriptionEditor = forwardRef<TaskDescriptionEditorHandle, TaskDescri
                 backgroundColor: theme.palette.background.paper,
                 borderColor: editorBorder,
               },
+              ".ql-tooltip.ql-hidden": {
+                display: "none !important",
+              },
+              ".ql-tooltip": {
+                zIndex: 2,
+                borderRadius: 1,
+                borderColor: editorBorder,
+                bgcolor: "background.paper",
+                color: editorText,
+                boxShadow: theme.shadows[3],
+              },
+              ".ql-tooltip input[type='text']": {
+                color: editorText,
+                bgcolor: "background.paper",
+                borderColor: editorBorder,
+                outline: "none",
+              },
               ".ql-toolbar button:hover .ql-stroke": { stroke: theme.palette.primary.main },
               ".ql-toolbar button:hover .ql-fill": { fill: theme.palette.primary.main },
               ".ql-toolbar button.ql-active .ql-stroke": { stroke: theme.palette.primary.main },

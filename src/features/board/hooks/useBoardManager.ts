@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import type { DropResult } from "@hello-pangea/dnd";
 import { supabase } from "../../../lib/supabase";
 import type { BoardState, Task } from "../../../shared/types/board";
@@ -24,6 +24,13 @@ import {
 import { useProject } from "../../../shared/contexts/ProjectContext";
 import { useSprintManager } from "../../sprints/hooks/useSprintManager";
 import { getErrorMessage, logError } from "../../../shared/utils/errorHandling";
+import {
+  createDebouncedRealtimeCallback,
+  createRealtimeChannelName,
+  removeRealtimeChannel,
+} from "../../../shared/realtime/realtimeChannels";
+
+const BOARD_DRAFT_TASK_ID = "__draft_board_task__";
 
 export const useBoardManager = (userId: string) => {
   const { currentProject } = useProject();
@@ -35,7 +42,6 @@ export const useBoardManager = (userId: string) => {
   const [boardId, setBoardId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const boardReloadTimerRef = useRef<number | null>(null);
 
   // Catalogs
   const [issueTypes, setIssueTypes] = useState<IssueType[]>([]);
@@ -45,6 +51,7 @@ export const useBoardManager = (userId: string) => {
 
   // Modals
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [taskEditorPresentation, setTaskEditorPresentation] = useState<"drawer" | "modal">("drawer");
   const [isAddColumnModalOpen, setIsAddColumnModalOpen] = useState(false);
   const [selectedTask, setSelectedTask] = useState<{
     id: string;
@@ -57,6 +64,8 @@ export const useBoardManager = (userId: string) => {
     priority_id?: string | null;
     story_points?: string | null;
     assignee_id?: string | null;
+    planned_start_date?: string | null;
+    planned_end_date?: string | null;
   } | null>(null);
 
   // Creating states
@@ -149,14 +158,40 @@ export const useBoardManager = (userId: string) => {
   }, [loadBoard, sprintManager.lastUpdate]);
 
   useEffect(() => {
+    if (!currentProject?.id) return;
+
+    const handleColumnBadgeColorsChanged = (event: Event) => {
+      const projectId = (event as CustomEvent<{ projectId?: string }>).detail?.projectId;
+      if (projectId === currentProject.id) {
+        void loadBoard(false);
+      }
+    };
+
+    window.addEventListener("nexusplanner:column-badge-colors-changed", handleColumnBadgeColorsChanged);
+
+    return () => {
+      window.removeEventListener("nexusplanner:column-badge-colors-changed", handleColumnBadgeColorsChanged);
+    };
+  }, [currentProject?.id, loadBoard]);
+
+  useEffect(() => {
     if (!currentProject?.id || !sprintManager.activeSprint?.id) {
       return;
     }
 
     let channel: ReturnType<typeof supabase.channel> | null = null;
+    const reloadBoard = createDebouncedRealtimeCallback(() => {
+      void loadBoard(false);
+    });
+
     const subscriptionDelay = window.setTimeout(() => {
       channel = supabase
-        .channel(`board-tasks:${currentProject.id}`)
+        .channel(createRealtimeChannelName({
+          scope: "project",
+          scopeId: currentProject.id,
+          topic: "board-tasks",
+          subtopic: sprintManager.activeSprint?.id,
+        }))
         .on(
           "postgres_changes",
           {
@@ -165,29 +200,15 @@ export const useBoardManager = (userId: string) => {
             table: "tasks",
             filter: `project_id=eq.${currentProject.id}`,
           },
-          () => {
-            if (boardReloadTimerRef.current) {
-              window.clearTimeout(boardReloadTimerRef.current);
-            }
-
-            boardReloadTimerRef.current = window.setTimeout(() => {
-              void loadBoard(false);
-              boardReloadTimerRef.current = null;
-            }, 300);
-          }
+          reloadBoard.run
         )
         .subscribe();
     }, 1200);
 
     return () => {
       window.clearTimeout(subscriptionDelay);
-      if (boardReloadTimerRef.current) {
-        window.clearTimeout(boardReloadTimerRef.current);
-        boardReloadTimerRef.current = null;
-      }
-      if (channel) {
-        void supabase.removeChannel(channel);
-      }
+      reloadBoard.cancel();
+      removeRealtimeChannel(channel);
     };
   }, [currentProject?.id, sprintManager.activeSprint?.id, loadBoard]);
 
@@ -217,6 +238,7 @@ export const useBoardManager = (userId: string) => {
             [newColumn.id]: {
               id: newColumn.id,
               title: newColumn.name,
+              color: newColumn.color ?? undefined,
               taskIds: [],
             },
           },
@@ -240,57 +262,24 @@ export const useBoardManager = (userId: string) => {
     }
 
     setCreatingTaskColumnId(columnId);
-    try {
-      const column = data.columns[columnId];
-      const position = column.taskIds.length;
-      const created = await createTask(columnId, "Nueva tarea", position, false, currentProject.id);
-
-      setData((previous) => {
-        if (!previous) return previous;
-
-        return {
-          ...previous,
-          tasks: {
-            ...previous.tasks,
-            [created.id]: {
-              id: created.id,
-              title: created.title,
-              subtitle: created.subtitle ?? undefined,
-              description: created.description ?? undefined,
-              issue_type_id: created.issue_type_id ?? undefined,
-              priority_id: created.priority_id ?? undefined,
-              story_points: created.story_points ?? undefined,
-              assignee_id: created.assignee_id ?? undefined,
-            },
-          },
-          columns: {
-            ...previous.columns,
-            [columnId]: {
-              ...previous.columns[columnId],
-              taskIds: [...previous.columns[columnId].taskIds, created.id],
-            },
-          },
-        };
-      });
-
-      setSelectedTask({
-        id: created.id,
-        title: created.title,
-        description: created.description ?? undefined,
-        column_id: created.column_id,
-        issue_type_id: created.issue_type_id,
-        priority_id: created.priority_id,
-        story_points: created.story_points,
-        assignee_id: created.assignee_id,
-      });
-      setIsModalOpen(true);
-      setErrorMessage(null);
-    } catch (error) {
-      logError("board.createTask", error);
-      setErrorMessage(getErrorMessage(error, "No se pudo crear la tarea."));
-    } finally {
-      setCreatingTaskColumnId(null);
-    }
+    setSelectedTask({
+      id: BOARD_DRAFT_TASK_ID,
+      project_id: currentProject.id,
+      title: "Nueva tarea",
+      subtitle: "",
+      description: "",
+      column_id: columnId,
+      issue_type_id: null,
+      priority_id: null,
+      story_points: null,
+      assignee_id: null,
+      planned_start_date: null,
+      planned_end_date: null,
+    });
+    setTaskEditorPresentation("modal");
+    setIsModalOpen(true);
+    setErrorMessage(null);
+    setCreatingTaskColumnId(null);
   };
 
   const handleTaskClick = (task: Task) => {
@@ -315,7 +304,10 @@ export const useBoardManager = (userId: string) => {
       priority_id: task.priority_id ?? null,
       story_points: task.story_points ?? null,
       assignee_id: task.assignee_id ?? null,
+      planned_start_date: task.planned_start_date ?? null,
+      planned_end_date: task.planned_end_date ?? null,
     });
+    setTaskEditorPresentation("drawer");
     setIsModalOpen(true);
   };
 
@@ -331,6 +323,8 @@ export const useBoardManager = (userId: string) => {
       priority_id: string | null;
       story_points: string | null;
       assignee_id: string | null;
+      planned_start_date: string | null;
+      planned_end_date: string | null;
     }
   ) => {
     if (!currentProject || !data) return;
@@ -340,6 +334,73 @@ export const useBoardManager = (userId: string) => {
     }
 
     try {
+      if (taskId === BOARD_DRAFT_TASK_ID) {
+        const destinationColumnId = updates.destination === "scrum"
+          ? updates.column_id ?? selectedTask?.column_id ?? data.columnOrder[0]
+          : currentProject.id;
+        const position = updates.destination === "scrum" && updates.column_id
+          ? data.columns[updates.column_id]?.taskIds.length ?? 0
+          : 0;
+        const created = await createTask(
+          destinationColumnId,
+          updates.title,
+          position,
+          updates.destination === "backlog",
+          currentProject.id,
+          {
+            subtitle: updates.subtitle,
+            description: updates.description,
+            issue_type_id: updates.issue_type_id,
+            priority_id: updates.priority_id,
+            story_points: updates.story_points,
+            assignee_id: updates.assignee_id,
+            planned_start_date: updates.planned_start_date,
+            planned_end_date: updates.planned_end_date,
+            sprint_id: updates.destination === "scrum" ? sprintManager.activeSprint?.id ?? null : null,
+          }
+        );
+
+        if (updates.destination === "scrum" && created.column_id) {
+          setData((previous) => {
+            if (!previous || !created.column_id) return previous;
+            const columnColor = previous.columns[created.column_id]?.color;
+
+            return {
+              ...previous,
+              tasks: {
+                ...previous.tasks,
+                [created.id]: {
+                  id: created.id,
+                  title: created.title,
+                  task_id_display: created.task_id_display ?? undefined,
+                  subtitle: created.subtitle ?? undefined,
+                  description: created.description ?? undefined,
+                  issue_type_id: created.issue_type_id ?? undefined,
+                  priority_id: created.priority_id ?? undefined,
+                  story_points: created.story_points ?? undefined,
+                  assignee_id: created.assignee_id ?? undefined,
+                  columnColor,
+                  planned_start_date: created.planned_start_date ?? null,
+                  planned_end_date: created.planned_end_date ?? null,
+                  created_at: created.created_at,
+                  updated_at: created.updated_at,
+                },
+              },
+              columns: {
+                ...previous.columns,
+                [created.column_id]: {
+                  ...previous.columns[created.column_id],
+                  taskIds: [...previous.columns[created.column_id].taskIds, created.id],
+                },
+              },
+            };
+          });
+        }
+
+        void loadBoard(false);
+        return;
+      }
+
       const { destination, ...dbUpdates } = updates;
       const in_backlog = destination === "backlog";
 
@@ -356,6 +417,9 @@ export const useBoardManager = (userId: string) => {
       setData((previous) => {
         if (!previous) return previous;
         const previousTask = previous.tasks[taskId];
+        const nextColumnColor = updates.column_id
+          ? previous.columns[updates.column_id]?.color
+          : previousTask?.columnColor;
 
         const updatedTasks = {
           ...previous.tasks,
@@ -370,6 +434,11 @@ export const useBoardManager = (userId: string) => {
             priority_id: updated.priority_id ?? undefined,
             story_points: updated.story_points ?? undefined,
             assignee_id: updated.assignee_id ?? undefined,
+            columnColor: nextColumnColor,
+            planned_start_date: updated.planned_start_date ?? previousTask?.planned_start_date ?? null,
+            planned_end_date: updated.planned_end_date ?? previousTask?.planned_end_date ?? null,
+            created_at: updated.created_at ?? previousTask?.created_at,
+            updated_at: updated.updated_at ?? previousTask?.updated_at,
           },
         };
 
@@ -432,6 +501,161 @@ export const useBoardManager = (userId: string) => {
     } catch (error) {
       logError("board.updateTask", error);
       setErrorMessage(getErrorMessage(error, "No se pudo actualizar la tarea."));
+      throw error;
+    }
+  };
+
+  const handleMoveTaskColumn = async (taskId: string, columnId: string) => {
+    if (!currentProject || !data) return;
+    if (!canEditProject) {
+      setErrorMessage("Solo puedes mover tareas en proyectos donde eres colaborador.");
+      return;
+    }
+
+    const previousData = data;
+    const previousSelectedTask = selectedTask;
+    const oldColumnId = Object.keys(data.columns).find((colId) =>
+      data.columns[colId].taskIds.includes(taskId)
+    );
+
+    if (oldColumnId === columnId) {
+      return;
+    }
+
+    try {
+      setData((previous) => {
+        if (!previous || !oldColumnId || !previous.columns[columnId]) return previous;
+
+        return {
+          ...previous,
+          columns: {
+            ...previous.columns,
+            [oldColumnId]: {
+              ...previous.columns[oldColumnId],
+              taskIds: previous.columns[oldColumnId].taskIds.filter((id) => id !== taskId),
+            },
+            [columnId]: {
+              ...previous.columns[columnId],
+              taskIds: [...previous.columns[columnId].taskIds.filter((id) => id !== taskId), taskId],
+            },
+          },
+        };
+      });
+
+      setSelectedTask((previous) =>
+        previous?.id === taskId ? { ...previous, column_id: columnId } : previous
+      );
+
+      const updated = await updateTask(currentProject.id, taskId, {
+        column_id: columnId,
+        in_backlog: false,
+      });
+
+      setData((previous) => {
+        if (!previous || !previous.tasks[taskId]) return previous;
+        const nextColumnColor = previous.columns[columnId]?.color;
+
+        return {
+          ...previous,
+          tasks: {
+            ...previous.tasks,
+            [taskId]: {
+              ...previous.tasks[taskId],
+              id: updated.id,
+              title: updated.title,
+              task_id_display: updated.task_id_display ?? previous.tasks[taskId].task_id_display,
+              subtitle: updated.subtitle ?? undefined,
+              description: updated.description ?? undefined,
+              issue_type_id: updated.issue_type_id ?? undefined,
+              priority_id: updated.priority_id ?? undefined,
+              story_points: updated.story_points ?? undefined,
+              assignee_id: updated.assignee_id ?? undefined,
+              columnColor: nextColumnColor,
+              planned_start_date: updated.planned_start_date ?? previous.tasks[taskId].planned_start_date ?? null,
+              planned_end_date: updated.planned_end_date ?? previous.tasks[taskId].planned_end_date ?? null,
+              created_at: updated.created_at ?? previous.tasks[taskId].created_at,
+              updated_at: updated.updated_at ?? previous.tasks[taskId].updated_at,
+            },
+          },
+        };
+      });
+
+      void loadBoard(false);
+    } catch (error) {
+      logError("board.moveTaskColumn", error);
+      setData(previousData);
+      setSelectedTask(previousSelectedTask);
+      setErrorMessage(getErrorMessage(error, "No se pudo cambiar el estado de la tarea."));
+      throw error;
+    }
+  };
+
+  const handleUpdateTaskDates = async (
+    taskId: string,
+    plannedStartDate: string | null,
+    plannedEndDate: string | null
+  ) => {
+    if (!currentProject || !data) return;
+    if (!canEditProject) {
+      setErrorMessage("Solo puedes modificar fechas en proyectos donde eres colaborador.");
+      return;
+    }
+
+    const previousTask = data.tasks[taskId];
+    if (!previousTask) return;
+
+    setData((previous) => {
+      if (!previous || !previous.tasks[taskId]) return previous;
+
+      return {
+        ...previous,
+        tasks: {
+          ...previous.tasks,
+          [taskId]: {
+            ...previous.tasks[taskId],
+            planned_start_date: plannedStartDate,
+            planned_end_date: plannedEndDate,
+          },
+        },
+      };
+    });
+
+    try {
+      const updated = await updateTask(currentProject.id, taskId, {
+        planned_start_date: plannedStartDate,
+        planned_end_date: plannedEndDate,
+      });
+
+      setData((previous) => {
+        if (!previous || !previous.tasks[taskId]) return previous;
+
+        return {
+          ...previous,
+          tasks: {
+            ...previous.tasks,
+            [taskId]: {
+              ...previous.tasks[taskId],
+              planned_start_date: updated.planned_start_date ?? null,
+              planned_end_date: updated.planned_end_date ?? null,
+              updated_at: updated.updated_at ?? previous.tasks[taskId].updated_at,
+            },
+          },
+        };
+      });
+    } catch (error) {
+      logError("board.updateTaskDates", error);
+      setData((previous) => {
+        if (!previous || !previous.tasks[taskId]) return previous;
+
+        return {
+          ...previous,
+          tasks: {
+            ...previous.tasks,
+            [taskId]: previousTask,
+          },
+        };
+      });
+      setErrorMessage(getErrorMessage(error, "No se pudieron guardar las fechas de la tarea."));
       throw error;
     }
   };
@@ -618,9 +842,11 @@ export const useBoardManager = (userId: string) => {
 
     // Modals
     isModalOpen,
+    taskEditorPresentation,
     isAddColumnModalOpen,
     selectedTask,
     setIsModalOpen,
+    setTaskEditorPresentation,
     setIsAddColumnModalOpen,
     setSelectedTask,
 
@@ -635,6 +861,8 @@ export const useBoardManager = (userId: string) => {
     handleCreateTask,
     handleTaskClick,
     handleSaveTask,
+    handleMoveTaskColumn,
+    handleUpdateTaskDates,
     handleDeleteTask,
     onDragEnd,
   };

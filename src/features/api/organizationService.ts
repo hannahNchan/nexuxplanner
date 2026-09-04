@@ -1,4 +1,14 @@
 import { supabase } from "../../lib/supabase";
+import {
+  acceptOrganizationInvitationCommand,
+  createOrganizationCommand,
+  createOrganizationInvitationForUserCommand,
+  createOrganizationInvitationCommand,
+  deleteOrganizationCommand,
+  declineOrganizationInvitationCommand,
+  removeOrganizationMemberCommand,
+  updateOrganizationMemberRoleCommand,
+} from "./workspaceCommandService";
 
 export type Organization = {
   id: string;
@@ -131,14 +141,7 @@ export const createOrganization = async (
     throw new Error("El nombre de la organización es obligatorio.");
   }
 
-  const { data: organization, error } = await supabase
-    .rpc("create_organization_with_owner", {
-      p_name: normalizedName,
-    })
-    .single<Organization>();
-
-  if (error) throw error;
-  return organization;
+  return createOrganizationCommand(normalizedName);
 };
 
 export const updateOrganization = async (
@@ -160,6 +163,10 @@ export const updateOrganization = async (
 
   if (error) throw error;
   return data;
+};
+
+export const deleteOrganization = async (organizationId: string): Promise<string> => {
+  return deleteOrganizationCommand(organizationId);
 };
 
 export const uploadOrganizationLogo = async (
@@ -222,35 +229,51 @@ export const fetchOrganizationMembers = async (
   });
 };
 
+export const updateOrganizationMemberRole = async (
+  memberId: string,
+  role: OrganizationMemberWithProfile["role"]
+): Promise<void> => {
+  const { data: member, error } = await supabase
+    .from("organization_members")
+    .select("organization_id")
+    .eq("id", memberId)
+    .single();
+
+  if (error) throw error;
+
+  await updateOrganizationMemberRoleCommand(member.organization_id, memberId, role);
+};
+
+export const removeOrganizationMember = async (memberId: string): Promise<void> => {
+  const { data: member, error } = await supabase
+    .from("organization_members")
+    .select("organization_id")
+    .eq("id", memberId)
+    .single();
+
+  if (error) throw error;
+
+  await removeOrganizationMemberCommand(member.organization_id, memberId);
+};
+
 export const createOrganizationInvitation = async (
   organizationId: string,
   inviteeId: string
 ): Promise<void> => {
-  const { data: currentUser, error: userError } = await supabase.auth.getUser();
-  if (userError) throw userError;
+  await createOrganizationInvitationForUserCommand(organizationId, inviteeId);
+};
 
-  const inviterId = currentUser.user?.id;
-  if (!inviterId) {
-    throw new Error("No hay sesión activa.");
+export const createOrganizationInvitationByEmail = async (
+  organizationId: string,
+  email: string
+): Promise<void> => {
+  const normalizedEmail = email.trim().toLowerCase();
+
+  if (!normalizedEmail) {
+    throw new Error("El correo es obligatorio.");
   }
 
-  const { error } = await supabase
-    .from("organization_invitations")
-    .insert({
-      organization_id: organizationId,
-      inviter_id: inviterId,
-      invitee_id: inviteeId,
-    });
-
-  if (error) {
-    if (error.code === "23505") {
-      throw new Error("Este usuario ya tiene una invitación pendiente.");
-    }
-    if (error.code === "23514") {
-      throw new Error("No puedes invitarte a ti misma a la organización.");
-    }
-    throw error;
-  }
+  await createOrganizationInvitationCommand(organizationId, normalizedEmail);
 };
 
 export const fetchOrganizationPendingInvitations = async (
@@ -308,21 +331,11 @@ export const fetchPendingOrganizationInvitationsForUser = async (
 export const acceptOrganizationInvitation = async (
   invitationId: string
 ): Promise<string> => {
-  const { data, error } = await supabase.rpc("accept_organization_invitation", {
-    p_invitation_id: invitationId,
-  });
-
-  if (error) throw error;
-  return data as string;
+  return acceptOrganizationInvitationCommand(invitationId);
 };
 
 export const declineOrganizationInvitation = async (
   invitationId: string
 ): Promise<string> => {
-  const { data, error } = await supabase.rpc("decline_organization_invitation", {
-    p_invitation_id: invitationId,
-  });
-
-  if (error) throw error;
-  return data as string;
+  return declineOrganizationInvitationCommand(invitationId);
 };

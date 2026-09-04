@@ -60,18 +60,28 @@ export const useRoadmap = (userId: string, projectId: string | null, canEditProj
 
       const epicIds = epicsData.map(e => e.id);
       const taskIds = epicsData.flatMap((epic) => epic.connected_tasks?.map((task) => task.id) ?? []);
-      const [depsData, taskDepsData] = await Promise.all([
-        fetchDependencies(epicIds),
-        fetchTaskDependencies(taskIds),
-      ]);
 
-      if (loadRequestRef.current !== requestId) return;
+      try {
+        const [depsData, taskDepsData] = await Promise.all([
+          fetchDependencies(epicIds),
+          fetchTaskDependencies(taskIds),
+        ]);
 
-      setDependencies(depsData);
-      setTaskDependencies(taskDepsData);
+        if (loadRequestRef.current !== requestId) return;
+
+        setDependencies(depsData);
+        setTaskDependencies(taskDepsData);
+      } catch (dependencyError) {
+        if (loadRequestRef.current !== requestId) return;
+
+        logError("roadmap.loadDependencies", dependencyError);
+        setDependencies([]);
+        setTaskDependencies([]);
+      }
     } catch (error) {
       if (loadRequestRef.current !== requestId) return;
 
+      logError("roadmap.loadData", error);
       setEpics([]);
       setDependencies([]);
       setTaskDependencies([]);

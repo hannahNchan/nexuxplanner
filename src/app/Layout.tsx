@@ -29,15 +29,22 @@ import Brightness7Icon from "@mui/icons-material/Brightness7";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import TimelineIcon from "@mui/icons-material/Timeline";
+import AssessmentIcon from "@mui/icons-material/Assessment";
 import SettingsIcon from "@mui/icons-material/Settings";
 import NotificationsIcon from "@mui/icons-material/Notifications";
 import BusinessIcon from "@mui/icons-material/Business";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { supabase } from "../lib/supabase";
+import {
+  createDebouncedRealtimeCallback,
+  createRealtimeChannelName,
+  removeRealtimeChannel,
+} from "../shared/realtime/realtimeChannels";
 import { THEME_LABELS, useThemeMode, type ThemeMode } from "./ThemeContext";
 import { nexusDensity, nexusRadii } from "./visualTokens";
 import { useState, useEffect, useRef, useCallback } from "react";
 import ProjectSelector from "../features/projects/components/ProjectSelector";
+import OrganizationSettingsModal from "../features/organizations/components/OrganizationSettingsModal";
 import UserAvatar from "../shared/ui/UserAvatar";
 import {
   acceptProjectInvitation,
@@ -47,6 +54,7 @@ import {
 } from "../features/api/projectInvitationService";
 import {
   fetchUnreadNotifications,
+  markAllNotificationsRead,
   markNotificationRead,
   type UserNotification,
 } from "../features/api/notificationService";
@@ -69,6 +77,7 @@ const NAV_ITEMS = [
   { label: "Epicas", path: "/epicas", icon: <FlagIcon /> },
   { label: "Backlog", path: "/backlog", icon: <ListAltIcon /> },
   { label: "Roadmap", path: "/roadmap", icon: <TimelineIcon /> },
+  { label: "Reportes", path: "/reportes", icon: <AssessmentIcon /> },
   { label: "Editor", path: "/editor", icon: <DescriptionIcon /> },
 ];
 
@@ -92,6 +101,7 @@ const Layout = ({ providerAvatarUrl = null }: LayoutProps) => {
   const [notificationError, setNotificationError] = useState("");
   const [userEmail, setUserEmail] = useState<string>("");
   const [userId, setUserId] = useState<string>("");
+  const [organizationSettingsOpen, setOrganizationSettingsOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [sidebarWidth, setSidebarWidth] = useState<number>(SIDEBAR_DEFAULT_WIDTH);
   const [isResizing, setIsResizing] = useState(false);
@@ -102,6 +112,7 @@ const Layout = ({ providerAvatarUrl = null }: LayoutProps) => {
     setOrganizations,
     activeOrganization,
     setActiveOrganization,
+    updateActiveOrganization,
     setCurrentProject,
   } = useProject();
   const open = Boolean(anchorEl);
@@ -146,7 +157,16 @@ const Layout = ({ providerAvatarUrl = null }: LayoutProps) => {
         ? userOrganizations.find((organization) => organization.id === activeOrganization.id)
         : null;
 
-      if (!currentStillAvailable) {
+      if (currentStillAvailable) {
+        if (
+          currentStillAvailable.role !== activeOrganization?.role ||
+          currentStillAvailable.name !== activeOrganization?.name ||
+          currentStillAvailable.logo_url !== activeOrganization?.logo_url ||
+          currentStillAvailable.updated_at !== activeOrganization?.updated_at
+        ) {
+          updateActiveOrganization(currentStillAvailable);
+        }
+      } else {
         setActiveOrganization(savedOrganization ?? userOrganizations[0]);
       }
     } catch (error) {
@@ -154,7 +174,7 @@ const Layout = ({ providerAvatarUrl = null }: LayoutProps) => {
       setOrganizations([]);
       setActiveOrganization(null);
     }
-  }, [userId, activeOrganization, setActiveOrganization, setOrganizations]);
+  }, [userId, activeOrganization, setActiveOrganization, setOrganizations, updateActiveOrganization]);
 
   useEffect(() => {
     void loadOrganizations();
@@ -226,9 +246,23 @@ const Layout = ({ providerAvatarUrl = null }: LayoutProps) => {
       return;
     }
 
+    const reloadProjectInvitations = createDebouncedRealtimeCallback(() => {
+      void loadPendingInvitations();
+    });
+    const reloadOrganizationInvitations = createDebouncedRealtimeCallback(() => {
+      void loadPendingOrganizationInvitations();
+    });
+    const reloadTaskNotifications = createDebouncedRealtimeCallback(() => {
+      void loadTaskNotifications();
+    });
+
     const subscriptionDelay = window.setTimeout(() => {
       const channel = supabase
-        .channel(`user-activity:${userId}`)
+        .channel(createRealtimeChannelName({
+          scope: "user",
+          scopeId: userId,
+          topic: "activity",
+        }))
         .on(
           "postgres_changes",
           {
@@ -237,9 +271,7 @@ const Layout = ({ providerAvatarUrl = null }: LayoutProps) => {
             table: "project_invitations",
             filter: `invitee_id=eq.${userId}`,
           },
-          () => {
-            void loadPendingInvitations();
-          }
+          reloadProjectInvitations.run
         )
         .on(
           "postgres_changes",
@@ -249,9 +281,7 @@ const Layout = ({ providerAvatarUrl = null }: LayoutProps) => {
             table: "organization_invitations",
             filter: `invitee_id=eq.${userId}`,
           },
-          () => {
-            void loadPendingOrganizationInvitations();
-          }
+          reloadOrganizationInvitations.run
         )
         .on(
           "postgres_changes",
@@ -261,9 +291,7 @@ const Layout = ({ providerAvatarUrl = null }: LayoutProps) => {
             table: "user_notifications",
             filter: `user_id=eq.${userId}`,
           },
-          () => {
-            void loadTaskNotifications();
-          }
+          reloadTaskNotifications.run
         )
         .subscribe();
 
@@ -272,8 +300,11 @@ const Layout = ({ providerAvatarUrl = null }: LayoutProps) => {
 
     return () => {
       window.clearTimeout(subscriptionDelay);
+      reloadProjectInvitations.cancel();
+      reloadOrganizationInvitations.cancel();
+      reloadTaskNotifications.cancel();
       if (activeNotificationChannelRef.current) {
-        void supabase.removeChannel(activeNotificationChannelRef.current);
+        removeRealtimeChannel(activeNotificationChannelRef.current);
         activeNotificationChannelRef.current = null;
       }
     };
@@ -351,6 +382,27 @@ const Layout = ({ providerAvatarUrl = null }: LayoutProps) => {
     handleMenuClose();
   };
 
+  const handleOpenOrganizationSettings = () => {
+    setOrganizationSettingsOpen(true);
+    handleOrganizationMenuClose();
+    handleMenuClose();
+  };
+
+  const handleOrganizationUpdated = (organization: typeof activeOrganization) => {
+    if (!organization) return;
+
+    updateActiveOrganization(organization);
+    window.dispatchEvent(new Event("nexusplanner:projects-changed"));
+  };
+
+  const handleOrganizationDeleted = (organizationId: string) => {
+    const nextOrganizations = organizations.filter((organization) => organization.id !== organizationId);
+    setOrganizations(nextOrganizations);
+    setCurrentProject(null);
+    setActiveOrganization(nextOrganizations[0] ?? null);
+    window.dispatchEvent(new Event("nexusplanner:projects-changed"));
+  };
+
   const handleAcceptInvitation = async (invitationId: string) => {
     setInvitationActionId(invitationId);
     setNotificationError("");
@@ -424,6 +476,27 @@ const Layout = ({ providerAvatarUrl = null }: LayoutProps) => {
     } catch (error) {
       logError("layout.readNotification", error);
       setNotificationError(getErrorMessage(error, "No se pudo marcar la notificación como leída."));
+    } finally {
+      setNotificationActionId(null);
+    }
+  };
+
+  const handleReadAllNotifications = async () => {
+    if (!userId || taskNotifications.length === 0) return;
+
+    setNotificationActionId("__all__");
+    setNotificationError("");
+
+    const previousNotifications = taskNotifications;
+    setTaskNotifications([]);
+
+    try {
+      await markAllNotificationsRead(userId);
+      await loadTaskNotifications();
+    } catch (error) {
+      setTaskNotifications(previousNotifications);
+      logError("layout.readAllNotifications", error);
+      setNotificationError(getErrorMessage(error, "No se pudieron borrar las notificaciones."));
     } finally {
       setNotificationActionId(null);
     }
@@ -536,12 +609,27 @@ const Layout = ({ providerAvatarUrl = null }: LayoutProps) => {
             }}
           >
             <Box sx={{ px: 2, py: 1.5 }}>
-              <Typography variant="subtitle2" fontWeight={800}>
-                Notificaciones
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                Invitaciones y tickets asignados
-              </Typography>
+              <Stack direction="row" spacing={1.5} alignItems="flex-start" justifyContent="space-between">
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography variant="subtitle2" fontWeight={800}>
+                    Notificaciones
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Invitaciones y tickets asignados
+                  </Typography>
+                </Box>
+                {taskNotifications.length > 0 ? (
+                  <Button
+                    size="small"
+                    variant="text"
+                    onClick={handleReadAllNotifications}
+                    disabled={notificationActionId === "__all__"}
+                    sx={{ mt: -0.5, flexShrink: 0, fontWeight: 800, textTransform: "none" }}
+                  >
+                    Borrar todo
+                  </Button>
+                ) : null}
+              </Stack>
             </Box>
             <Divider />
             {notificationError ? (
@@ -720,6 +808,14 @@ const Layout = ({ providerAvatarUrl = null }: LayoutProps) => {
               </ListItemIcon>
               <ListItemText>Ajustes de usuario</ListItemText>
             </MenuItem>
+            {activeOrganization ? (
+              <MenuItem onClick={handleOpenOrganizationSettings}>
+                <ListItemIcon>
+                  <BusinessIcon fontSize="small" />
+                </ListItemIcon>
+                <ListItemText>Ajustes de organización</ListItemText>
+              </MenuItem>
+            ) : null}
             {organizations.length > 1 ? (
               <MenuItem
                 onClick={(event) => {
@@ -839,9 +935,18 @@ const Layout = ({ providerAvatarUrl = null }: LayoutProps) => {
                 </Box>
               </Stack>
             ) : null}
-            <IconButton onClick={toggleSidebar} size="small">
-              {sidebarOpen ? <ChevronLeftIcon /> : <ChevronRightIcon />}
-            </IconButton>
+            <Stack direction="row" spacing={0.25} alignItems="center">
+              {sidebarOpen && activeOrganization ? (
+                <Tooltip title="Ajustes de organización">
+                  <IconButton onClick={handleOpenOrganizationSettings} size="small">
+                    <SettingsIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              ) : null}
+              <IconButton onClick={toggleSidebar} size="small">
+                {sidebarOpen ? <ChevronLeftIcon /> : <ChevronRightIcon />}
+              </IconButton>
+            </Stack>
           </Box>
 
           {/* Sidebar content */}
@@ -985,6 +1090,14 @@ const Layout = ({ providerAvatarUrl = null }: LayoutProps) => {
           </Box>
         </Box>
       </Box>
+      <OrganizationSettingsModal
+        open={organizationSettingsOpen}
+        organization={activeOrganization}
+        currentUserId={userId}
+        onClose={() => setOrganizationSettingsOpen(false)}
+        onOrganizationUpdated={handleOrganizationUpdated}
+        onOrganizationDeleted={handleOrganizationDeleted}
+      />
     </Box>
   );
 };

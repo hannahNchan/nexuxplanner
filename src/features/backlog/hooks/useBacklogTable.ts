@@ -30,6 +30,8 @@ type SortOrder = "asc" | "desc";
 const isEpicIssueTypeName = (name?: string | null) =>
   name?.trim().toLowerCase() === "epic";
 
+const BACKLOG_DRAFT_TASK_ID = "__draft_backlog_task__";
+
 export const useBacklogTable = (userId: string) => {
   const { currentProject, activeOrganization } = useProject();
   const canEditProject = currentProject?.can_edit ?? true;
@@ -85,6 +87,7 @@ export const useBacklogTable = (userId: string) => {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [taskToDelete, setTaskToDelete] = useState<string | null>(null);
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
+  const [taskEditorPresentation, setTaskEditorPresentation] = useState<"drawer" | "modal">("modal");
   const [selectedBacklogTask, setSelectedBacklogTask] = useState<{
     id: string;
     project_id?: string | null;
@@ -96,6 +99,8 @@ export const useBacklogTable = (userId: string) => {
     priority_id?: string | null;
     story_points?: string | null;
     assignee_id?: string | null;
+    planned_start_date?: string | null;
+    planned_end_date?: string | null;
   } | null>(null);
 
   // Catalogs for modal
@@ -200,29 +205,22 @@ export const useBacklogTable = (userId: string) => {
       return;
     }
 
-    try {
-      const newTask = await createBacklogTask(userId, currentProject.id, {
-        title: "Nueva tarea",
-      });
-
-      setTasks((prev) => [newTask, ...prev]);
-
-      setSelectedBacklogTask({
-        id: newTask.id,
-        project_id: newTask.project_id,
-        title: newTask.title,
-        subtitle: newTask.subtitle ?? undefined,
-        description: newTask.description ?? undefined,
-        column_id: null,
-        issue_type_id: newTask.issue_type_id ?? null,
-        priority_id: newTask.priority_id ?? null,
-        story_points: newTask.story_points ?? null,
-        assignee_id: newTask.assignee_id ?? null,
-      });
-      setIsTaskModalOpen(true);
-    } catch (error) {
-      showError("backlog.createTask", error, "No se pudo crear la tarea.");
-    }
+    setSelectedBacklogTask({
+      id: BACKLOG_DRAFT_TASK_ID,
+      project_id: currentProject.id,
+      title: "Nueva tarea",
+      subtitle: "",
+      description: "",
+      column_id: null,
+      issue_type_id: null,
+      priority_id: null,
+      story_points: null,
+      assignee_id: null,
+      planned_start_date: null,
+      planned_end_date: null,
+    });
+    setTaskEditorPresentation("modal");
+    setIsTaskModalOpen(true);
   };
 
   const handleTitleChange = async (taskId: string, newTitle: string) => {
@@ -379,6 +377,8 @@ export const useBacklogTable = (userId: string) => {
       priority_id: string | null;
       story_points: string | null;
       assignee_id: string | null;
+      planned_start_date: string | null;
+      planned_end_date: string | null;
     }
   ) => {
     if (!currentProject) return;
@@ -388,6 +388,34 @@ export const useBacklogTable = (userId: string) => {
     }
 
     try {
+      if (taskId === BACKLOG_DRAFT_TASK_ID) {
+        const newTask = await createBacklogTask(userId, currentProject.id, {
+          title: updates.title,
+          subtitle: updates.subtitle,
+          description: updates.description,
+          assignee_id: updates.assignee_id,
+          priority_id: updates.priority_id,
+          story_points: updates.story_points,
+          issue_type_id: updates.issue_type_id,
+          planned_start_date: updates.planned_start_date,
+          planned_end_date: updates.planned_end_date,
+        });
+
+        if (updates.destination === "backlog") {
+          const priority = priorities.find((p) => p.id === updates.priority_id);
+          setTasks((prev) => [
+            {
+              ...newTask,
+              priority_name: priority?.name,
+              priority_color: priority?.color,
+            } as BacklogTaskWithDetails,
+            ...prev,
+          ]);
+        }
+
+        return;
+      }
+
       await updateBacklogTask(currentProject.id, taskId, {
         title: updates.title,
         subtitle: updates.subtitle,
@@ -395,6 +423,8 @@ export const useBacklogTable = (userId: string) => {
         assignee_id: updates.assignee_id,
         priority_id: updates.priority_id,
         story_points: updates.story_points,
+        planned_start_date: updates.planned_start_date,
+        planned_end_date: updates.planned_end_date,
       });
 
       if (updates.destination === "scrum") {
@@ -416,6 +446,8 @@ export const useBacklogTable = (userId: string) => {
                 priority_name: priority?.name,
                 priority_color: priority?.color,
                 story_points: updates.story_points,
+                planned_start_date: updates.planned_start_date,
+                planned_end_date: updates.planned_end_date,
               } as BacklogTaskWithDetails)
             : task
         )
@@ -617,6 +649,7 @@ export const useBacklogTable = (userId: string) => {
     taskToDelete,
     isTaskModalOpen,
     selectedBacklogTask,
+    taskEditorPresentation,
     issueTypes,
     catalogsLoaded,
     sprintManager,
@@ -644,9 +677,11 @@ export const useBacklogTable = (userId: string) => {
     setDeleteDialogOpen,
     setTaskToDelete,
     setIsTaskModalOpen,
+    setTaskEditorPresentation,
     setSelectedBacklogTask,
     setNotification,
     setIsSprintModalOpen,
+    showError,
     handleAddTask,
     handleTitleChange,
     handlePriorityChange,

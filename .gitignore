@@ -6,12 +6,16 @@ dist
 # local env files
 .env
 .env.local
+.env.raspberry.local
 .env.development.local
 .env.test.local
 .env.production.local
 
 # vite cache
 .vite
+
+# Supabase CLI local state
+supabase/.temp/
 
 # logs
 npm-debug.log*
