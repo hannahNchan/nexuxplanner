@@ -220,6 +220,8 @@ Board view rule:
 - The selected layout is stored per project in `localStorage["nexusplanner.boardView.<projectId>"]`.
 - Calendar drag and resize write `planned_start_date` and `planned_end_date`.
 - Timeline drag and side resize write the same date fields. Timeline is task scheduling only; it must not render roadmap dependency connectors.
+- Board alternate layouts except kanban/tablero show status and assignee metadata through `BoardTaskMeta`; keep `columnTitle` as the status source and `assignee_id` as the avatar source (`src/features/board/components/views/BoardTaskMeta.tsx:22`, `src/features/board/components/views/BoardTaskMeta.tsx:49`, `src/features/board/components/views/BoardTaskListView.tsx:76`, `src/features/board/components/views/BoardTaskCalendarView.tsx:167`, `src/features/board/components/views/BoardTaskTableView.tsx:88`, `src/features/board/components/views/BoardTaskTimelineView.tsx:299`).
+- Status badge colors are project-column settings. `columns.color` stores one value from the 12-color palette in `src/features/board/statusBadgePalette.ts`, and the database enforces that palette with `columns_color_palette_check` (`supabase/migrations/20260904181108_add_column_status_badge_colors.sql`). Project Settings > General lets editors choose the color per status/column; alternate board layouts consume that color for badges only, with room to reuse the same setting for future visual affordances.
 - These alternate layouts use the active sprint task set, not the full project backlog.
 
 ## Core Contexts
@@ -277,6 +279,7 @@ Important tables used by the app:
 - `project_tags`
 - `boards`
 - `columns`
+  - `color` stores the canonical status/badge color and is limited to the 12 approved palette values.
 - `column_order`
 - `tasks`
 - `epics`
@@ -803,6 +806,11 @@ Responsibilities:
 - Connect and disconnect tasks.
 - Show tasks connected to each epic.
 
+Table behavior:
+
+- The epics table uses the shared `DataTable` wrapper with MUI `DataGrid` slots, slot props, initial state, and enabled column menus so column headers expose native sort/filter behavior (`src/shared/ui/DataTable/types.ts:16`, `src/shared/ui/DataTable/types.ts:17`, `src/shared/ui/DataTable/DataTable.tsx:42`, `src/shared/ui/DataTable/DataTable.tsx:44`, `src/features/board/components/EpicsTable/EpicsTable.tsx:23`, `src/features/board/components/EpicsTable/EpicsTable.tsx:247`).
+- Keep epics table column types explicit: project/phase/effort use `singleSelect`, dates use `date`, and the hidden `connectedTaskCount` field is numeric for filtering/sorting by connected task volume (`src/features/board/components/EpicsTable/columns.tsx:87`, `src/features/board/components/EpicsTable/columns.tsx:88`, `src/features/board/components/EpicsTable/columns.tsx:89`, `src/features/board/components/EpicsTable/columns.tsx:288`, `src/features/board/components/EpicsTable/columns.tsx:338`, `src/features/board/components/EpicsTable/columns.tsx:399`, `src/features/board/components/EpicsTable/columns.tsx:411`, `src/features/board/components/EpicsTable/columns.tsx:420`, `src/features/board/components/EpicsTable/columns.tsx:429`).
+
 Important modal behavior:
 
 - In `TaskConnectDialog`, tasks already assigned to a different epic should appear disabled only inside this modal.
@@ -857,7 +865,7 @@ Current modes:
 
 - `weeks`
 - `months`
-- `quarters` disabled
+- `quarters`
 
 Weeks:
 
@@ -875,7 +883,10 @@ Months:
 
 Quarters:
 
-- Present in the UI as disabled.
+- Enabled from the Roadmap mode selector.
+- Uses `getRoadmapTimelineRange` to collect dates from epic `start_date`/`end_date`, task `planned_start_date`/`planned_end_date`, and task sprint start/end dates, then rounds the visible range to calendar quarter boundaries (`src/features/roadmap/components/Roadmap.tsx:40`, `src/features/roadmap/components/Roadmap.tsx:64`, `src/features/roadmap/utils/timelineRange.ts:27`, `src/features/roadmap/utils/timelineRange.ts:39`, `src/features/roadmap/utils/timelineRange.ts:60`).
+- Renders quarter units with proportional widths based on visible days, using `QUARTER_DAY_WIDTH` and `getQuarterUnits` (`src/features/roadmap/components/TimelineGridParts.tsx:12`, `src/features/roadmap/components/TimelineGridParts.tsx:19`, `src/features/roadmap/components/TimelineGrid.tsx:214`, `src/features/roadmap/components/TimelineGrid.tsx:215`, `src/features/roadmap/utils/timelineRange.ts:86`).
+- Keeps at least two quarters visible when there are few or no roadmap dates (`src/features/roadmap/utils/timelineRange.ts:64`, `src/features/roadmap/utils/timelineRange.ts:69`, `src/features/roadmap/utils/timelineRange.ts:73`).
 
 #### Bars
 
@@ -1106,6 +1117,7 @@ The code relies on Supabase/database behavior to populate `task_id_display` and 
 
 - Week mode starts on Monday of the current week.
 - Month mode uses visible day counts to calculate month widths.
+- Quarter mode derives its start/end from roadmap data and rounds to full calendar quarters.
 - Avoid equal-width month columns because date-to-position mapping breaks at month boundaries.
 
 ## Styling Guidelines

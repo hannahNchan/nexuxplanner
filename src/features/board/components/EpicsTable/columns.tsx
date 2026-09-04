@@ -20,6 +20,13 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import FolderIcon from "@mui/icons-material/Folder";
 import TaskListCell from "./TaskListCell";
 
+type EpicTableOption = {
+  id: string;
+  name?: string;
+  title?: string;
+  value?: string;
+};
+
 const toDateString = (value: string | number | Date | Dayjs | null | undefined) => {
   const parsed = dayjs(value);
   return parsed.isValid() ? parsed.format("YYYY-MM-DD") : null;
@@ -47,6 +54,9 @@ type CreateColumnsParams = {
   handleEpicDateChange: (epicId: string, field: "start_date" | "end_date", value: string | null) => void;
   handleDisconnectTask: (epicId: string, taskId: string) => void;
   handleDeleteEpic: (epicId: string) => void;
+  projects: EpicTableOption[];
+  phases: EpicTableOption[];
+  pointValues: EpicTableOption[];
   readOnly?: boolean;
 };
 
@@ -69,8 +79,15 @@ export const createEpicsTableColumns = (params: CreateColumnsParams): GridColDef
     handleEpicDateChange,
     handleDisconnectTask,
     handleDeleteEpic,
+    projects,
+    phases,
+    pointValues,
     readOnly = false,
   } = params;
+  const projectOptions = ["Sin proyecto", ...projects.map((project) => project.title).filter(Boolean)] as string[];
+  const phaseOptions = ["Sin fase", ...phases.map((phase) => phase.name).filter(Boolean)] as string[];
+  const effortOptions = ["Sin estimar", ...pointValues.map((point) => point.value).filter(Boolean)] as string[];
+  const toGridDate = (value: string | null | undefined) => (value ? new Date(`${value}T00:00:00`) : null);
 
   const renderDateCell = (
     cellParams: GridRenderCellParams,
@@ -128,6 +145,8 @@ export const createEpicsTableColumns = (params: CreateColumnsParams): GridColDef
       field: "epicId",
       headerName: "ID",
       width: 110,
+      filterable: true,
+      sortable: true,
       renderCell: (cellParams) => (
         <Typography
           variant="caption"
@@ -145,6 +164,8 @@ export const createEpicsTableColumns = (params: CreateColumnsParams): GridColDef
       field: "color",
       headerName: "Color",
       width: 64,
+      filterable: false,
+      sortable: false,
       renderCell: (cellParams) => (
         <Tooltip title={readOnly ? "Solo lectura" : "Click para cambiar color"} placement="top">
           <Box
@@ -189,6 +210,8 @@ export const createEpicsTableColumns = (params: CreateColumnsParams): GridColDef
       headerName: "Épica",
       minWidth: 260,
       flex: 1,
+      filterable: true,
+      sortable: true,
       renderCell: (cellParams) => {
         const isEditing = editingName === cellParams.row.id;
 
@@ -262,6 +285,8 @@ export const createEpicsTableColumns = (params: CreateColumnsParams): GridColDef
       field: "project",
       headerName: "Proyecto",
       width: 180,
+      type: "singleSelect",
+      valueOptions: projectOptions,
       renderCell: (cellParams) => (
         <Tooltip title={readOnly ? "Solo lectura" : "Click para cambiar proyecto"} placement="top">
           <Box
@@ -310,6 +335,8 @@ export const createEpicsTableColumns = (params: CreateColumnsParams): GridColDef
       field: "phase",
       headerName: "Fase",
       width: 150,
+      type: "singleSelect",
+      valueOptions: phaseOptions,
       renderCell: (cellParams) => {
         const phaseColor = (cellParams.row.phaseColor as string) || theme.palette.grey[400];
 
@@ -353,6 +380,8 @@ export const createEpicsTableColumns = (params: CreateColumnsParams): GridColDef
       field: "connectedTasks",
       headerName: "Tareas conectadas",
       width: 260,
+      filterable: false,
+      sortable: false,
       renderCell: (cellParams) => (
         <TaskListCell
           epicId={cellParams.row.id as string}
@@ -367,21 +396,38 @@ export const createEpicsTableColumns = (params: CreateColumnsParams): GridColDef
       ),
     },
     {
+      field: "connectedTaskCount",
+      headerName: "# Tareas",
+      width: 110,
+      type: "number",
+      align: "left",
+      headerAlign: "left",
+      valueFormatter: (value: number | null) => `${value ?? 0}`,
+    },
+    {
       field: "startDate",
       headerName: "Inicio",
       width: 170,
+      type: "date",
+      valueGetter: (value) => toGridDate(value as string | null | undefined),
+      valueFormatter: (value: Date | null) => value?.toISOString().slice(0, 10) ?? "",
       renderCell: (cellParams) => renderDateCell(cellParams, "start_date", "Sin inicio"),
     },
     {
       field: "endDate",
       headerName: "Fin",
       width: 170,
+      type: "date",
+      valueGetter: (value) => toGridDate(value as string | null | undefined),
+      valueFormatter: (value: Date | null) => value?.toISOString().slice(0, 10) ?? "",
       renderCell: (cellParams) => renderDateCell(cellParams, "end_date", "Sin fin"),
     },
     {
       field: "estimatedEffort",
       headerName: "Esfuerzo",
       width: 130,
+      type: "singleSelect",
+      valueOptions: effortOptions,
       renderCell: (cellParams) => (
         <Tooltip title={readOnly ? "Solo lectura" : "Click para cambiar esfuerzo"} placement="top">
           <Box
@@ -420,6 +466,8 @@ export const createEpicsTableColumns = (params: CreateColumnsParams): GridColDef
       type: "actions",
       headerName: "Acciones",
       width: 90,
+      filterable: false,
+      sortable: false,
       getActions: (cellParams) => [
         <GridActionsCellItem
           key="delete"

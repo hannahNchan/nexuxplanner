@@ -9,6 +9,7 @@ export type Task = {
   priority_id?: string;
   story_points?: string;
   assignee_id?: string;
+  columnColor?: string;
   epic_id?: string;
   epic_name?: string;
   epic_color?: string;
@@ -21,6 +22,7 @@ export type Task = {
 export type Column = {
   id: string;
   title: string;
+  color?: string;
   taskIds: string[];
 };
 

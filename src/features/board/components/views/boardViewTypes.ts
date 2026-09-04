@@ -4,6 +4,7 @@ export type BoardViewMode = "list" | "board" | "calendar" | "table" | "timeline"
 
 export type BoardViewTask = Task & {
   columnTitle: string;
+  columnColor?: string;
 };
 
 export const getBoardViewTasks = (data: BoardState): BoardViewTask[] =>
@@ -17,6 +18,7 @@ export const getBoardViewTasks = (data: BoardState): BoardViewTask[] =>
         ...task,
         column_id: task.column_id ?? column.id,
         columnTitle: column.title,
+        columnColor: task.columnColor ?? column.color,
       }));
   });
 

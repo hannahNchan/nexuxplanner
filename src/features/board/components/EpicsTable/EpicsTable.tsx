@@ -20,6 +20,7 @@ import SortIcon from "@mui/icons-material/Sort";
 import VisibilityOffIcon from "@mui/icons-material/VisibilityOff";
 import CloseIcon from "@mui/icons-material/Close";
 import FolderIcon from "@mui/icons-material/Folder";
+import { GridToolbar } from "@mui/x-data-grid";
 import { useEpicsTable } from "../../hooks/useEpicsTable";
 import { DataTable, DataTableHeader } from "../../../../shared/ui/DataTable";
 import { createEpicsTableColumns } from "./columns";
@@ -86,6 +87,9 @@ const EpicsTable = ({ userId }: EpicsTableProps) => {
     handleEpicDateChange: epic.handleEpicDateChange,
     handleDisconnectTask: epic.handleDisconnectTask,
     handleDeleteEpic: epic.handleDeleteEpic,
+    projects: epic.projects,
+    phases: epic.phases,
+    pointValues: epic.pointValues,
     readOnly: !canEditProject,
   });
 
@@ -285,8 +289,39 @@ const EpicsTable = ({ userId }: EpicsTableProps) => {
             columns={columns}
             height="100%"
             containerSx={{ height: "100%" }}
+            disableColumnMenu={false}
             disableRowSelectionOnClick
+            slots={{ toolbar: GridToolbar }}
+            slotProps={{
+              toolbar: {
+                showQuickFilter: true,
+                quickFilterProps: { debounceMs: 250 },
+              },
+            }}
+            initialState={{
+              sorting: {
+                sortModel: [{ field: "name", sort: "asc" }],
+              },
+              columns: {
+                columnVisibilityModel: {
+                  connectedTaskCount: false,
+                },
+              },
+            }}
             sx={{
+              "& .MuiDataGrid-toolbarContainer": {
+                gap: 1,
+                p: 1,
+                borderBottom: `1px solid ${theme.palette.divider}`,
+                bgcolor: "background.paper",
+              },
+              "& .MuiDataGrid-columnHeaders": {
+                bgcolor: `${theme.palette.background.paper} !important`,
+                borderBottom: `1px solid ${theme.palette.divider}`,
+              },
+              "& .MuiDataGrid-columnHeader": {
+                bgcolor: `${theme.palette.background.paper} !important`,
+              },
               '& .MuiDataGrid-cell:focus': {
                 outline: 'none',
               },

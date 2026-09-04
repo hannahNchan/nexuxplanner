@@ -1,10 +1,10 @@
-import { AvatarGroup, Box, Chip, Stack, Typography } from "@mui/material";
+import { Box, Chip, Stack, Typography } from "@mui/material";
 import { DataGrid, GridToolbar } from "@mui/x-data-grid";
 import type { GridColDef, GridRenderCellParams, GridRowParams } from "@mui/x-data-grid";
 import { alpha, useTheme } from "@mui/material/styles";
 import type { BoardState, Task } from "../../../../shared/types/board";
-import UserAvatar from "../../../../shared/ui/UserAvatar";
 import { getBoardViewTasks, getTaskDateRange } from "./boardViewTypes";
+import { BoardTaskAssigneeBadge, BoardTaskStatusBadge } from "./BoardTaskMeta";
 
 type BoardTaskTableViewProps = {
   data: BoardState;
@@ -18,6 +18,7 @@ type BoardTaskTableRow = {
   title: string;
   subtitle: string;
   status: string;
+  statusColor: string | null;
   epic: string;
   start: string;
   end: string;
@@ -46,6 +47,7 @@ const BoardTaskTableView = ({ data, onTaskClick }: BoardTaskTableViewProps) => {
       title: task.title,
       subtitle: task.subtitle ?? "",
       status: task.columnTitle ?? "Sin estado",
+      statusColor: task.columnColor ?? null,
       epic: task.epic_name || "Sin epica",
       start: range.start,
       end: range.end,
@@ -90,6 +92,9 @@ const BoardTaskTableView = ({ data, onTaskClick }: BoardTaskTableViewProps) => {
       width: 170,
       type: "singleSelect",
       valueOptions: [...new Set(rows.map((row) => row.status))],
+      renderCell: (params: GridRenderCellParams<BoardTaskTableRow, string>) => (
+        <BoardTaskStatusBadge status={params.value} color={params.row.statusColor} />
+      ),
     },
     {
       field: "epic",
@@ -138,9 +143,7 @@ const BoardTaskTableView = ({ data, onTaskClick }: BoardTaskTableViewProps) => {
       type: "singleSelect",
       valueOptions: ["Asignado", "Sin asignar"],
       renderCell: (params: GridRenderCellParams<BoardTaskTableRow, string>) => (
-        <AvatarGroup max={2} sx={{ justifyContent: "flex-start" }}>
-          {params.row.assigneeId ? <UserAvatar userId={params.row.assigneeId} size={28} showTooltip /> : null}
-        </AvatarGroup>
+        <BoardTaskAssigneeBadge task={{ assignee_id: params.row.assigneeId ?? undefined }} />
       ),
     },
   ];

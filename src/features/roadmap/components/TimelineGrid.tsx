@@ -17,13 +17,10 @@ import PersonIcon from "@mui/icons-material/Person";
 import {
   addDays,
   addMonths,
-  addWeeks,
   differenceInDays,
   endOfMonth,
-  endOfWeek,
   format,
   startOfMonth,
-  startOfWeek,
 } from "date-fns";
 import { es } from "date-fns/locale";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -38,6 +35,7 @@ import {
   LEFT_PANEL_SHADOW,
   LEFT_PANEL_WIDTH,
   MONTH_DAY_WIDTH,
+  QUARTER_DAY_WIDTH,
   ROADMAP_TASK_DRAG_TYPE,
   TIMELINE_MONTHS,
   TIMELINE_WEEKS,
@@ -48,12 +46,13 @@ import {
   TodayMarker,
   type TimelineUnit,
 } from "./TimelineGridParts";
+import { getQuarterUnits, getRoadmapTimelineRange, type RoadmapTimelineMode } from "../utils/timelineRange";
 
 type TimelineGridProps = {
   epics: EpicWithDetails[];
   dependencies: EpicDependency[];
   taskDependencies: TaskDependency[];
-  timelineMode: "weeks" | "months";
+  timelineMode: RoadmapTimelineMode;
   scrollRequest: { direction: "left" | "right"; nonce: number } | null;
   onOverflowChange: (hasOverflow: boolean) => void;
   onUpdateEpicDates: (epicId: string, startDate: string, endDate: string) => void;
@@ -132,11 +131,7 @@ const TimelineGrid = ({
   const theme = useTheme();
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const today = new Date();
-  const timelineStart = startOfWeek(today, { weekStartsOn: 1 });
-  const timelineEnd =
-    timelineMode === "weeks"
-      ? endOfWeek(addWeeks(timelineStart, TIMELINE_WEEKS - 1), { weekStartsOn: 1 })
-      : endOfMonth(addMonths(startOfMonth(timelineStart), TIMELINE_MONTHS - 1));
+  const { timelineStart, timelineEnd } = getRoadmapTimelineRange(timelineMode, epics, today);
 
   const [isDraggingConnection, setIsDraggingConnection] = useState(false);
   const [connectionStart, setConnectionStart] = useState<ConnectionEndpoint | null>(null);
@@ -216,7 +211,9 @@ const TimelineGrid = ({
     };
   });
 
-  const timelineUnits: TimelineUnit[] = timelineMode === "weeks" ? timelineDays : timelineMonths;
+  const timelineQuarters = getQuarterUnits(timelineStart, timelineEnd, QUARTER_DAY_WIDTH);
+  const timelineUnits: TimelineUnit[] =
+    timelineMode === "weeks" ? timelineDays : timelineMode === "months" ? timelineMonths : timelineQuarters;
   const timelineWidth = timelineUnits.reduce((sum, unit) => sum + unit.width, 0);
   const timelineAreaSx = {
     width: timelineWidth,
@@ -244,7 +241,11 @@ const TimelineGrid = ({
     if (!scrollContainer) return;
 
     scrollContainer.scrollBy({
-      left: (timelineMode === "weeks" ? DAY_WIDTH * 7 : timelineWidth / TIMELINE_MONTHS) * (direction === "left" ? -1 : 1),
+      left:
+        (timelineMode === "weeks"
+          ? DAY_WIDTH * 7
+          : timelineUnits[0]?.width ?? timelineWidth / Math.max(1, timelineUnits.length)) *
+        (direction === "left" ? -1 : 1),
       behavior: "smooth",
     });
   };

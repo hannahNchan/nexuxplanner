@@ -158,6 +158,23 @@ export const useBoardManager = (userId: string) => {
   }, [loadBoard, sprintManager.lastUpdate]);
 
   useEffect(() => {
+    if (!currentProject?.id) return;
+
+    const handleColumnBadgeColorsChanged = (event: Event) => {
+      const projectId = (event as CustomEvent<{ projectId?: string }>).detail?.projectId;
+      if (projectId === currentProject.id) {
+        void loadBoard(false);
+      }
+    };
+
+    window.addEventListener("nexusplanner:column-badge-colors-changed", handleColumnBadgeColorsChanged);
+
+    return () => {
+      window.removeEventListener("nexusplanner:column-badge-colors-changed", handleColumnBadgeColorsChanged);
+    };
+  }, [currentProject?.id, loadBoard]);
+
+  useEffect(() => {
     if (!currentProject?.id || !sprintManager.activeSprint?.id) {
       return;
     }
@@ -221,6 +238,7 @@ export const useBoardManager = (userId: string) => {
             [newColumn.id]: {
               id: newColumn.id,
               title: newColumn.name,
+              color: newColumn.color ?? undefined,
               taskIds: [],
             },
           },
@@ -345,6 +363,7 @@ export const useBoardManager = (userId: string) => {
         if (updates.destination === "scrum" && created.column_id) {
           setData((previous) => {
             if (!previous || !created.column_id) return previous;
+            const columnColor = previous.columns[created.column_id]?.color;
 
             return {
               ...previous,
@@ -360,6 +379,7 @@ export const useBoardManager = (userId: string) => {
                   priority_id: created.priority_id ?? undefined,
                   story_points: created.story_points ?? undefined,
                   assignee_id: created.assignee_id ?? undefined,
+                  columnColor,
                   planned_start_date: created.planned_start_date ?? null,
                   planned_end_date: created.planned_end_date ?? null,
                   created_at: created.created_at,
@@ -397,6 +417,9 @@ export const useBoardManager = (userId: string) => {
       setData((previous) => {
         if (!previous) return previous;
         const previousTask = previous.tasks[taskId];
+        const nextColumnColor = updates.column_id
+          ? previous.columns[updates.column_id]?.color
+          : previousTask?.columnColor;
 
         const updatedTasks = {
           ...previous.tasks,
@@ -411,6 +434,7 @@ export const useBoardManager = (userId: string) => {
             priority_id: updated.priority_id ?? undefined,
             story_points: updated.story_points ?? undefined,
             assignee_id: updated.assignee_id ?? undefined,
+            columnColor: nextColumnColor,
             planned_start_date: updated.planned_start_date ?? previousTask?.planned_start_date ?? null,
             planned_end_date: updated.planned_end_date ?? previousTask?.planned_end_date ?? null,
             created_at: updated.created_at ?? previousTask?.created_at,
@@ -529,6 +553,7 @@ export const useBoardManager = (userId: string) => {
 
       setData((previous) => {
         if (!previous || !previous.tasks[taskId]) return previous;
+        const nextColumnColor = previous.columns[columnId]?.color;
 
         return {
           ...previous,
@@ -545,6 +570,7 @@ export const useBoardManager = (userId: string) => {
               priority_id: updated.priority_id ?? undefined,
               story_points: updated.story_points ?? undefined,
               assignee_id: updated.assignee_id ?? undefined,
+              columnColor: nextColumnColor,
               planned_start_date: updated.planned_start_date ?? previous.tasks[taskId].planned_start_date ?? null,
               planned_end_date: updated.planned_end_date ?? previous.tasks[taskId].planned_end_date ?? null,
               created_at: updated.created_at ?? previous.tasks[taskId].created_at,

@@ -9,11 +9,12 @@ type BoardRecord = {
   user_id: string;
 };
 
-type ColumnRecord = {
+export type ColumnRecord = {
   id: string;
   project_id: string;
   name: string;
   position: number;
+  color: string | null;
 };
 
 type TaskRecord = {
@@ -140,7 +141,7 @@ export const fetchBoardDataByProject = async (
 
   const { data: columns, error: columnsError } = await supabase
     .from("columns")
-    .select("id, project_id, name, position")
+    .select("id, project_id, name, position, color")
     .eq("project_id", projectId)
     .order("position", { ascending: true });
 
@@ -249,7 +250,7 @@ export const createColumn = async (
       name,
       position,
     })
-    .select("id, project_id, name, position")
+    .select("id, project_id, name, position, color")
     .single();
 
   if (error) throw error;
@@ -416,6 +417,36 @@ export const updateTask = async (
   return data;
 };
 
+export const fetchProjectColumns = async (projectId: string): Promise<ColumnRecord[]> => {
+  const { data, error } = await supabase
+    .from("columns")
+    .select("id, project_id, name, position, color")
+    .eq("project_id", projectId)
+    .order("position", { ascending: true });
+
+  if (error) throw error;
+  return data ?? [];
+};
+
+export const updateColumnBadgeColor = async (
+  projectId: string,
+  columnId: string,
+  color: string
+): Promise<ColumnRecord> => {
+  const { data, error } = await supabase
+    .from("columns")
+    .update({
+      color,
+    })
+    .eq("id", columnId)
+    .eq("project_id", projectId)
+    .select("id, project_id, name, position, color")
+    .single();
+
+  if (error) throw error;
+  return data;
+};
+
 export const deleteTask = async (projectId: string, taskId: string): Promise<boolean> => {
   const { data, error } = await supabase
     .from("tasks")
@@ -440,11 +471,13 @@ export const toBoardState = (
   tasks: TaskRecord[],
   columnOrder: string[]
 ): BoardState => {
-  
+  const columnsById = new Map(columns.map((column) => [column.id, column]));
   const taskMap: Record<string, Task> = {};
   const columnMap: Record<string, Column> = {};
 
   tasks.forEach((task) => {
+    const taskColumn = task.column_id ? columnsById.get(task.column_id) : undefined;
+
     taskMap[task.id] = {
       id: task.id,
       column_id: task.column_id,
@@ -456,6 +489,7 @@ export const toBoardState = (
       priority_id: task.priority_id ?? undefined,
       story_points: task.story_points ?? undefined,
       assignee_id: task.assignee_id ?? undefined,
+      columnColor: taskColumn?.color ?? undefined,
       epic_id: task.epic_id ?? undefined,
       epic_name: task.epic_name ?? undefined,
       epic_color: task.epic_color ?? undefined,
@@ -487,6 +521,7 @@ export const toBoardState = (
     columnMap[column.id] = {
       id: column.id,
       title: column.name,
+      color: column.color ?? undefined,
       taskIds: orderedTaskIds,
     };
   });

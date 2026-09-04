@@ -15,6 +15,10 @@ export const DataTable = ({
   onRowClick,
   checkboxSelection = false,
   disableRowSelectionOnClick = true,
+  disableColumnMenu,
+  slots,
+  slotProps,
+  initialState,
 }: DataTableProps) => {
   const theme = useTheme();
 
@@ -35,10 +39,15 @@ export const DataTable = ({
           loading={loading}
           checkboxSelection={checkboxSelection}
           disableRowSelectionOnClick={disableRowSelectionOnClick}
+          disableColumnMenu={disableColumnMenu}
           onRowClick={onRowClick}
+          slots={slots}
+          slotProps={slotProps}
           initialState={{
+            ...initialState,
             pagination: {
-              paginationModel: { pageSize },
+              ...initialState?.pagination,
+              paginationModel: initialState?.pagination?.paginationModel ?? { pageSize },
             },
           }}
           pageSizeOptions={pageSizeOptions}

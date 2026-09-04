@@ -68,9 +68,15 @@ import {
   type AutomationRule,
   type AutomationRun,
 } from "../../../features/api/automationService";
+import {
+  fetchProjectColumns,
+  updateColumnBadgeColor,
+  type ColumnRecord,
+} from "../../../features/api/boardService";
 import type { IssueType, Priority, EpicPhase } from "../../../features/api/catalogService";
 import { logError } from "../../../shared/utils/errorHandling";
 import OrganizationLogoCropDialog from "../../../shared/ui/OrganizationLogoCropDialog";
+import { DEFAULT_STATUS_BADGE_COLOR, STATUS_BADGE_COLORS } from "../../board/statusBadgePalette";
 
 type ProjectSettingsModalProps = {
   open: boolean;
@@ -240,6 +246,9 @@ const ProjectSettingsModal = ({
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string>("");
   const [currentBannerUrl, setCurrentBannerUrl] = useState<string>("");
+  const [projectColumns, setProjectColumns] = useState<ColumnRecord[]>([]);
+  const [savingColumnColorId, setSavingColumnColorId] = useState<string | null>(null);
+  const [statusColorError, setStatusColorError] = useState("");
   const [organizationName, setOrganizationName] = useState(organization?.name ?? "");
   const [visibility, setVisibility] = useState<"organization" | "private">(projectVisibility);
   const [logoError, setLogoError] = useState("");
@@ -269,6 +278,7 @@ const ProjectSettingsModal = ({
       setOrganizationName(organization?.name ?? "");
       setVisibility(projectVisibility);
       setLogoError("");
+      setStatusColorError("");
       setLogoCropSourceFile(null);
       setOrganizationAccessError("");
       setOrganizationInviteEmail("");
@@ -285,14 +295,43 @@ const ProjectSettingsModal = ({
 
   const loadProjectData = async () => {
     try {
-      const project = await fetchProjectById(projectId);
+      const [project, columns] = await Promise.all([
+        fetchProjectById(projectId),
+        fetchProjectColumns(projectId),
+      ]);
       if (project) {
         setCurrentBannerUrl(project.banner_url || "");
         setPreviewUrl("");
         setSelectedFile(null);
       }
+      setProjectColumns(columns);
     } catch (error) {
       logError("projectSettings.loadProject", error);
+    }
+  };
+
+  const handleColumnBadgeColorChange = async (columnId: string, color: string) => {
+    const previousColumns = projectColumns;
+    setStatusColorError("");
+    setSavingColumnColorId(columnId);
+    setProjectColumns((currentColumns) =>
+      currentColumns.map((column) => (column.id === columnId ? { ...column, color } : column))
+    );
+
+    try {
+      const updatedColumn = await updateColumnBadgeColor(projectId, columnId, color);
+      setProjectColumns((currentColumns) =>
+        currentColumns.map((column) => (column.id === columnId ? updatedColumn : column))
+      );
+      window.dispatchEvent(new CustomEvent("nexusplanner:column-badge-colors-changed", {
+        detail: { projectId },
+      }));
+    } catch (error) {
+      logError("projectSettings.updateColumnBadgeColor", error);
+      setProjectColumns(previousColumns);
+      setStatusColorError("No se pudo actualizar el color del estado.");
+    } finally {
+      setSavingColumnColorId(null);
     }
   };
 
@@ -1252,6 +1291,109 @@ const ProjectSettingsModal = ({
             ? "Los miembros de la organización pueden ver el proyecto, pero solo colaboradores del proyecto pueden modificarlo."
             : "Solo colaboradores agregados al proyecto pueden ver y abrir este proyecto."}
         </Typography>
+      </Box>
+      <Divider />
+      <Box>
+        <Typography variant="h6" fontWeight={600} gutterBottom>
+          Colores de estados
+        </Typography>
+        <Typography variant="body2" color="text.secondary" paragraph>
+          Define el color de los badges para cada columna del tablero.
+        </Typography>
+
+        {statusColorError ? (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            {statusColorError}
+          </Alert>
+        ) : null}
+
+        {projectColumns.length === 0 ? (
+          <Typography variant="body2" color="text.secondary">
+            Este proyecto aún no tiene columnas para colorear.
+          </Typography>
+        ) : (
+          <Stack spacing={1.25}>
+            {projectColumns.map((column) => {
+              const selectedColor = column.color || DEFAULT_STATUS_BADGE_COLOR;
+              const isSaving = savingColumnColorId === column.id;
+
+              return (
+                <Paper
+                  key={column.id}
+                  elevation={0}
+                  sx={{
+                    p: 1.5,
+                    border: `1px solid ${theme.palette.divider}`,
+                    borderRadius: 1,
+                    bgcolor: "background.paper",
+                  }}
+                >
+                  <Stack
+                    direction={{ xs: "column", md: "row" }}
+                    spacing={1.5}
+                    alignItems={{ xs: "stretch", md: "center" }}
+                    justifyContent="space-between"
+                  >
+                    <Stack direction="row" spacing={1.25} alignItems="center" sx={{ minWidth: 180 }}>
+                      <Chip
+                        label={column.name}
+                        size="small"
+                        sx={{
+                          height: 24,
+                          maxWidth: 180,
+                          borderRadius: 1,
+                          bgcolor: alpha(selectedColor, theme.palette.mode === "dark" ? 0.26 : 0.14),
+                          color: theme.palette.mode === "dark" ? theme.palette.common.white : selectedColor,
+                          border: `1px solid ${alpha(selectedColor, theme.palette.mode === "dark" ? 0.48 : 0.34)}`,
+                          fontWeight: 900,
+                          letterSpacing: 0,
+                          "& .MuiChip-label": {
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                          },
+                        }}
+                      />
+                      {isSaving ? <CircularProgress size={16} /> : null}
+                    </Stack>
+
+                    <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+                      {STATUS_BADGE_COLORS.map((color) => {
+                        const selected = selectedColor === color;
+
+                        return (
+                          <Box
+                            key={`${column.id}-${color}`}
+                            component="button"
+                            type="button"
+                            aria-label={`Usar color ${color} para ${column.name}`}
+                            onClick={() => {
+                              if (!isSaving && !selected) {
+                                void handleColumnBadgeColorChange(column.id, color);
+                              }
+                            }}
+                            disabled={isSaving}
+                            style={{ background: "none" }}
+                            sx={{
+                              width: 28,
+                              height: 28,
+                              p: 0,
+                              borderRadius: 1,
+                              border: `2px solid ${selected ? theme.palette.text.primary : alpha(theme.palette.text.primary, 0.14)}`,
+                              bgcolor: `${color} !important`,
+                              cursor: isSaving ? "wait" : "pointer",
+                              boxShadow: selected ? `0 0 0 3px ${alpha(color, 0.24)}` : "none",
+                              opacity: isSaving ? 0.58 : 1,
+                            }}
+                          />
+                        );
+                      })}
+                    </Stack>
+                  </Stack>
+                </Paper>
+              );
+            })}
+          </Stack>
+        )}
       </Box>
       <Divider />
       <Box>

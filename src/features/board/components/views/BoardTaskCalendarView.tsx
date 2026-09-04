@@ -1,11 +1,12 @@
 import FullCalendar from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/daygrid";
 import interactionPlugin, { type EventResizeDoneArg } from "@fullcalendar/interaction";
-import type { EventClickArg, EventDropArg, EventInput, EventMountArg } from "@fullcalendar/core";
-import { Box, Paper, Typography } from "@mui/material";
+import type { EventClickArg, EventContentArg, EventDropArg, EventInput, EventMountArg } from "@fullcalendar/core";
+import { Box, Paper, Stack, Typography } from "@mui/material";
 import { alpha, useTheme } from "@mui/material/styles";
 import type { BoardState, Task } from "../../../../shared/types/board";
 import { addDays, getBoardViewTasks, getTaskDateRange, toDateInputValue } from "./boardViewTypes";
+import BoardTaskMeta from "./BoardTaskMeta";
 
 type BoardTaskCalendarViewProps = {
   data: BoardState;
@@ -42,6 +43,7 @@ const BoardTaskCalendarView = ({ data, readOnly = false, onTaskClick, onTaskDate
       borderColor: alpha(taskColor, 0.42),
       textColor: theme.palette.text.primary,
       extendedProps: {
+        task,
         hoverBackgroundColor: alpha(taskColor, theme.palette.mode === "dark" ? 0.38 : 0.24),
         hoverBorderColor: alpha(taskColor, 0.62),
       },
@@ -161,6 +163,22 @@ const BoardTaskCalendarView = ({ data, readOnly = false, onTaskClick, onTaskDate
           eventClick={(arg: EventClickArg) => {
             const task = taskById[arg.event.id];
             if (task) onTaskClick(task);
+          }}
+          eventContent={(arg: EventContentArg) => {
+            const task = (arg.event.extendedProps as { task?: Task }).task;
+
+            if (!task) {
+              return <Typography variant="caption">{arg.event.title}</Typography>;
+            }
+
+            return (
+              <Stack spacing={0.45} sx={{ minWidth: 0, width: "100%", px: 0.35, py: 0.3, overflow: "hidden" }}>
+                <Typography variant="caption" fontWeight={850} sx={{ lineHeight: 1.15 }} noWrap>
+                  {task.task_id_display || "SIN-ID"} {task.title}
+                </Typography>
+                <BoardTaskMeta task={task} compact />
+              </Stack>
+            );
           }}
           eventDrop={(arg: EventDropArg) => {
             void persistCalendarDates(arg.event.id, arg.event.start, arg.event.end, arg.revert);

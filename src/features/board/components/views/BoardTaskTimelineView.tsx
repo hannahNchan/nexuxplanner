@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent, PointerEvent } from "react";
 import type { BoardState, Task } from "../../../../shared/types/board";
 import { addDays, getBoardViewTasks, getInclusiveDaySpan, getTaskDateRange } from "./boardViewTypes";
+import BoardTaskMeta from "./BoardTaskMeta";
 
 type BoardTaskTimelineViewProps = {
   data: BoardState;
@@ -295,6 +296,7 @@ const BoardTaskTimelineView = ({ data, readOnly = false, onTaskClick, onTaskDate
                   <Typography variant="caption" color="text.secondary" noWrap>
                     {task.columnTitle} · {range.start === range.end ? range.start : `${range.start} - ${range.end}`}
                   </Typography>
+                  <BoardTaskMeta task={task} compact />
                 </Stack>
 
                 <Box

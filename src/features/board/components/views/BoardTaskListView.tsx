@@ -1,8 +1,8 @@
 import { Box, Chip, Paper, Stack, Typography } from "@mui/material";
 import { alpha, useTheme } from "@mui/material/styles";
 import type { BoardState, Task } from "../../../../shared/types/board";
-import UserAvatar from "../../../../shared/ui/UserAvatar";
 import { getTaskDateRange } from "./boardViewTypes";
+import BoardTaskMeta from "./BoardTaskMeta";
 
 type BoardTaskListViewProps = {
   data: BoardState;
@@ -50,7 +50,7 @@ const BoardTaskListView = ({ data, onTaskClick }: BoardTaskListViewProps) => {
                     onClick={() => onTaskClick(task)}
                     sx={{
                       display: "grid",
-                      gridTemplateColumns: { xs: "88px minmax(0, 1fr)", md: "104px minmax(0, 1fr) 180px 48px" },
+                      gridTemplateColumns: { xs: "88px minmax(0, 1fr)", md: "104px minmax(0, 1fr) 180px 230px" },
                       gap: 1.5,
                       alignItems: "center",
                       px: 1.5,
@@ -73,12 +73,20 @@ const BoardTaskListView = ({ data, onTaskClick }: BoardTaskListViewProps) => {
                       <Typography variant="caption" color="text.secondary" noWrap>
                         {task.epic_name || "Sin epica"}
                       </Typography>
+                      <Box sx={{ display: { xs: "flex", md: "none" }, minWidth: 0 }}>
+                        <BoardTaskMeta
+                          task={{ ...task, columnTitle: column.title, columnColor: task.columnColor ?? column.color }}
+                          compact
+                        />
+                      </Box>
                     </Stack>
                     <Typography variant="caption" color="text.secondary" sx={{ display: { xs: "none", md: "block" } }}>
                       {range.start === range.end ? range.start : `${range.start} - ${range.end}`}
                     </Typography>
-                    <Box sx={{ display: { xs: "none", md: "flex" }, justifyContent: "flex-end" }}>
-                      {task.assignee_id ? <UserAvatar userId={task.assignee_id} size={28} showTooltip /> : null}
+                    <Box sx={{ display: { xs: "none", md: "flex" }, justifyContent: "flex-end", minWidth: 0 }}>
+                      <BoardTaskMeta
+                        task={{ ...task, columnTitle: column.title, columnColor: task.columnColor ?? column.color }}
+                      />
                     </Box>
                   </Box>
                 );
