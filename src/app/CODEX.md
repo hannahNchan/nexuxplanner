@@ -29,7 +29,7 @@ flowchart TD
   G --> H["tablero / epicas / backlog / roadmap / editor / ajustes"]
 ```
 
-Las rutas verificadas son `/` redirigiendo a `/tablero`, `/tablero`, `/epicas`, `/backlog`, `/roadmap`, `/editor`, `/ajustes` y wildcard a `/tablero` (`src/app/App.tsx:25`, `src/app/App.tsx:28`, `src/app/App.tsx:58`, `src/app/App.tsx:63`, `src/app/App.tsx:68`, `src/app/App.tsx:73`, `src/app/App.tsx:92`, `src/app/App.tsx:102`).
+Las rutas verificadas son `/` redirigiendo a `/tablero`, `/tablero`, `/epicas`, `/backlog`, `/roadmap`, `/reportes`, `/editor`, `/ajustes` y wildcard a `/tablero` (`src/app/App.tsx`).
 
 ## Contratos externos
 
@@ -43,6 +43,6 @@ No hay error boundary en `App`. Las rutas desconocidas redirigen a `/tablero` (`
 
 `ProjectProvider` está fuera de `BrowserRouter` y de `AuthGate`, así que cualquier cambio que suponga navegación dentro del provider debe revisar esta composición (`src/app/App.tsx:18`). `BoardInfo` se renderiza como header de `Board` desde la ruta, no dentro de `Board` exclusivamente (`src/app/App.tsx:41`, `src/app/App.tsx:49`).
 
-## Preguntas abiertas
+## Bootstrap Verificado
 
-No se verificó en esta fase si `src/main.tsx` añade wrappers adicionales además de montar `App`.
+`src/main.tsx` monta únicamente `App` dentro de `React.StrictMode` e importa `src/index.css`. Los providers de tema, proyecto, router y autenticación pertenecen a `App.tsx`; no dupliques esos wrappers en el bootstrap.

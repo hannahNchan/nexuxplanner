@@ -4,6 +4,7 @@ This repository is documented for AI-assisted development.
 
 Before changing code, read:
 
+- `docs/llm-frontend-guide.md` for the operational frontend map, routes, feature ownership, data flow, and verified traps.
 - `CHATGPT.md` for the full architecture, product rules, data model, workflows, and testing commands.
 - The specific files in the feature you will modify.
 - Supabase migrations and services when touching database-backed behavior.

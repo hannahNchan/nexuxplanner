@@ -1,6 +1,6 @@
 # Nexus Planner AI Context
 
-Last reviewed: 2026-07-17
+Last reviewed: 2026-09-26
 
 This document is the main onboarding file for ChatGPT/Codex or any other AI agent working on Nexus Planner. It is intentionally more detailed than a human-facing README because the project has product rules, Supabase schema behavior, and visual roadmap interactions that are easy to break without context.
 
@@ -9,7 +9,9 @@ This document is the main onboarding file for ChatGPT/Codex or any other AI agen
 OpenAI's Codex guidance recommends keeping `AGENTS.md` practical and using it to point agents toward the project-specific context they need before editing. This repo follows that pattern:
 
 - `AGENTS.md` is the short operational entry point for agents.
+- `docs/llm-frontend-guide.md` is the fast operational map for routes, features, data flow, services, critical workflows, and verified traps.
 - `CHATGPT.md` is the complete project map and product/engineering reference.
+- `CODEX.md` is the global invariant index and points to colocated feature documentation.
 - Feature code remains colocated under `src/features/*`; update this document when a feature's behavior, schema, or workflow changes materially.
 
 Useful references:
@@ -24,13 +26,16 @@ Nexus Planner is a Jira/Notion/Trello-inspired planning app. It currently behave
 - Project selection and project settings.
 - Organization/company workspaces above projects.
 - Project invitations between registered users.
-- Scrum/Kanban board.
+- Scrum/Kanban board with list, board, calendar, table, and timeline layouts.
 - Backlog.
 - Epics.
 - Sprints.
 - Roadmap/timeline with draggable bars and dependency connectors.
+- Historical reports generated from closed-sprint snapshots.
+- Project automation rules backed by activity events.
 - Rich text notes/editor.
 - User profile/preferences.
+- CLI and agent plans for creating workspace hierarchies through backend commands.
 - Light, dark, and Solarized themes.
 
 The product language is Spanish in most UI surfaces, while some roadmap settings still use English text by design.
@@ -191,7 +196,7 @@ Current routes:
 
 - Sobria topbar with current section, theme selector, notifications, and avatar/account menu.
 - Persistent sidebar with product navigation and project selector.
-- Main navigation for Tablero, Epicas, Backlog, Roadmap, and Editor lives in the sidebar, not in horizontal MUI Tabs.
+- Main navigation for Tablero, Epicas, Backlog, Roadmap, Reportes, and Editor lives in the sidebar, not in horizontal MUI Tabs.
 - Resizable/collapsible sidebar.
 
 Layout scroll rule:

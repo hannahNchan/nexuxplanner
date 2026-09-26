@@ -32,6 +32,6 @@ Si faltan variables, el módulo lanza `Missing Supabase environment variables...
 
 No pongas service role keys en este archivo: se importa desde frontend. El nombre de env soporta variantes Vite y Next-style; eliminar una variante puede romper despliegues existentes (`src/lib/supabase.ts:3`, `src/lib/supabase.ts:5`).
 
-## Preguntas abiertas
+## Configuración Local
 
-No se verificó si existen `.env` locales o de Netlify en el repo porque no aparecen en `rg --files`.
+Los archivos `.env*` pueden estar ignorados y no forman parte de la documentación versionada. Usa `.env.local` para desarrollo y conserva únicamente nombres/valores de ejemplo en documentación. La ausencia de un `.env` en `rg --files` no significa que el runtime no lo tenga; verifica el entorno sin imprimir secretos.

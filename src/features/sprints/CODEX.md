@@ -51,6 +51,6 @@ No cierres sprints con `supabase.from("sprints").update({ status: "closed" })` d
 
 No conviertas `sprint_overdue` en cierre automático. Un sprint vencido solo produce aviso; el usuario todavía debe completar el sprint con la modal de decisiones por tarea incompleta.
 
-## Preguntas abiertas
+## Verificación Antes De Editar
 
-No se verificó el contenido completo de `useSprintManager.ts`; esta documentación se apoya en tipos, servicio y componentes leídos.
+Lee completos `useSprintManager.ts`, `sprintService.ts`, `CompleteSprintDialog.tsx`, `SprintDropZone.tsx` y `SprintTasksTable.tsx`. El hook comparte estado entre Backlog y Board, mientras que el cierre autoritativo permanece en `complete_sprint_command`; no dupliques el lifecycle en un componente.

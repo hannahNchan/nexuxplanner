@@ -18,6 +18,7 @@ Un proyecto agrupa `project_members`, `project_tags`, `columns`, `column_order`,
 
 ## Read These Files
 
+Lee `docs/llm-frontend-guide.md` como mapa operativo del frontend antes de entrar a un feature; resume rutas, capas, flujos críticos, persistencia local y trampas verificadas.
 Lee `src/app/CODEX.md` antes de tocar providers, rutas, layout o tema.
 Lee `src/lib/CODEX.md` antes de tocar Supabase client o helpers de storage.
 Lee `src/shared/CODEX.md` antes de tocar contextos, componentes compartidos o reglas de error.

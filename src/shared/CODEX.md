@@ -39,6 +39,6 @@ No hay persistencia automática del proyecto activo en `ProjectContext`; solo se
 
 No cambies `setActiveOrganization` para conservar `currentProject`: el código actual asume que cambiar organización invalida el proyecto seleccionado (`src/shared/contexts/ProjectContext.tsx:23`, `src/shared/contexts/ProjectContext.tsx:25`).
 
-## Preguntas abiertas
+## Restauración De Organización
 
-No se verificó qué componente carga inicialmente `active-organization-id` desde localStorage.
+`Layout` carga organizaciones con `fetchUserOrganizations`, lee `active-organization-id` y selecciona la organización guardada si todavía pertenece al usuario; de lo contrario usa la primera disponible. Al desaparecer la organización activa, limpia la selección mediante `setActiveOrganization` (`src/app/Layout.tsx:144`, `src/app/Layout.tsx:152`, `src/app/Layout.tsx:170`).
