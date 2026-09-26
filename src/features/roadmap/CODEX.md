@@ -53,6 +53,6 @@ Los conectores dependen de mediciones DOM; `RoadmapDependencyLayer` calcula ruta
 
 No vuelvas a deshabilitar `quarters` en el selector sin cambiar también `RoadmapTimelineMode`, `TimelineUnit` y `getRoadmapTimelineRange`; el botón activo vive en `Roadmap`, pero el rango y las unidades viven fuera del componente para evitar desalinear header y grid (`src/features/roadmap/components/Roadmap.tsx:40`, `src/features/roadmap/components/Roadmap.tsx:264`, `src/features/roadmap/components/Roadmap.tsx:266`, `src/features/roadmap/components/TimelineGridParts.tsx:19`, `src/features/roadmap/utils/timelineRange.ts:39`).
 
-## Preguntas abiertas
+## Verificación Antes De Editar
 
-No se documentó aquí el cuerpo completo de `useRoadmap.ts` porque la salida fue truncada; antes de editar callbacks de roadmap, leer completo ese archivo.
+Lee completos `useRoadmap.ts`, `TimelineGrid.tsx`, `TimelineBar.tsx`, `EpicBar.tsx`, `RoadmapDependencyLayer.tsx` y `timelineRange.ts`. El hook conserva las épicas si falla únicamente la carga de dependencias, aplica guardas de edición y coordina rollback de fechas/settings; no cambies un callback aislado sin revisar ese flujo.

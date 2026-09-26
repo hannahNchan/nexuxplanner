@@ -32,12 +32,12 @@ flowchart TD
 
 ## Errores y casos borde
 
-No aplica con lo leído en detalle.
+El perfil puede existir antes de que haya avatar propio; conserva el fallback del proveedor. Una lista de asignables puede ser menor que la lista de usuarios autenticados porque debe respetar membresía del proyecto. Errores de Storage y de perfil deben mostrarse como errores recuperables en la UI, sin exponer claves ni rutas internas.
 
 ## Trampas
 
 No asumas que todos los usuarios autenticados son visibles para asignación: asignaciones cargan miembros del proyecto o fallback del usuario actual, no una lista global abierta (`src/features/api/projectService.ts:566`, `src/features/api/projectService.ts:548`).
 
-## Preguntas abiertas
+## Verificación Antes De Editar
 
-No se leyó completo `userService.ts`; antes de cambiar avatar/preferencias, leer el archivo completo con líneas.
+Lee completos `userService.ts`, `useUserProfile.ts`, `useUserProfiles.ts` y `UserSettingsPage.tsx`. Verifica además las policies del bucket `avatars` y `user_profiles` antes de cambiar uploads, preferencias o visibilidad de perfiles.
