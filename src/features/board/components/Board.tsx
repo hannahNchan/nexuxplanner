@@ -11,6 +11,7 @@ import Column from "./Column";
 import TaskEditorModal from "./TaskEditorModal";
 import AddColumnModal from "./AddColumnModal";
 import BoardToolbar from "./BoardToolbar";
+import BoardInfo from "./BoardInfo";
 import { useBoardManager } from "../hooks/useBoardManager";
 import ReadOnlyProjectNotice from "../../../shared/ui/ReadOnlyProjectNotice";
 import BoardTaskCalendarView from "./views/BoardTaskCalendarView";
@@ -22,14 +23,14 @@ import type { BoardViewMode } from "./views/boardViewTypes";
 type BoardProps = {
   userId: string;
   userEmail: string;
-  header?: React.ReactNode;
 };
 
-const Board = ({ userId, userEmail, header }: BoardProps) => {
-  const board = useBoardManager(userId);
-  const allowBoardTaskCreation = board.currentProject?.allow_board_task_creation ?? false;
+const Board = ({ userId, userEmail }: BoardProps) => {
+  const board = useBoardManager();
+  const allowBoardTaskCreation =
+    (board.currentProject?.allow_board_task_creation ?? false) &&
+    (board.boardView?.capabilities.canCreateTask ?? false);
   const canEditProject = board.currentProject?.can_edit ?? true;
-  const hasFutureSprints = board.sprintManager.sprints.some((sprint) => sprint.status === "future");
 
   const [searchQuery, setSearchQuery] = useState("");
   const [viewMode, setViewMode] = useState<BoardViewMode>("board");
@@ -103,18 +104,11 @@ const Board = ({ userId, userEmail, header }: BoardProps) => {
     );
   }
 
-  if (!board.displaySprint) {
+  if (!board.data) {
     return (
       <Stack spacing={3} py={4} alignItems="center">
-        <Alert severity="info" sx={{ maxWidth: 600 }}>
-          <Typography variant="subtitle1" fontWeight={600} gutterBottom>
-            No hay sprint activo
-          </Typography>
-          <Typography variant="body2">
-            {hasFutureSprints
-              ? "Hay sprints planificados en el Backlog. Inicia uno para ver sus tareas en el Tablero Scrum."
-              : "Ve al Backlog para crear tu primer sprint. El Tablero Scrum muestra solo las tareas del sprint activo."}
-          </Typography>
+        <Alert severity="error" sx={{ maxWidth: 720 }}>
+          {board.errorMessage ?? "No se pudo obtener el estado del tablero."}
         </Alert>
       </Stack>
     );
@@ -155,7 +149,12 @@ const Board = ({ userId, userEmail, header }: BoardProps) => {
             zIndex: 2,
           }}
         >
-          {header}
+          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={2}>
+            <Typography variant="h4" fontWeight={700}>
+              Tablero
+            </Typography>
+            <BoardInfo board={board} />
+          </Stack>
           <BoardToolbar
             tasks={board.data?.tasks || {}}
             onSearchChange={setSearchQuery}
@@ -163,7 +162,7 @@ const Board = ({ userId, userEmail, header }: BoardProps) => {
             onAddColumn={() => board.setIsAddColumnModalOpen(true)}
             viewMode={viewMode}
             onViewModeChange={handleViewModeChange}
-            readOnly={!canEditProject}
+            readOnly={!canEditProject || !(board.boardView?.capabilities.canManageColumns ?? false)}
           />
           {!canEditProject ? <ReadOnlyProjectNotice projectName={board.currentProject.title} /> : null}
         </Stack>

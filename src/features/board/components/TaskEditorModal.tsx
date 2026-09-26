@@ -197,7 +197,7 @@ const TaskEditorModal = ({
     }
 
     if (destination === "scrum" && !columnId) {
-      setErrorMessage("Selecciona una columna para el Tablero Scrum.");
+      setErrorMessage("Selecciona una columna para el tablero.");
       return;
     }
 
@@ -406,7 +406,7 @@ const TaskEditorModal = ({
                           <DashboardIcon fontSize="small" />
                           <Box>
                             <Typography variant="body2" fontWeight={700}>
-                              Tablero Scrum
+                              Tablero
                             </Typography>
                             <Typography variant="caption" color="text.secondary">
                               Trabajo activo
@@ -634,7 +634,7 @@ const TaskEditorModal = ({
             </Tooltip>
             <Box sx={{ minWidth: 0 }}>
               <Typography variant="caption" color="text.secondary" fontWeight={800}>
-                {destination === "backlog" ? "Backlog" : "Tablero Scrum"}
+                {destination === "backlog" ? "Backlog" : "Tablero"}
               </Typography>
               <Typography variant="subtitle1" fontWeight={900} noWrap>
                 {task ? title || task.title : "Editar tarea"}
@@ -813,7 +813,7 @@ const TaskEditorModal = ({
                         <DashboardIcon fontSize="small" />
                         <Box>
                           <Typography variant="body2" fontWeight={700}>
-                            Tablero Scrum
+                            Tablero
                           </Typography>
                           <Typography variant="caption" color="text.secondary">
                             Trabajo activo

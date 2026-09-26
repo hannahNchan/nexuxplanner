@@ -134,7 +134,8 @@ Servicios principales:
 
 | Servicio | Responsabilidad |
 | --- | --- |
-| `boardService.ts` | Tablero, columnas, orden y tareas visibles en sprint |
+| `boardViewService.ts` | Read model y commands de scope/ubicación Backlog-Kanban-Sprint |
+| `boardService.ts` | Edición visual, columnas, orden y campos de tareas |
 | `backlogService.ts` | Tareas con `in_backlog`, edición y planificación |
 | `sprintService.ts` | Ciclo de vida, tareas y capacidad del sprint |
 | `epicService.ts` | Épicas, fechas planeadas y vínculo tarea-épica |
@@ -193,7 +194,9 @@ Crear proyectos debe usar el command que también crea defaults y membresía. Bo
 
 ### Tablero
 
-`Board.tsx` usa `useBoardManager` y muestra tareas del sprint activo. Si no hay proyecto, sprint activo o columnas, presenta estados vacíos distintos; no los unifiques porque representan acciones diferentes.
+`Board.tsx` usa una sola instancia de `useBoardManager`. `board-view` devuelve el scope efectivo, capacidades, sprint activo, columnas y tareas ya filtradas. El usuario cambia entre Kanban continuo y Sprint desde la cabecera; `board-commands` guarda la preferencia por usuario/proyecto. Sin sprint activo el backend usa Kanban y el tablero sigue siendo utilizable.
+
+React no decide qué tareas pertenecen a cada scope. `boardViewService` transforma el DTO a `BoardState`, pero no consulta tareas adicionales ni vuelve a filtrar por `sprint_id`. La preferencia de scope no vive en `localStorage`; solo la preferencia de layout lista/tablero/calendario/tabla/timeline se guarda allí.
 
 Layouts soportados:
 
@@ -368,7 +371,8 @@ CompleteSprintDialog
   -> genera snapshot de reporte
   -> mueve incompletas
   -> cierra sprint, registra actividad y encola trabajo
-  -> tablero deja de usar ese sprint activo
+  -> backend normaliza el scope guardado a Kanban
+  -> tablero recarga el read model
 ```
 
 ### Cambiar Fechas En Calendario O Timeline
@@ -385,7 +389,8 @@ drag/resize
 
 - La carpeta `supabase/migrations` no contiene necesariamente el origen completo de todas las tablas base. Varias migraciones modifican objetos preexistentes. No pruebes un bootstrap destructivo sobre datos personales.
 - El backend desplegado y este checkout no se sincronizan solos. Versionar una migración no equivale a aplicarla.
-- El tablero necesita columnas y un sprint activo para mostrar trabajo; un tablero vacío no implica que el proyecto no tenga tareas.
+- El tablero necesita columnas, pero no necesita un sprint activo: sin sprint usa el scope Kanban continuo.
+- No filtres tareas por `sprint_id` en React. `board-view` es la fuente de verdad del scope y de las tareas visibles.
 - Backlog, épica y sprint son relaciones diferentes.
 - Un usuario puede ser owner en UI y aun fallar si una RPC/policy no autoriza el mismo flujo; inspecciona el error real.
 - Storage se administra mediante su API y policies; no borres directamente filas de tablas internas de Storage.

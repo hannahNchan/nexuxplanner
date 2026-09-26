@@ -8,7 +8,7 @@ export type CreateTaskCommandInput = {
   title: string;
   subtitle?: string | null;
   description?: string | null;
-  destination: "backlog" | "scrum";
+  destination: "backlog" | "kanban" | "sprint" | "scrum";
   column_id?: string | null;
   sprint_id?: string | null;
   position?: number;
@@ -35,7 +35,7 @@ export type MoveTaskColumnCommandInput = {
 
 export type CompleteSprintTaskDisposition = {
   taskId: string;
-  destination: "backlog" | "sprint";
+  destination: "backlog" | "kanban" | "sprint";
   sprintId?: string;
 };
 

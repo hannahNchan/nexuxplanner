@@ -1,5 +1,10 @@
 import { supabase } from "../../lib/supabase";
 import { assignTaskCommand, createTaskCommand } from "./taskCommandService";
+import {
+  moveBoardTaskToBacklog,
+  moveBoardTaskToKanban,
+  moveBoardTaskToSprint,
+} from "./boardViewService";
 
 export type BacklogTask = {
   id: string;
@@ -287,41 +292,11 @@ export const moveToKanban = async (
   taskId: string,
   columnId: string
 ): Promise<void> => {
-  const { data: column, error: columnError } = await supabase
-    .from("columns")
-    .select("id")
-    .eq("id", columnId)
-    .eq("project_id", projectId)
-    .maybeSingle();
-
-  if (columnError) throw columnError;
-  if (!column) throw new Error("La columna no pertenece al proyecto activo.");
-
-  const { error } = await supabase
-    .from("tasks")
-    .update({
-      in_backlog: false,
-      column_id: columnId,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", taskId)
-    .eq("project_id", projectId);
-
-  if (error) throw error;
+  await moveBoardTaskToKanban(projectId, taskId, columnId);
 };
 
 export const moveToBacklog = async (projectId: string, taskId: string): Promise<void> => {
-  const { error } = await supabase
-    .from("tasks")
-    .update({
-      in_backlog: true,
-      column_id: null,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", taskId)
-    .eq("project_id", projectId);
-
-  if (error) throw error;
+  await moveBoardTaskToBacklog(projectId, taskId);
 };
 
 export const assignBacklogTaskToSprint = async (
@@ -330,28 +305,5 @@ export const assignBacklogTaskToSprint = async (
   sprintId: string,
   columnId: string
 ): Promise<void> => {
-  const { data: sprint, error: sprintError } = await supabase
-    .from("sprints")
-    .select("id")
-    .eq("id", sprintId)
-    .eq("project_id", projectId)
-    .maybeSingle();
-
-  if (sprintError) throw sprintError;
-  if (!sprint) {
-    throw new Error("El sprint no pertenece al proyecto activo.");
-  }
-
-  const { error } = await supabase
-    .from("tasks")
-    .update({
-      sprint_id: sprintId,
-      in_backlog: false,
-      column_id: columnId,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", taskId)
-    .eq("project_id", projectId);
-
-  if (error) throw error;
+  await moveBoardTaskToSprint(projectId, taskId, sprintId, columnId);
 };
