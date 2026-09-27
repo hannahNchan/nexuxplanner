@@ -2,6 +2,7 @@ import { supabase } from "../../lib/supabase";
 import type { BoardState, Column, Task } from "../../shared/types/board";
 import { logError } from "../../shared/utils/errorHandling";
 import { assignTaskCommand, createTaskCommand, moveTaskColumnCommand } from "./taskCommandService";
+import { moveBoardTaskToBacklog } from "./boardViewService";
 
 type BoardRecord = {
   id: string;
@@ -304,7 +305,7 @@ export const createTask = async (
     title,
     subtitle: details.subtitle ?? null,
     description: details.description ?? null,
-    destination: isBacklog ? "backlog" : "scrum",
+    destination: isBacklog ? "backlog" : details.sprint_id ? "sprint" : "kanban",
     column_id: isBacklog ? null : columnIdOrProjectId,
     sprint_id: details.sprint_id ?? null,
     position,
@@ -360,21 +361,17 @@ export const updateTask = async (
     Object.prototype.hasOwnProperty.call(updates, "column_id") &&
     updates.in_backlog !== true &&
     Boolean(updates.column_id);
+  const shouldMoveToBacklog = updates.in_backlog === true;
   const nextAssigneeId = updates.assignee_id ?? null;
   const nonAssigneeUpdates = { ...updates };
   delete nonAssigneeUpdates.assignee_id;
   delete nonAssigneeUpdates.column_id;
+  delete nonAssigneeUpdates.in_backlog;
 
   const updateData: TaskUpdatePayload = {
     ...nonAssigneeUpdates,
     updated_at: new Date().toISOString(),
   };
-
-  if (updates.in_backlog === true) {
-    updateData.column_id = null;
-  } else if (shouldMoveColumn) {
-    delete updateData.in_backlog;
-  }
 
   let data: Task | null = null;
 
@@ -402,7 +399,11 @@ export const updateTask = async (
     });
   }
 
-  if (shouldMoveColumn && updates.column_id) {
+  if (shouldMoveToBacklog) {
+    data = await moveBoardTaskToBacklog(projectId, taskId);
+  }
+
+  if (!shouldMoveToBacklog && shouldMoveColumn && updates.column_id) {
     data = await moveTaskColumnCommand({
       project_id: projectId,
       task_id: taskId,
@@ -558,19 +559,13 @@ export const persistTaskOrder = async (
   }
 
   await Promise.all(
-    updates.map(async (update) => {
-      await assertColumnBelongsToProject(update.column_id, projectId);
-
-      const { error } = await supabase
-        .from("tasks")
-        .update({
-          column_id: update.column_id,
-          position: update.position,
-        })
-        .eq("id", update.id)
-        .eq("project_id", projectId);
-
-      if (error) throw error;
-    })
+    updates.map((update) =>
+      moveTaskColumnCommand({
+        project_id: projectId,
+        task_id: update.id,
+        column_id: update.column_id,
+        position: update.position,
+      })
+    )
   );
 };

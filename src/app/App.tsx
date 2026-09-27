@@ -11,7 +11,6 @@ import UserSettingsPage from "../features/users/components/UserSettingsPage";
 import { ReportsPage } from "../features/reports";
 import { Container, Stack, Typography } from "@mui/material";
 import { ProjectProvider } from "../shared/contexts/ProjectContext";
-import BoardInfo from "../features/board/components/BoardInfo";
 import { getProviderAvatarUrl } from "../features/api/userService";
 
 const App = () => {
@@ -39,17 +38,6 @@ const App = () => {
                         <Board
                           userId={session.user.id}
                           userEmail={session.user.email || ""}
-                          header={
-                            <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
-                            <Typography variant="h4" fontWeight={700}>
-                              Tablero de Scrum
-                            </Typography>
-                            {/* <Typography variant="body1" color="text.secondary">
-                              Organiza y gestiona tus tareas con el tablero visual.
-                            </Typography> */}
-                            <BoardInfo userId={session.user.id} />
-                            </Stack>
-                          }
                         />
                       </Container>
                     }

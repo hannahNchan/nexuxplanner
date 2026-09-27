@@ -6,12 +6,16 @@ import {
   createColumn,
   createTask,
   deleteTask,
-  fetchBoardDataByProject,
   persistColumnOrder,
   persistTaskOrder,
-  toBoardState,
   updateTask,
 } from "../../api/boardService";
+import {
+  fetchProjectBoardView,
+  setProjectBoardScope,
+  type BoardScope,
+  type ProjectBoardView,
+} from "../../api/boardViewService";
 import {
   fetchIssueTypes,
   fetchPriorities,
@@ -32,15 +36,16 @@ import {
 
 const BOARD_DRAFT_TASK_ID = "__draft_board_task__";
 
-export const useBoardManager = (userId: string) => {
+export const useBoardManager = () => {
   const { currentProject } = useProject();
   const canEditProject = currentProject?.can_edit ?? true;
   const sprintManager = useSprintManager(currentProject?.id || null);
 
   // Board state
   const [data, setData] = useState<BoardState | null>(null);
-  const [boardId, setBoardId] = useState<string | null>(null);
+  const [boardView, setBoardView] = useState<ProjectBoardView | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isScopeChanging, setIsScopeChanging] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Catalogs
@@ -102,21 +107,7 @@ export const useBoardManager = (userId: string) => {
   const loadBoard = useCallback(async (showLoading = true) => {
     if (!currentProject) {
       setData(null);
-      setBoardId(null);
-      setIsLoading(false);
-      return;
-    }
-
-    if (sprintManager.isLoading) {
-      return;
-    }
-
-    const displaySprint = sprintManager.activeSprint;
-
-    if (!displaySprint) {
-      setBoardId(null);
-      setData(null);
-      setErrorMessage(null);
+      setBoardView(null);
       setIsLoading(false);
       return;
     }
@@ -126,22 +117,9 @@ export const useBoardManager = (userId: string) => {
         setIsLoading(true);
       }
 
-      const response = await fetchBoardDataByProject(
-        userId,
-        currentProject.id,
-        displaySprint.id
-      );
-
-      if (!response.columns || response.columns.length === 0) {
-        setBoardId(null);
-        setData(null);
-        return;
-      }
-
-      const boardState = toBoardState(response.columns, response.tasks, response.columnOrder);
-
-      setBoardId(response.board?.id ?? null);
-      setData(boardState);
+      const response = await fetchProjectBoardView(currentProject.id);
+      setBoardView(response);
+      setData(response.boardState);
       setErrorMessage(null);
     } catch (error) {
       logError("board.loadBoard", error);
@@ -151,7 +129,7 @@ export const useBoardManager = (userId: string) => {
         setIsLoading(false);
       }
     }
-  }, [userId, currentProject, sprintManager.activeSprint, sprintManager.isLoading]);
+  }, [currentProject]);
 
   useEffect(() => {
     void loadBoard();
@@ -175,7 +153,7 @@ export const useBoardManager = (userId: string) => {
   }, [currentProject?.id, loadBoard]);
 
   useEffect(() => {
-    if (!currentProject?.id || !sprintManager.activeSprint?.id) {
+    if (!currentProject?.id) {
       return;
     }
 
@@ -190,7 +168,7 @@ export const useBoardManager = (userId: string) => {
           scope: "project",
           scopeId: currentProject.id,
           topic: "board-tasks",
-          subtopic: sprintManager.activeSprint?.id,
+          subtopic: `${boardView?.effectiveScope ?? "kanban"}-${boardView?.activeSprint?.id ?? "continuous"}`,
         }))
         .on(
           "postgres_changes",
@@ -210,7 +188,25 @@ export const useBoardManager = (userId: string) => {
       reloadBoard.cancel();
       removeRealtimeChannel(channel);
     };
-  }, [currentProject?.id, sprintManager.activeSprint?.id, loadBoard]);
+  }, [currentProject?.id, boardView?.effectiveScope, boardView?.activeSprint?.id, loadBoard]);
+
+  const handleScopeChange = async (scope: BoardScope) => {
+    if (!currentProject || scope === boardView?.effectiveScope) return;
+
+    setIsScopeChanging(true);
+    setErrorMessage(null);
+    try {
+      const response = await setProjectBoardScope(currentProject.id, scope);
+      setBoardView(response);
+      setData(response.boardState);
+    } catch (error) {
+      logError("board.changeScope", error);
+      setErrorMessage(getErrorMessage(error, "No se pudo cambiar la vista del tablero."));
+      throw error;
+    } finally {
+      setIsScopeChanging(false);
+    }
+  };
 
   // Handlers
   const handleCreateColumn = async (columnName: string) => {
@@ -338,8 +334,8 @@ export const useBoardManager = (userId: string) => {
         const destinationColumnId = updates.destination === "scrum"
           ? updates.column_id ?? selectedTask?.column_id ?? data.columnOrder[0]
           : currentProject.id;
-        const position = updates.destination === "scrum" && updates.column_id
-          ? data.columns[updates.column_id]?.taskIds.length ?? 0
+        const position = updates.destination === "scrum"
+          ? data.columns[destinationColumnId]?.taskIds.length ?? 0
           : 0;
         const created = await createTask(
           destinationColumnId,
@@ -356,7 +352,10 @@ export const useBoardManager = (userId: string) => {
             assignee_id: updates.assignee_id,
             planned_start_date: updates.planned_start_date,
             planned_end_date: updates.planned_end_date,
-            sprint_id: updates.destination === "scrum" ? sprintManager.activeSprint?.id ?? null : null,
+            sprint_id:
+              updates.destination === "scrum" && boardView?.effectiveScope === "sprint"
+                ? boardView.activeSprint?.id ?? null
+                : null,
           }
         );
 
@@ -817,7 +816,7 @@ export const useBoardManager = (userId: string) => {
   };
 
   // Computed values
-  const displaySprint = sprintManager.activeSprint;
+  const displaySprint = boardView?.effectiveScope === "sprint" ? boardView.activeSprint : null;
 
   const columnOptions = data
     ? data.columnOrder.map((colId) => ({
@@ -829,8 +828,9 @@ export const useBoardManager = (userId: string) => {
   return {
     // State
     data,
-    boardId,
+    boardView,
     isLoading,
+    isScopeChanging,
     errorMessage,
     catalogsLoaded,
     issueTypes,
@@ -864,6 +864,9 @@ export const useBoardManager = (userId: string) => {
     handleMoveTaskColumn,
     handleUpdateTaskDates,
     handleDeleteTask,
+    handleScopeChange,
     onDragEnd,
   };
 };
+
+export type BoardManager = ReturnType<typeof useBoardManager>;

@@ -72,7 +72,7 @@ export type SprintCompletionSummary = {
 
 export type SprintTaskDisposition = {
   taskId: string;
-  destination: "backlog" | "sprint";
+  destination: "backlog" | "kanban" | "sprint";
   sprintId?: string;
 };
 

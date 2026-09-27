@@ -473,7 +473,7 @@ Rules:
 - Users can mark task assignment notifications as read.
 - `tasks` and `user_notifications` are in the `supabase_realtime` publication so board cards and the notification badge can update without a page refresh.
 - `tasks` and `user_notifications` use `REPLICA IDENTITY FULL` so update events have enough row data for Realtime clients.
-- The Board screen subscribes to project task changes and reloads the active sprint board state in the background.
+- The Board screen subscribes to project task changes and reloads the backend-selected Kanban or Sprint read model in the background.
 
 ### Tasks
 
@@ -501,11 +501,12 @@ Important fields:
 
 Rules:
 
-- Backlog tasks have `in_backlog = true` and usually `column_id = null`.
-- Board tasks have `in_backlog = false` and a `column_id`.
+- Backlog tasks have `in_backlog = true`, `column_id = null`, and `sprint_id = null`.
+- Continuous Kanban tasks have `in_backlog = false`, a project column, and `sprint_id = null`.
+- Sprint tasks have `in_backlog = false`, a project column, and an active/future project sprint.
 - New tasks should be created through `create_task_command`, which owns `task_id_display` generation by incrementing `projects.task_sequence`.
 - Assignments should be changed through `assign_task_command`, which keeps assignment validation, activity events, queue handoff, and notification triggers centralized.
-- Board status changes from the task editor should be changed through `move_task_column_command`, which validates edit access, validates the destination column, updates `column_id`, clears backlog state, recalculates position when needed, and records `task.moved`.
+- Placement changes use the backend commands for Backlog, Kanban, and Sprint. `move_task_column_command` only changes column/position while preserving the current board scope and rejects backlog tasks.
 - User notifications are created server-side through `create_user_notification` and trigger functions, not by React components. The database creates notifications for task assignment, project membership added, organization membership added, and sprint completion; `dedupe_key` prevents duplicate delivery for idempotent events (`supabase/migrations/20260730041047_server_side_notifications.sql:4`, `supabase/migrations/20260730041047_server_side_notifications.sql:36`, `supabase/migrations/20260730041047_server_side_notifications.sql:158`, `supabase/migrations/20260730041047_server_side_notifications.sql:198`, `supabase/migrations/20260730041047_server_side_notifications.sql:229`, `supabase/migrations/20260730041047_server_side_notifications.sql:272`, `supabase/migrations/20260730041047_server_side_notifications.sql:315`).
 - Sprint deadline notifications are also server-side. `scan_sprint_deadlines` creates `sprint_due_soon` for active sprints ending tomorrow and `sprint_overdue` for active sprints past `end_date`; these are notification-only events and must not close the sprint (`supabase/migrations/20260730053934_scheduled_maintenance_cron.sql:45`, `supabase/migrations/20260730053934_scheduled_maintenance_cron.sql:80`, `supabase/migrations/20260730053934_scheduled_maintenance_cron.sql:123`).
 - Roadmap task bars use `planned_start_date`/`planned_end_date` when present.
@@ -751,26 +752,28 @@ Files:
 - `src/features/board/components/TaskCard.tsx`
 - `src/features/board/components/TaskEditorModal.tsx`
 - `src/features/board/hooks/useBoardManager.ts`
+- `src/features/api/boardViewService.ts`
 - `src/features/api/boardService.ts`
 
 Responsibilities:
 
-- Render Scrum/Kanban columns.
+- Render the backend-selected continuous Kanban or active Sprint scope.
 - Create columns.
 - Create tasks in columns.
 - Edit task details.
 - Drag columns and tasks using `@hello-pangea/dnd`.
-- Persist `column_order` and task `position`/`column_id`.
-- Use only the active sprint to decide which sprint's tasks are shown.
+- Persist `column_order`; task placement and position changes go through backend commands.
+- Display `board-view` without rebuilding scope membership in React.
 
 Important behavior:
 
-- If there is an active sprint, board loads tasks for that sprint.
-- Tasks created from the board must pass the active sprint id to the task command so they remain in the active board after reload.
-- If there is no active sprint, board shows an empty state and directs the user to Backlog to create or start a sprint.
-- If no sprint is provided to the board service, it filters board tasks with `sprint_id is null`. Do not use fake UUID sentinel values for missing sprints.
+- `board-view` returns `selectedScope`, `effectiveScope`, available scopes, capabilities, the active sprint, columns, order, and already-scoped tasks.
+- The scope selector calls `board-commands`; preference is server-side per user/project.
+- Without an active sprint, Sprint is unavailable and the effective scope is Kanban.
+- Tasks created from the board use destination `kanban` or `sprint` according to the effective backend scope.
+- Do not query/filter tasks again by `sprint_id` in the component or hook.
 - In the Board screen, the title/actions header and the board toolbar are fixed. Only the columns area scrolls vertically/horizontally.
-- Board realtime subscriptions use the shared realtime helper with unique channel names per mount/project/sprint. Reusing a channel topic and adding `postgres_changes` callbacks after subscription can throw Supabase's `cannot add postgres_changes callbacks after subscribe()` error.
+- Board realtime subscriptions use the shared realtime helper with unique channel names per mount/project/scope. Reusing a channel topic and adding `postgres_changes` callbacks after subscription can throw Supabase's `cannot add postgres_changes callbacks after subscribe()` error.
 
 ### Backlog
 

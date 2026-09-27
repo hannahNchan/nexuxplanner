@@ -53,6 +53,7 @@ type CompleteSprintDialogProps = {
 
 const NEW_SPRINT_DESTINATION = "__new_sprint__";
 const BACKLOG_DESTINATION = "__backlog__";
+const KANBAN_DESTINATION = "__kanban__";
 
 const toNativeDate = (value: Date | { toDate: () => Date } | null) => {
   if (!value) return null;
@@ -145,6 +146,13 @@ const CompleteSprintDialog = ({
           return {
             taskId: task.id,
             destination: "backlog" as const,
+          };
+        }
+
+        if (destination === KANBAN_DESTINATION) {
+          return {
+            taskId: task.id,
+            destination: "kanban" as const,
           };
         }
 
@@ -258,6 +266,7 @@ const CompleteSprintDialog = ({
                               }
                             >
                               <MenuItem value={BACKLOG_DESTINATION}>Mover al backlog</MenuItem>
+                              <MenuItem value={KANBAN_DESTINATION}>Mover al tablero Kanban</MenuItem>
                               {futureSprints.map((futureSprint) => (
                                 <MenuItem key={futureSprint.id} value={futureSprint.id}>
                                   Mover a {futureSprint.name}

@@ -2,7 +2,7 @@
 
 ## Propósito
 
-Board renderiza el trabajo del sprint activo de un proyecto. La ruta `/tablero` monta `Board` con `userId`, `userEmail` y header con `BoardInfo` (`src/app/App.tsx`). El usuario puede cambiar entre layouts de lista, tablero, calendario, tabla y timeline desde `BoardToolbar`; esa preferencia se guarda por proyecto en `localStorage["nexusplanner.boardView.<projectId>"]` (`src/features/board/components/Board.tsx`, `src/features/board/components/BoardToolbar.tsx`, `src/features/board/components/views/BoardLayoutSwitcher.tsx`).
+Board renderiza el scope que devuelve `board-view`: Kanban continuo o Sprint activo. La ruta `/tablero` monta `Board`, que crea una sola instancia de `useBoardManager` y la comparte con `BoardInfo`. El selector de scope persiste en backend por usuario/proyecto; los layouts lista, tablero, calendario, tabla y timeline sí conservan su preferencia visual en `localStorage["nexusplanner.boardView.<projectId>"]`.
 
 ## Modelo de datos
 
@@ -10,7 +10,7 @@ El servicio usa `boards`, `columns`, `column_order`, `tasks` y datos de `epics` 
 
 ## Ciclo de vida de las entidades
 
-`fetchBoardDataByProject` carga columnas por `project_id`, lee `column_order`, y carga tareas de esas columnas filtrando por `sprint_id`; sin sprint activo, `useBoardManager` deja `data` en null (`src/features/api/boardService.ts`, `src/features/board/hooks/useBoardManager.ts`). Crear columna inserta en `columns`, agrega al orden y actualiza estado local (`src/features/api/boardService.ts`, `src/features/board/hooks/useBoardManager.ts`). Crear tarea llama `createTaskCommand` y el hook pasa el `sprint_id` activo cuando el destino es Scrum (`src/features/api/boardService.ts`, `src/features/board/hooks/useBoardManager.ts`). Editar tarea pasa por `TaskEditorModal`; si cambia `assignee_id`, `updateTask` delega esa parte a `assignTaskCommand`, y si cambia `column_id` usa `moveTaskColumnCommand` para que el selector de estado mueva la tarjeta de columna y persista tras recargar (`src/features/api/boardService.ts`). Las tareas existentes se abren como drawer desde `handleTaskClick`; el selector `Estado` dentro del drawer llama `handleMoveTaskColumn` inline, mueve la tarjeta optimistamente y revierte si Supabase falla (`src/features/board/hooks/useBoardManager.ts`, `src/features/board/components/TaskEditorModal.tsx`). Calendario y timeline llaman `handleUpdateTaskDates`, hacen actualización optimista de `planned_start_date`/`planned_end_date`, persisten con `updateTask` y revierten si Supabase falla (`src/features/board/hooks/useBoardManager.ts`, `src/features/board/components/views/BoardTaskCalendarView.tsx`, `src/features/board/components/views/BoardTaskTimelineView.tsx`).
+`boardViewService` invoca `board-view` y transforma su DTO a `BoardState` sin recalcular membresía de scope. `set_scope` y los movimientos Backlog/Kanban/Sprint invocan `board-commands`. Crear tarea llama `createTaskCommand` con destino canónico `kanban` o `sprint` según `effectiveScope`. Mover columnas conserva el scope en backend; devolver al backlog usa el command explícito. Calendario y timeline mantienen actualizaciones optimistas solo para fechas y revierten si falla la persistencia.
 
 ## Autorización
 
@@ -21,11 +21,11 @@ La UI bloquea mutaciones cuando `currentProject.can_edit` es falso (`src/feature
 ```mermaid
 flowchart TD
   A["Board mount"] --> B["useBoardManager"]
-  B --> C["useSprintManager.activeSprint"]
-  C -->|none| D["empty board state"]
-  C -->|active| E["fetchBoardDataByProject(userId, projectId, sprintId)"]
-  E --> F["toBoardState"]
-  F --> G["Column + TaskCard"]
+  B --> C["board-view(projectId)"]
+  C --> D["scope + capabilities + columns + tasks"]
+  D --> E["DTO to BoardState"]
+  E --> F["Column + TaskCard"]
+  B -->|scope intent| G["board-commands(set_scope)"]
 ```
 
 Drag and drop del layout tablero cambia orden local y persiste con `persistColumnOrder` para columnas o `persistTaskOrder` para tareas (`src/features/board/hooks/useBoardManager.ts`, `src/features/api/boardService.ts`). Drag and drop del layout calendario cambia fechas mediante FullCalendar `eventDrop`; resize cambia fechas mediante `eventResize` (`src/features/board/components/views/BoardTaskCalendarView.tsx`). El layout timeline es una vista tipo Gantt sin dependencias: mover la barra conserva duración, arrastrar el borde izquierdo cambia inicio y arrastrar el borde derecho cambia fin (`src/features/board/components/views/BoardTaskTimelineView.tsx`).
@@ -40,11 +40,11 @@ La ruta `/epicas` usa `EpicsTable`, que monta `DataTable` con `GridToolbar`, qui
 
 ## Errores y casos borde
 
-Errores de catálogos o tablero se convierten en `errorMessage` con `getErrorMessage` y `logError` (`src/features/board/hooks/useBoardManager.ts:52`, `src/features/board/hooks/useBoardManager.ts:106`). Si no hay sprint activo, no carga columnas/tareas aunque existan columnas (`src/features/board/hooks/useBoardManager.ts:72`).
+Errores de catálogos, lectura o cambio de scope se convierten en `errorMessage` con `getErrorMessage` y `logError`. Sin sprint activo, el backend devuelve Kanban y deshabilita Sprint; no es un estado vacío.
 
 ## Trampas
 
-Realtime del tablero está en `useBoardManager`, no en servicio; se subscribe a cambios de `tasks` filtrados por `project_id` y recarga board con debounce mediante el helper compartido (`src/features/board/hooks/useBoardManager.ts:164`, `src/features/board/hooks/useBoardManager.ts:170`, `src/shared/realtime/realtimeChannels.ts:40`). No rompas `column_order`: `toBoardState` usa ese orden para renderizar columnas (`src/features/api/boardService.ts:401`).
+Realtime del tablero está en `useBoardManager`; se subscribe a cambios de `tasks` filtrados por `project_id` y recarga `board-view` con debounce. No filtres de nuevo por sprint ni reconstruyas capacidades en React. El DTO backend ya normaliza `columnOrder`.
 
 No conviertas los campos de la tabla de épicas en columnas genéricas de texto sin revisar filtros: `project`, `phase` y `estimatedEffort` son `singleSelect`, `startDate` y `endDate` son `date`, y `connectedTaskCount` es `number` aunque esté oculto por default para que el menú de columnas pueda activarlo (`src/features/board/components/EpicsTable/columns.tsx:288`, `src/features/board/components/EpicsTable/columns.tsx:338`, `src/features/board/components/EpicsTable/columns.tsx:399`, `src/features/board/components/EpicsTable/columns.tsx:411`, `src/features/board/components/EpicsTable/columns.tsx:420`, `src/features/board/components/EpicsTable/columns.tsx:429`).
 
